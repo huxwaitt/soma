@@ -29,6 +29,7 @@ from outlook_mcp.utils.paths import (
     validate_output_file,
 )
 from outlook_mcp.utils.safety import safe_dasl
+from outlook_mcp.utils.trim import trim_quoted as _trim_quoted
 
 WINDOWS_RESERVED_DEVICE_NAMES = {"CON", "PRN", "AUX", "NUL", "CLOCK$"} | {
     f"COM{i}" for i in range(1, 10)
@@ -315,11 +316,24 @@ def _mail_row(item: Any) -> dict[str, Any]:
     }
 
 
+def _attach_trimmed(out: dict[str, Any], body: str, item: Any) -> None:
+    """Add body_trimmed / trimmed_chars / trim_markers next to ``body``."""
+    trimmed, chars, markers = _trim_quoted(
+        body,
+        sender_name=str(_safe_get(item, "SenderName", "") or ""),
+        sender_address=str(sender_smtp(item) or ""),
+    )
+    out["body_trimmed"] = trimmed
+    out["trimmed_chars"] = chars
+    out["trim_markers"] = markers
+
+
 def _mail_full(
     item: Any,
     include_body: bool = True,
     include_html: bool = False,
     max_body_chars: int = 10000,
+    trim_quoted: bool = False,
 ) -> dict[str, Any]:
     attachments = []
     if _safe_get(item, "Attachments"):
@@ -358,6 +372,8 @@ def _mail_full(
             result["body_total_chars"] = len(body)
         else:
             result["body"] = body
+        if trim_quoted:
+            _attach_trimmed(result, result["body"], item)
     if include_html:
         # Full HTML of a styled corporate mail easily runs to tens of
         # kilobytes — only fetch when explicitly asked for.
@@ -468,12 +484,14 @@ def get_mail(
     include_body: bool = True,
     include_html: bool = False,
     max_body_chars: int = 10000,
+    trim_quoted: bool = False,
 ) -> dict[str, Any]:
     return _mail_full(
         get_item_by_id(namespace, entry_id),
         include_body=include_body,
         include_html=include_html,
         max_body_chars=max_body_chars,
+        trim_quoted=trim_quoted,
     )
 
 
@@ -503,6 +521,7 @@ def get_conversation(
     include_body: bool = False,
     max_body_chars: int = 2000,
     limit: int = 200,
+    trim_quoted: bool = False,
 ) -> dict[str, Any]:
     """Return every mail in the conversation (thread) containing ``entry_id``.
 
@@ -527,6 +546,8 @@ def get_conversation(
                 out["body_total_chars"] = len(body)
             else:
                 out["body"] = body
+            if trim_quoted:
+                _attach_trimmed(out, out["body"], item)
         return out
 
     try:

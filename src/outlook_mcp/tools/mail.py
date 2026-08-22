@@ -39,6 +39,16 @@ ConversationLimit = Annotated[
     int,
     Field(ge=1, le=500, description="Max mails to return, oldest first."),
 ]
+TrimQuoted = Annotated[
+    bool,
+    Field(
+        description=(
+            "Also return body_trimmed / trimmed_chars / trim_markers: the body "
+            "with quoted history (Outlook/Gmail/OWA headers, '>' blocks) and "
+            "the signature cut off. body itself is unchanged."
+        ),
+    ),
+]
 
 
 def register(mcp, bridge) -> None:
@@ -167,6 +177,7 @@ def register(mcp, bridge) -> None:
                 description="Truncate the body beyond this many chars (0 = no limit).",
             ),
         ] = 10000,
+        trim_quoted: TrimQuoted = False,
         response_format: Annotated[str, Field(description="'markdown' or 'json'.")] = "markdown",
     ) -> CallToolResult:
         """Fetch body, headers, and attachment list for one mail item.
@@ -180,6 +191,7 @@ def register(mcp, bridge) -> None:
             include_body=include_body,
             include_html=include_html,
             max_body_chars=max_body_chars,
+            trim_quoted=trim_quoted,
         )
         return ui_result(format_response(data, response_format), data)
 
@@ -199,6 +211,7 @@ def register(mcp, bridge) -> None:
         include_body: ConversationIncludeBody = False,
         max_body_chars: ConversationMaxBodyChars = 2000,
         limit: ConversationLimit = 200,
+        trim_quoted: TrimQuoted = False,
     ) -> str:
         """Return every mail in the thread containing entry_id, oldest first, across folders (Inbox, Sent Items, sub-folders). Use before replying so the reply is grounded in the full exchange."""
         data = await bridge.call(
@@ -207,6 +220,7 @@ def register(mcp, bridge) -> None:
             include_body=include_body,
             max_body_chars=max_body_chars,
             limit=limit,
+            trim_quoted=trim_quoted,
         )
         return format_response(data, "json")
 

@@ -1,0 +1,69 @@
+filters:
+  and:
+    - file.inFolder("Administrator")
+    - or:
+        - note.type == "email"
+        - note.type == "meeting"
+formulas:
+  when: 'if(note.type == "email", note.received, note.start)'
+  who: 'if(note.type == "email", note.from_link, note.organizer_link)'
+  age: 'if(formula.when.isType("date"), formula.when, date(formula.when)).relative()'
+properties:
+  file.name:
+    displayName: Note
+  formula.who:
+    displayName: Who
+  formula.when:
+    displayName: Since
+  formula.age:
+    displayName: Waiting for
+  note.status:
+    displayName: Status
+views:
+  - type: table
+    name: Waiting on
+    filters:
+      and:
+        - note.type == "email"
+        - note.status == "waiting"
+    order:
+      - file.name
+      - formula.who
+      - formula.when
+      - formula.age
+    sort:
+      - property: note.received
+        direction: ASC
+  - type: table
+    name: Held meetings
+    filters:
+      and:
+        - note.type == "meeting"
+        - note.status == "held"
+    order:
+      - file.name
+      - formula.who
+      - formula.when
+      - formula.age
+    sort:
+      - property: note.start
+        direction: DESC
+  - type: table
+    name: Everything open
+    filters:
+      and:
+        - note.status != "done"
+        - note.status != "fyi"
+        - note.status != "cancelled"
+    groupBy:
+      property: note.status
+      direction: ASC
+    order:
+      - file.name
+      - formula.who
+      - formula.when
+      - formula.age
+      - note.status
+    sort:
+      - property: formula.when
+        direction: ASC

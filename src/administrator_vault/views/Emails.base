@@ -1,0 +1,75 @@
+filters:
+  and:
+    - file.inFolder("Administrator/Emails")
+    - note.type == "email"
+formulas:
+  received_date: 'if(note.received.isType("date"), note.received, date(note.received))'
+  day: 'formula.received_date.format("ddd D MMM HH:mm")'
+  age: "formula.received_date.relative()"
+properties:
+  file.name:
+    displayName: Email
+  note.from_link:
+    displayName: From
+  formula.day:
+    displayName: Received
+  formula.age:
+    displayName: Age
+  note.status:
+    displayName: Status
+  note.has_attachments:
+    displayName: Files
+views:
+  - type: table
+    name: By status
+    groupBy:
+      property: note.status
+      direction: ASC
+    order:
+      - file.name
+      - note.from_link
+      - formula.day
+      - formula.age
+      - note.has_attachments
+    sort:
+      - property: note.received
+        direction: DESC
+  - type: table
+    name: By sender
+    groupBy:
+      property: note.from_link
+      direction: ASC
+    order:
+      - file.name
+      - formula.day
+      - note.status
+      - note.has_attachments
+    sort:
+      - property: note.received
+        direction: DESC
+  - type: table
+    name: To do
+    filters:
+      and:
+        - note.status == "todo"
+    order:
+      - file.name
+      - note.from_link
+      - formula.day
+      - formula.age
+    sort:
+      - property: note.received
+        direction: DESC
+  - type: table
+    name: Last 7 days
+    filters:
+      and:
+        - 'formula.received_date > now() - "7d"'
+    order:
+      - file.name
+      - note.from_link
+      - formula.day
+      - note.status
+    sort:
+      - property: note.received
+        direction: DESC

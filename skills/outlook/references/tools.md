@@ -69,9 +69,12 @@ Fetch the body, all headers, and the attachment manifest for one mail. Read-only
 | `include_body`   | bool   | `true`   | If false, omits `body`. Useful when you only need metadata. |
 | `include_html`   | bool   | `false`  | Adds the raw `html_body`. Usually huge — leave off unless you specifically need the markup. |
 | `max_body_chars` | int ≥0 | `10000`  | Body truncation cap; `0` = unlimited. |
+| `trim_quoted`    | bool   | `false`  | Adds `body_trimmed`, `trimmed_chars`, `trim_markers` (see below). `body` is never altered. |
 | `response_format` | str | `markdown` | |
 
 **Returns**: `{ entry_id, conversation_id, internet_message_id, subject, from, from_address, to, cc, bcc, recipients: [{name, address, type}], received, sent, unread, importance, categories, attachments: [{index, filename, size_bytes}], body }` — `recipients[].address` is the SMTP address and `type` is `to` / `cc` / `bcc` (the flat `to` / `cc` strings are display names), plus `body_truncated`/`body_total_chars` when the cap was hit (re-call with a higher `max_body_chars` to read more) and `html_body` when `include_html=true`. `internet_message_id` is the RFC 5322 `Message-ID` header (`""` for drafts) — use it to correlate with other systems; it also appears on list/search summaries and export rows.
+
+With `trim_quoted=true` each body-bearing result also carries `body_trimmed` (the new content only: quoted history after Outlook/OWA/Gmail reply headers, `Von:`/`De:`/`Da:` blocks, `>`-quoted runs, and the trailing signature — `-- `, "Sent from my ...", or the sender's name followed by phone/title lines — are cut), `trimmed_chars` (how many characters were removed) and `trim_markers` (which rules fired, e.g. `["header block", "name signature"]`; `["kept: too short"]` means trimming would have left under 20 chars so the full body was kept; `[]` means nothing matched). Trimming is deterministic and text-based — prefer `body_trimmed` when summarising a thread, fall back to `body` when a marker looks wrong.
 
 ### `outlook_get_conversation`
 
@@ -83,8 +86,9 @@ Return every mail in the thread that contains a given mail, oldest first, includ
 | `include_body`   | bool   | `false` | Add each mail's plain-text `body`. |
 | `max_body_chars` | int ≥0 | `2000`  | Per-mail truncation; `0` = unlimited. |
 | `limit`          | int 1–500 | `200` | Max mails returned (oldest first). |
+| `trim_quoted`    | bool   | `false` | With `include_body`, adds `body_trimmed` / `trimmed_chars` / `trim_markers` per item (same rules as `get_mail`). Use it to read a long thread without every mail repeating the ones before it. |
 
-**Returns** (always JSON): `{ conversation_id, count, truncated, items: [...] }`. Each item is the `list_mails` summary shape plus `conversation_id`, `folder`, and (with `include_body`) `body` / `body_truncated` / `body_total_chars`. If Outlook has no conversation for the item (IMAP/POP stores, drafts), `items` contains just that one mail.
+**Returns** (always JSON): `{ conversation_id, count, truncated, items: [...] }`. Each item is the `list_mails` summary shape plus `conversation_id`, `folder`, and (with `include_body`) `body` / `body_truncated` / `body_total_chars`, plus `body_trimmed` / `trimmed_chars` / `trim_markers` when `trim_quoted=true`. If Outlook has no conversation for the item (IMAP/POP stores, drafts), `items` contains just that one mail.
 
 `attachments[].index` is **1-indexed**; pass it to `save_attachments` to save a single file.
 
