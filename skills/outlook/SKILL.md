@@ -29,7 +29,8 @@ All tools are prefixed `outlook_`. Memorize the categories; consult `references/
 | Mail (bulk)    | `bulk_move_mails`, `bulk_delete_mails`, `bulk_mark_mails` |
 | Mail (export)  | `export_mails`, `save_mail_as` |
 | Folders        | `list_folders`, `create_folder` |
-| Calendar       | `list_events`, `get_event`, `create_event`, `update_event`, `delete_event`, `respond_event` |
+| Calendar       | `list_events`, `get_event`, `get_event_by_key` (lookup by stable `global_id` / `occurrence_key`), `create_event`, `update_event`, `delete_event`, `respond_event` |
+| Availability   | `get_free_busy` (per-person free/busy slots), `find_meeting_times` (slots where everyone is free; Exchange only) |
 | Contacts       | `list_contacts`, `search_contacts` (incl. org directory), `get_contact`, `resolve_name` |
 | Tasks          | `list_tasks`, `create_task`, `complete_task` |
 | Categories     | `list_categories`, `set_category` |
@@ -91,7 +92,7 @@ Most read tools accept `response_format='markdown'` (default; pretty for the use
 ### Read tools are free; write tools have side effects
 
 Read freely:
-`list_mails`, `search_mails`, `get_mail`, `get_conversation`, `list_folders`, `list_events`, `get_event`, `list_contacts`, `search_contacts`, `get_contact`, `resolve_name`, `list_tasks`, `list_categories`, `list_rules`, `get_out_of_office`, `whoami`.
+`list_mails`, `search_mails`, `get_mail`, `get_conversation`, `list_folders`, `list_events`, `get_event`, `get_event_by_key`, `get_free_busy`, `find_meeting_times`, `list_contacts`, `search_contacts`, `get_contact`, `resolve_name`, `list_tasks`, `list_categories`, `list_rules`, `get_out_of_office`, `whoami`.
 
 Confirm before calling (these change shared state or send messages):
 `send_mail`, `reply_mail`, `forward_mail`, `delete_mail`, `move_mail`, `mark_mail`, `save_attachments`, `create_event` (especially with attendees — that sends a meeting invite immediately), `update_event`, `delete_event`, `respond_event` (with `send_response=true`), `create_folder`, `create_task`, `complete_task`, `set_category`, `toggle_rule`.

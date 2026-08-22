@@ -154,6 +154,14 @@ If the numbers disagree, trust the per-item `unread` flag.
 
 **Fix**: use a store-qualified path. `outlook_list_folders(root=null)` shows the top-level store names; pass `"<Store Display Name>/Inbox"`. Confirm the active mailbox with `outlook_whoami` if you're not sure which is which.
 
+## Free/busy comes back empty, or `find_meeting_times` says someone is "unknown"
+
+`outlook_get_free_busy` / `outlook_find_meeting_times` read Exchange free/busy through `Recipient.FreeBusy`. Three limits:
+
+- **People outside the tenant have blank free/busy.** External addresses resolve (or not) but publish no availability, so they appear in `unknown` with `has_data=false`. `find_meeting_times` ignores them when picking slots — tell the user those attendees were **not** checked rather than implying they are free.
+- **Granularity is the interval.** Outlook returns one status per `interval_minutes`; a 10-minute call inside a 30-minute slot marks the whole slot busy, and `find_meeting_times` works on a 15-minute grid. Lower `interval_minutes` for finer detail (longer strings, slower).
+- **It needs Exchange.** On IMAP/POP profiles, or when Outlook is offline with no cached free/busy, every address lands in `unknown`. There is no fallback to scanning the other person's calendar.
+
 ## Send error mentions "ResolveAll" or "recipient could not be resolved"
 
 The address you passed to `attendees=` (or in `to`/`cc`/`bcc`) couldn't be resolved against the user's address book or directory. Possible causes:

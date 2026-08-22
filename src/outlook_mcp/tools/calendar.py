@@ -66,6 +66,46 @@ def register(mcp, bridge) -> None:
         return ui_result(format_response(data, response_format), data)
 
     @mcp.tool(
+        name="outlook_get_event_by_key",
+        annotations={
+            "title": "Find Outlook event by global id / occurrence key",
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+        structured_output=False,
+    )
+    @safe_call
+    async def outlook_get_event_by_key(
+        occurrence_key: Annotated[
+            Optional[str],
+            Field(description="'<global_id>|<ISO start>' as returned in events' occurrence_key. Pins one occurrence of a recurring series."),
+        ] = None,
+        global_id: Annotated[
+            Optional[str],
+            Field(description="GlobalAppointmentID. Used when occurrence_key is omitted; returns the first matching item in the window."),
+        ] = None,
+        window_start: Annotated[
+            Optional[str],
+            Field(description="ISO-8601 start of the search window. Defaults to key start - 1d, or now."),
+        ] = None,
+        window_end: Annotated[
+            Optional[str],
+            Field(description="ISO-8601 end of the search window. Defaults to key start + 1d, or window_start + 14d."),
+        ] = None,
+    ) -> str:
+        """Look up an event by its stable GlobalAppointmentID (or occurrence_key) instead of EntryID. Returns JSON."""
+        data = await bridge.call(
+            cal_client.get_event_by_key,
+            occurrence_key=occurrence_key,
+            global_id=global_id,
+            window_start=window_start,
+            window_end=window_end,
+        )
+        return format_response(data, "json")
+
+    @mcp.tool(
         name="outlook_create_event",
         annotations={
             "title": "Create Outlook calendar event",
@@ -126,8 +166,17 @@ def register(mcp, bridge) -> None:
         end: Annotated[Optional[str], Field()] = None,
         location: Annotated[Optional[str], Field()] = None,
         body: Annotated[Optional[str], Field()] = None,
+        send_update: Annotated[
+            bool,
+            Field(
+                description=(
+                    "For meetings you organise: send the updated invite to attendees "
+                    "after saving (default). False saves locally only."
+                )
+            ),
+        ] = True,
     ) -> str:
-        """Update fields on an existing event. Only non-null fields are written."""
+        """Update fields on an existing event. Only non-null fields are written. Meetings with attendees send an update unless send_update=False."""
         data = await bridge.call(
             cal_client.update_event,
             entry_id=entry_id,
@@ -136,6 +185,7 @@ def register(mcp, bridge) -> None:
             end=end,
             location=location,
             body=body,
+            send_update=send_update,
         )
         return format_response(data, "json")
 

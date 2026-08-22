@@ -119,7 +119,7 @@ server entry in its MCP config:
 
 ## Tools
 
-37 tools across 9 categories, all prefixed `outlook_*`.
+40 tools across 10 categories, all prefixed `outlook_*`.
 
 | Category       | Tools |
 | -------------- | ----- |
@@ -128,7 +128,8 @@ server entry in its MCP config:
 | Mail (bulk)    | `bulk_move_mails`, `bulk_delete_mails`, `bulk_mark_mails` — up to 500 EntryIDs per call, per-item success/failure report |
 | Mail (export)  | `export_mails` (CSV/JSON table of metadata for Excel / pandas / Power Automate), `save_mail_as` (`.msg` / `.txt` / `.html`) |
 | Folders        | `list_folders`, `create_folder` |
-| Calendar       | `list_events`, `get_event`, `create_event`, `update_event`, `delete_event`, `respond_event` |
+| Calendar       | `list_events`, `get_event`, `get_event_by_key` (lookup by stable `GlobalAppointmentID` / per-occurrence `occurrence_key`), `create_event`, `update_event`, `delete_event`, `respond_event` — events return `global_id`, `occurrence_key`, `organizer_address`, SMTP-resolved `attendees[]` with RSVP status |
+| Availability   | `get_free_busy` (per-person free/tentative/busy/OOF slots + merged busy blocks), `find_meeting_times` (slots where everyone is free, honouring working hours, buffer, weekdays) — Exchange free/busy via `Recipient.FreeBusy` |
 | Contacts       | `list_contacts`, `search_contacts` (saved contacts + org directory), `get_contact`, `resolve_name` |
 | Tasks          | `list_tasks`, `create_task`, `complete_task` |
 | Categories     | `list_categories`, `set_category` |

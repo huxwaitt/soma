@@ -24,7 +24,8 @@ server auto-launches Outlook on first call; the new "modern" Outlook
 Tool categories (all prefixed `outlook_`):
   - Mail: list, search, get, send, reply, forward, move, delete, mark, save_attachments
   - Folders: list_folders, create_folder
-  - Calendar: list_events, get_event, create_event, update_event, delete_event, respond_event
+  - Calendar: list_events, get_event, get_event_by_key, create_event, update_event, delete_event, respond_event
+  - Availability: get_free_busy, find_meeting_times (Exchange free/busy; external people show as unknown)
   - Contacts: list_contacts, search_contacts (incl. org directory/GAL),
     get_contact, resolve_name (name -> SMTP address)
   - Tasks: list_tasks, create_task, complete_task

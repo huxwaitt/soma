@@ -6,7 +6,8 @@ Every `outlook_*` tool, with parameters, defaults, return shape, and notes on ch
 
 - [Mail](#mail) — list_mails, search_mails, get_mail, get_conversation, send_mail, reply_mail, forward_mail, move_mail, delete_mail, mark_mail, save_attachments, bulk_move_mails, bulk_delete_mails, bulk_mark_mails, export_mails, save_mail_as
 - [Folders](#folders) — list_folders, create_folder
-- [Calendar](#calendar) — list_events, get_event, create_event, update_event, delete_event, respond_event
+- [Calendar](#calendar) — list_events, get_event, get_event_by_key, create_event, update_event, delete_event, respond_event
+- [Availability](#availability) — get_free_busy, find_meeting_times
 - [Contacts](#contacts) — list_contacts, search_contacts, get_contact, resolve_name
 - [Tasks](#tasks) — list_tasks, create_task, complete_task
 - [Categories](#categories) — list_categories, set_category
@@ -271,7 +272,22 @@ List calendar events in a date range, including expanded recurring instances.
 | `include_recurrences` | bool    | `true`         | If false, only the master entries — usually you want true. |
 | `response_format`     | str     | `markdown`     | |
 
-**Returns**: `{ start, end, count, items: [...] }`. Items: `entry_id, subject, start, end, location, organizer, is_recurring, all_day, preview` (200-char body excerpt).
+**Returns**: `{ start, end, count, items: [...] }`. Items carry the **event shape** below (without `body`).
+
+#### Event shape (shared by `list_events`, `get_event`, `get_event_by_key`)
+
+| Field | Notes |
+| ----- | ----- |
+| `entry_id` | Outlook EntryID. For an occurrence of a recurring series this is the *master's* EntryID — not unique per occurrence. |
+| `global_id` | `GlobalAppointmentID` — stable across mailboxes (same value in the organizer's and every attendee's calendar). Shared by all occurrences of a series. `""` if Outlook has none. |
+| `occurrence_key` | `"<global_id>|<start ISO>"`. **Unique per occurrence** of a recurring series; the key to persist externally and feed back into `get_event_by_key`. |
+| `subject`, `start`, `end`, `location`, `all_day`, `preview` | As before (`preview` = 200-char body excerpt). |
+| `organizer` | Organizer display name. |
+| `organizer_address` | Organizer SMTP address (resolved via `GetOrganizer().GetExchangeUser()` → `PR_SMTP_ADDRESS` → falls back to the display name when unresolvable). |
+| `attendees` | `[{name, address, type, response}]` — `address` is a real SMTP address (Exchange DNs resolved); `type` ∈ `required` / `optional` / `resource`; `response` ∈ `none` / `organizer` / `tentative` / `accepted` / `declined` / `notresponded`. |
+| `response_status` | The *user's own* RSVP status, same vocabulary as `attendees[].response`. |
+| `is_recurring` | bool. |
+| `recurrence_state` | `not_recurring` / `master` / `occurrence` / `exception`. |
 
 ### `outlook_get_event`
 
@@ -282,7 +298,20 @@ Full event detail, including attendees and their RSVP status.
 | `entry_id` | string | required | |
 | `response_format` | str | `markdown` | |
 
-**Returns**: summary fields + `body, attendees: [{name, address, type, response}], reminder_minutes, categories`.
+**Returns**: event shape + `body, reminder_minutes, categories`.
+
+### `outlook_get_event_by_key`
+
+Find an event by its stable `global_id` / `occurrence_key` instead of EntryID — use this when correlating with an external system (a meeting tracked in a ticket, a key stored from a previous session) or to pin one occurrence of a recurring series. Read-only; always returns JSON.
+
+| Param            | Type     | Default | Notes |
+| ---------------- | -------- | ------- | ----- |
+| `occurrence_key` | string   | `null`  | `"<global_id>|<ISO start>"` exactly as returned on events. Matches one occurrence. |
+| `global_id`      | string   | `null`  | Used when `occurrence_key` is omitted; returns the first item of the series inside the window. Pass one of the two. |
+| `window_start`   | ISO-8601 | `null`  | Defaults to the key's start − 1 day (or now when only `global_id` is given). |
+| `window_end`     | ISO-8601 | `null`  | Defaults to the key's start + 1 day (or `window_start + 14d`). |
+
+**Returns**: the same full record as `get_event` (event shape + `body, reminder_minutes, categories`). Raises "No event with global_id ..." when nothing in the window matches — widen the window or re-list.
 
 ### `outlook_create_event`
 
@@ -300,7 +329,7 @@ Create a calendar event or meeting invite. **Adding any attendee turns this into
 | `reminder_minutes`  | int 0–10080    | `15`    | Minutes before start. |
 | `recurrence`        | Recurrence obj | `null`  | See SKILL.md → Recurrence. |
 
-**Returns**: `{ status: "created", entry_id, subject, start, end }`.
+**Returns**: `{ status: "created", entry_id, global_id, occurrence_key, subject, start, end, invite_sent }`. `invite_sent` is true when attendees were given.
 
 Confirm attendee list, times, and recurrence with the user before calling.
 
@@ -316,8 +345,9 @@ Update fields on an event. Only non-null fields are written. Does **not** modify
 | `end`      | ISO-8601 | `null`  | |
 | `location` | string   | `null`  | |
 | `body`     | string   | `null`  | |
+| `send_update` | bool  | `true`  | For meetings the user organises: send the updated invite to attendees after saving. `false` saves locally only. |
 
-**Returns**: `{ status: "updated", entry_id }`. If the event has attendees, Outlook may send an updated-meeting notification when this saves.
+**Returns**: `{ status: "updated", entry_id, update_sent }`. `update_sent` is true only when the item is a meeting the user organises, it has attendees, and `send_update` was true — then every attendee receives the updated invite immediately. Received meetings and plain appointments never send.
 
 ### `outlook_delete_event`
 
@@ -336,6 +366,42 @@ Respond to a meeting invite.
 | `send_response` | bool   | `true`   | Set false to record locally without emailing the organizer. |
 
 **Returns**: `{ status: "responded", response }`.
+
+---
+
+## Availability
+
+Both tools read Exchange free/busy via `Recipient.FreeBusy`. They need an Exchange/Microsoft 365 account; on IMAP/POP profiles every address comes back in `unknown`. People **outside the tenant** resolve but have no free/busy data, so they also land in `unknown` — never claim they are free. Read-only; always JSON.
+
+### `outlook_get_free_busy`
+
+Per-person availability slots for a window.
+
+| Param              | Type          | Default | Notes |
+| ------------------ | ------------- | ------- | ----- |
+| `addresses`        | list[str] 1–20| required | SMTP addresses. |
+| `start`            | ISO-8601      | required | |
+| `end`              | ISO-8601      | required | At most 62 days after `start`. |
+| `interval_minutes` | int 1–1440    | `30`    | Slot granularity. Outlook reports one status per interval, so a 10-minute meeting inside a 30-minute slot marks the whole slot busy. |
+
+**Returns**: `{ start, end, interval_minutes, count, people: [...], unknown: [...] }`. Each person: `{ address, resolved, has_data, slots: [{start, end, status}], busy_blocks: [{start, end, status}] }` — `status` ∈ `free` / `tentative` / `busy` / `oof` / `elsewhere`; `busy_blocks` is the non-free slots merged into contiguous runs of the same status (the thing to show the user). `resolved=false` means the address is not in the address book; `resolved=true, has_data=false` means no free/busy was published (external person, or not Exchange). `unknown` lists both kinds.
+
+### `outlook_find_meeting_times`
+
+Candidate start times when everyone with free/busy data is free.
+
+| Param              | Type      | Default  | Notes |
+| ------------------ | --------- | -------- | ----- |
+| `addresses`        | list[str] | required | Attendees. |
+| `start` / `end`    | ISO-8601  | required | Search window, max 62 days. |
+| `duration_minutes` | int       | required | |
+| `work_start` / `work_end` | `HH:MM` | `09:00` / `17:00` | Local working hours; candidates must fit inside. |
+| `buffer_minutes`   | int 0–240 | `0`      | Required free margin before and after the meeting. |
+| `weekdays_only`    | bool      | `true`   | Skip Saturday/Sunday. |
+| `include_self`     | bool      | `true`   | Also require the current user (`whoami`) to be free. |
+| `max_results`      | int 1–100 | `10`     | |
+
+**Returns**: `{ start, end, duration_minutes, addresses, unknown, count, items: [{start, end, free: [...], unknown: [...]}] }` sorted by `start`, on a 15-minute grid (or the duration when shorter). `free` lists the people whose calendars were checked; `unknown` the ones that could not be — tell the user those were not verified. Feed a chosen `start`/`end` straight into `create_event`.
 
 ---
 

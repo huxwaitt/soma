@@ -6,6 +6,7 @@ from . import (
     categories,
     contacts,
     folders,
+    freebusy,
     mail,
     ooo,
     rules,
@@ -14,5 +15,5 @@ from . import (
 
 
 def register_all(mcp, bridge) -> None:
-    for mod in (mail, folders, calendar, contacts, tasks, categories, rules, ooo, account):
+    for mod in (mail, folders, calendar, freebusy, contacts, tasks, categories, rules, ooo, account):
         mod.register(mcp, bridge)
