@@ -5,9 +5,9 @@ description: Find when people are free and book meetings from classic Outlook �
 
 # schedule — who is free, then book it
 
-This skill answers "when can we meet" and, if asked, books the meeting. It uses the two scheduling tools in the Outlook server (`outlook_get_free_busy`, `outlook_find_meeting_times`), the user's own preferences from `<vault>/Administrator/Preferences.md`, and the existing calendar, contact and mail tools. Outlook mechanics follow the `outlook` skill; note layout follows `skills/administrator/references/vault.md` and, for the meeting note, `skills/meetings/references/meeting-note.md`; preferences follow `references/preferences.md` in this folder. Do not duplicate them — read them when unsure.
+This skill answers "when can we meet" and, if asked, books the meeting. It uses the two scheduling tools in the Outlook server (`outlook_get_free_busy`, `outlook_find_meeting_times`), the user's own preferences from `<vault>/Administrator/Preferences.md`, and the existing calendar, contact and mail tools. Outlook mechanics follow the `outlook` skill; note layout follows `skills/administrator/references/vault.md` and, for the meeting note, `skills/meetings/references/meeting-note.md`; preferences follow `references/preferences.md` in this folder; every note is read and written through the `vault_*` tools. Do not duplicate any of that here — read those files when unsure.
 
-Vault root: the `ADMINISTRATOR_VAULT` environment variable (absolute path). If it is unset, stop and tell the user to set it; do not guess a path.
+Vault: `vault_status` once per session; if a folder or file flag is false, `vault_init(created_by="administrator/0.0.4")`. If the vault is unset or not a directory, stop and tell the user; do not guess a path.
 
 Three things leave the machine in this skill, and each needs its own yes after you have shown exactly what will happen:
 
@@ -21,7 +21,7 @@ Never call `outlook_send_mail` without `save_only=true`, never call `outlook_del
 
 ### 1. Read the preferences
 
-Read `<vault>/Administrator/Preferences.md`. If it does not exist, create it from the template in `references/preferences.md` exactly, say "Created Administrator/Preferences.md with defaults — edit it any time", and continue. Parse the frontmatter keys `work_start`, `work_end`, `buffer_minutes`, `no_meeting_blocks`, `max_meetings_per_day`, `default_duration`, `default_location`, `preferred_days`. A missing or unreadable key falls back to the template default for that key; say which one in a single line. Never edit the file.
+`vault_read("Administrator/Preferences.md")`. If the call fails because the file is missing, `vault_init(created_by="administrator/0.0.4")` creates it with the defaults (09:00–17:00, buffer 15); say "Created Administrator/Preferences.md with defaults — edit it any time, or run /administrator:setup to set your work hours", read it again and continue. Use the frontmatter keys `work_start`, `work_end`, `buffer_minutes`, `no_meeting_blocks`, `max_meetings_per_day`, `default_duration`, `default_location`, `preferred_days`. A missing or unreadable key falls back to the template default for that key; say which one in a single line. Never edit the file.
 
 Call `outlook_whoami` once per session for the user's own SMTP address and `utc_offset`. All times shown to the user are local time, the way Outlook returns them. Never convert.
 
@@ -32,7 +32,7 @@ Call `outlook_whoami` once per session for the user's own SMTP address and `utc_
 1. If it already looks like an SMTP address (`@` with no spaces), use it as is.
 2. `outlook_resolve_name(name=<name>)`. If `resolved` is true, use `smtp_address`.
 3. Otherwise `outlook_search_contacts(query=<name>, include_directory=true, limit=5)`. One hit with an `email` → use it and say which ("Sam → sam.ortiz@example.com"). Two to five hits → show a numbered list (name, email, company) and ask the user to pick. No hit → ask the user for the address. Never guess an address and never build one from a name plus a domain.
-4. If `People/<name>.md` exists in the vault and has an `email:` key, you may use that when steps 2 and 3 fail, and say the address came from the vault.
+4. If `vault_find("person", <name>)` finds a note with an `email` value, you may use that when steps 2 and 3 fail, and say the address came from the vault.
 
 The user's own address is never in `addresses`; `include_self=true` adds it on the server side.
 
@@ -136,32 +136,38 @@ Body:
 Save this as a draft in Outlook? Nothing is sent; you send it from Drafts.
 ```
 
-On yes: `outlook_send_mail(to=[…], subject=…, body=…, save_only=true)`. Report "Draft saved in Drafts — open Outlook to send it." Then add one row to `Follow-ups.md` under `## Open` (`Who` = the person, `What` = "pick a time — <subject>", `Email` empty, `Last checked` = today with no entry_id comment), so the `inbox` workflow keeps an eye on the reply. Do not write a meeting note; there is no meeting yet.
+On yes: `outlook_send_mail(to=[…], subject=…, body=…, save_only=true)`. Report "Draft saved in Drafts — open Outlook to send it." Then one row in `Follow-ups.md`, so the `inbox` workflow keeps an eye on the reply:
+
+```
+vault_append_row("Administrator/Follow-ups.md", "Open",
+                 [<today>, "[[People/<Name>]]" (or the display name when no person note exists), "pick a time — <subject>", "", <today>],
+                 dedupe_key="<address> # pick a time — <subject>", key_label="proposal")
+```
+
+There is no `entry_id` yet, so the key is the address plus the `What` text and the comment reads `<!-- proposal: … -->`. Do not write a meeting note; there is no meeting yet.
 
 Never send the proposal with `save_only=false`, even if the user says "send it" — say the plugin writes drafts only and they send from Outlook.
 
 ### 7. Meeting note (after a successful create)
 
-Load `skills/meetings/references/meeting-note.md` and write the meeting note from its template — the same note `/administrator:prep` would write, so `prep` and `notes` find it later. Path: `<vault>/Administrator/Meetings/<YYYY-MM-DD HHmm> <slug>.md`, date and `HHmm` from the event `start` (local, as returned), slug by the vault slug rule applied to the subject. Create `Meetings/` if missing.
+Load `skills/meetings/references/meeting-note.md` and write the meeting note from its template — the same note `/administrator:prep` would write, so `prep` and `notes` find it later. The server names the file `Administrator/Meetings/<YYYY-MM-DD HHmm> <slug>.md` from `start` and `subject`.
 
 1. `outlook_get_event(entry_id=<entry_id from the create result>, response_format="json")` once. Take `global_id`, `occurrence_key`, `start`, `end`, `organizer_address`, `attendees[]` from it. If `global_id` is empty, write `global_id: ""` and use `<entry_id>|<start>` as the key, as `meeting-note.md` says.
-2. Grep `Administrator/Meetings/` for `occurrence_key: "<key>"`. A hit means the note exists (a re-run after a tool timeout, for example): append `## Update <ISO timestamp>` with "Booked again via /administrator:schedule" and do not create a second file.
-3. Person notes: one per attendee, found or created exactly as the `meetings` skill's prep step 3 does (exact filename, else grep `email:` / `aliases:`; stub with `last_contact: ""`, `aliases: []`, `company` only from `outlook_search_contacts`; a `## Meetings` line on each). Resources get none.
-4. Write the note: frontmatter per `meeting-note.md` with `entry_id` (always), `global_id`, `occurrence_key`, `subject`, `start`, `end`, `location`, `organizer` = the user's address, `organizer_link: ""`, `attendees`, `attendee_links`, `is_recurring: false`, `status: upcoming`, `created_by: administrator/0.0.3`. Header lines `**When:**`, `**Where:**`, `**Organizer:** me <address>`, `**Attendees:**`. `## Prep` holds `_(booked by /administrator:schedule on <YYYY-MM-DD>; no prep was run)_` plus the agenda as bullets if the user gave one; `## Notes` holds `_(none yet)_`; `## Action items`, `## Waiting on`, `## Related emails` hold `- none`.
+2. Person notes: one per attendee, found or created exactly as the `meetings` skill's prep step 3 does (`vault_find("person", {"email": <address>})`, which also matches `aliases`; `vault_write("person", …, mode="create")` for a stub with `last_contact: ""`, `aliases: []`, `company` only from `outlook_search_contacts`, and a `## Meetings` line in the body; `mode="append"` with that line as the body on an existing note). Resources get none.
+3. `vault_write("meeting", frontmatter, body, mode="upsert")`: frontmatter per `meeting-note.md` with `entry_id` (always), `global_id`, `occurrence_key`, `subject`, `start`, `end`, `location`, `organizer` = the user's address, `organizer_link: ""`, `attendees`, `attendee_links`, `is_recurring: false`, `status: upcoming`, `created_by: administrator/0.0.4`; body with the header lines `**When:**`, `**Where:**`, `**Organizer:** me <address>`, `**Attendees:**`, `## Prep` holding `_(booked by /administrator:schedule on <YYYY-MM-DD>; no prep was run)_` plus the agenda as bullets if the user gave one, `## Notes` holding `_(none yet)_`, `## Action items`, `## Waiting on`, `## Related emails` holding `- none`. `action: appended` in the result means the note already existed (a re-run after a tool timeout, for example): the body you passed landed under `## Update <ISO>`; say "note already existed, update appended". On a known re-run pass the one line `Booked again via /administrator:schedule.` as the body instead.
 
-Example, for the booking in worked example 2:
+Example, for the booking in worked example 2 — frontmatter passed as an object (the server quotes what needs quoting):
 
-```markdown
----
+```yaml
 type: meeting
 source: outlook
-entry_id: "00000000C1…"
-global_id: "040000008200E0…"
-occurrence_key: "040000008200E0…|2026-08-25T10:00:00+02:00"
-subject: "Budget review"
+entry_id: 00000000C1…
+global_id: 040000008200E0…
+occurrence_key: 040000008200E0…|2026-08-25T10:00:00+02:00
+subject: Budget review
 start: 2026-08-25T10:00:00+02:00
 end: 2026-08-25T10:30:00+02:00
-location: "Teams"
+location: Teams
 organizer: me@example.com
 organizer_link: ""
 attendees:
@@ -172,9 +178,12 @@ attendee_links:
   - "[[People/Jane Doe]]"
 is_recurring: false
 status: upcoming
-created_by: administrator/0.0.3
----
+created_by: administrator/0.0.4
+```
 
+and the body:
+
+```markdown
 # Budget review
 
 **When:** 2026-08-25 10:00–10:30
@@ -203,25 +212,20 @@ _(none yet)_
 - none
 ```
 
-`start` / `end` exactly as the tool returned them, with offset.
+`start` / `end` exactly as the tool returned them, with offset. The result's `path` is the note to link in the report.
 
 ### 8. Daily note row (after a successful create)
 
-If `<vault>/Administrator/Daily/<meeting date>.md` exists, add the meeting to it. If the file has a `## Calendar` table, append one row:
+`vault_find("daily", {"date": <meeting date>})`. If found, one call:
 
-```markdown
-| 10:00 | 10:30 | Budget review with Sam | Teams | me <!-- entry_id: <entry_id> --> |
+```
+vault_append_row(<path>, "Calendar",
+                 ["10:00", "10:30", "Budget review with Sam", "Teams", "me"],
+                 dedupe_key=<occurrence_key>, key_label="occurrence_key",
+                 header=["Start", "End", "Subject", "Location", "Organizer"])
 ```
 
-If the file has no `## Calendar` section, append at the end:
-
-```markdown
-## Update <ISO timestamp>
-
-- Booked: Budget review with Sam, 10:00–10:30, Teams → [[Meetings/2026-08-25 1000 Budget review with Sam]] <!-- entry_id: <entry_id> -->
-```
-
-Skip the row if the `entry_id` comment is already in the file. If no daily note exists for that day, write nothing — `/administrator:daily` will pick the meeting up from the calendar.
+The server appends the row to the `## Calendar` table, creates the heading and header at the end of the note if the day has no calendar yet, and answers `appended: false, reason: "duplicate"` when the meeting is already listed. If no daily note exists for that day, write nothing — `/administrator:daily` will pick the meeting up from the calendar.
 
 ### 9. Moving one meeting ("move my 2pm with Sam to Thursday")
 
@@ -242,11 +246,11 @@ Move it?
 ```
 
 5. On a clear yes: `outlook_update_event(entry_id=…, start=<new start>, end=<new end>)` → `{status: "updated", entry_id, update_sent: true}`. Report "Moved, and Sam Ortiz has been sent the updated invite." If `update_sent` is false (not a meeting you organise), say the change was saved locally only.
-6. Notes: Grep `Administrator/Meetings/` for `global_id: "<global_id>"` (from `outlook_get_event`), else `entry_id: "<entry_id>"`. If a note exists, do not rename it and do not change `start` / `end` / `occurrence_key` in its frontmatter — append `## Update <ISO timestamp>` with "Moved from 2026-08-25 14:00 to 2026-08-27 09:00 (new occurrence_key: <global_id>|<new start>)". `prep` finds a moved note through the `global_id` grep. If a daily note exists for the old day, append an `## Update` line "Moved: Budget review with Sam → Thu 27 Aug 09:00"; if one exists for the new day, add the row as in step 8.
+6. Notes: `vault_find("meeting", {"global_id": <global_id from outlook_get_event>})` (a plain `vault_find("meeting", <entry_id>)` when `global_id` is empty). If a note exists (`matches[0]`), it is not renamed and `start` / `end` / `occurrence_key` stay as they are — `vault_write("meeting", <frontmatter as found>, "- Moved from 2026-08-25 14:00 to 2026-08-27 09:00 (new occurrence_key: <global_id>|<new start>)", mode="append")`. `prep` finds a moved note through the same `global_id` lookup. If `vault_find("daily", {"date": <old day>})` finds a note, `vault_write("daily", <frontmatter as found>, "- Moved: Budget review with Sam → Thu 27 Aug 09:00", mode="append")`; if one exists for the new day, add the row as in step 8.
 
 ### 10. Report
 
-Two or three lines: what was sent (or drafted), to whom, the note path if one was written, the daily note if touched. For `/administrator:free`: the candidate list and, if anyone was unknown, the one-line warning — nothing else.
+Two or three lines: what was sent (or drafted), to whom, the note path if one was written, the daily note if touched, and — whenever a note was written or appended — `obsidian://open?vault=<vault_name>&file=<url-encoded path>` (`vault_name` from `vault_status`, `path` from the `vault_write` result). For `/administrator:free`: the candidate list and, if anyone was unknown, the one-line warning — nothing else.
 
 ## Rules that apply to every run
 
@@ -255,7 +259,7 @@ Two or three lines: what was sent (or drafted), to whom, the note path if one wa
 - `outlook_create_event`, `outlook_update_event` and `outlook_send_mail(save_only=true)` each need a clear yes in this conversation, after the full summary was shown. One ask per turn, nothing else in that turn.
 - Never `outlook_send_mail` without `save_only=true`. Never `outlook_delete_event`, `outlook_respond_event`, `outlook_reply_mail`, `outlook_forward_mail`.
 - Never invent an address, a time, an `entry_id` or a `global_id`. Every value in a note comes from a tool result, the preferences file, or the user.
-- Never rewrite `Preferences.md`, a meeting note above its first `## Update`, or any note outside `<vault>/Administrator/`.
+- Never rewrite `Preferences.md`, a meeting note above its first `## Update`, or any note outside `<vault>/Administrator/`. Every note goes through `vault_write` / `vault_append_row`; never write or edit a vault file with the host's file tools.
 - Result shapes to rely on: `outlook_find_meeting_times` → `items[]`; `outlook_get_free_busy` → `people[{address, resolved, has_data, slots[], busy_blocks[]}]` and `unknown[]`; `outlook_create_event` → `{status, entry_id, global_id, occurrence_key, subject, start, end, invite_sent}`; `outlook_update_event` → `{status: "updated", entry_id, update_sent}`; `outlook_get_event` → the full event with `global_id`, `occurrence_key`, `organizer_address`, `attendees[]`, `is_recurring`, `recurrence_state`.
 - Running `/administrator:schedule` twice for the same meeting must not create a second event: before step 5, `outlook_list_events` for the chosen slot and, if an event with the same subject and attendees already sits there, say so and stop.
 - Show at most five candidates. Times in local time, as returned. Never show `EX:/O=` addresses; if `outlook_get_event` gives one, show the display name only.
@@ -263,10 +267,10 @@ Two or three lines: what was sent (or drafted), to whom, the note path if one wa
 
 ## Worked example 1 — `/administrator:free Sam 30 min next week`
 
-1. Preferences read: defaults (09:00–17:30, buffer 15, `Fri 13:00-17:30` blocked, max 5/day, preferred Tue Wed Thu).
+1. Preferences read: defaults (09:00–17:00, buffer 15, `Fri 13:00-17:00` blocked, max 5/day, preferred Tue Wed Thu).
 2. `outlook_resolve_name(name="Sam")` → `resolved: true`, `smtp_address: "sam.ortiz@example.com"`.
 3. Window "next week" → `start="2026-08-24T00:00:00"`, `end="2026-08-28T23:59:59"`. Duration 30.
-4. `outlook_find_meeting_times(addresses=["sam.ortiz@example.com"], start=…, end=…, duration_minutes=30, work_start="09:00", work_end="17:30", buffer_minutes=15, weekdays_only=true, include_self=true, max_results=15)` → 11 candidates, `unknown: []` on all.
+4. `outlook_find_meeting_times(addresses=["sam.ortiz@example.com"], start=…, end=…, duration_minutes=30, work_start="09:00", work_end="17:00", buffer_minutes=15, weekdays_only=true, include_self=true, max_results=15)` → 11 candidates, `unknown: []` on all.
 5. Filters: two Friday-afternoon candidates dropped (no-meeting block); `list_events` for Mon 24 shows 5 meetings → Monday dropped. Sorted Tue/Wed/Thu first. First five kept.
 
 Reply:
@@ -307,13 +311,14 @@ User: "a, 1". Then:
 
 User: "yes". `outlook_create_event(subject="Budget review", start="2026-08-25T10:00:00", end="2026-08-25T10:30:00", attendees=["sam.ortiz@example.com","jane.doe@acme-parts.com"], location="Teams", is_online_meeting=true, body="Booked by administrator on 2026-08-22")` → `{"status":"created","entry_id":"00000000C1…","subject":"Budget review","start":"2026-08-25T10:00:00+02:00","end":"2026-08-25T10:30:00+02:00"}`. Then `outlook_get_event(entry_id="00000000C1…", response_format="json")` → `global_id: "040000008200E0…"`, `occurrence_key: "040000008200E0…|2026-08-25T10:00:00+02:00"`, `attendees` with `response: "none"` for both.
 
-Grep `Meetings/` for `occurrence_key: "040000008200E0…|2026-08-25T10:00:00+02:00"` → no hit. `People/Jane Doe.md` exists (from an earlier save); `People/Sam Ortiz.md` does not and no note has his address → stub created with `last_contact: ""`. Both get a `## Meetings` line. Write `Meetings/2026-08-25 1000 Budget review.md` exactly as shown in step 7. `Daily/2026-08-25.md` does not exist → nothing added.
+`vault_find("person", {"email": "jane.doe@acme-parts.com"})` → found (from an earlier save) → `vault_write("person", …, mode="append")` with the `## Meetings` line; `vault_find("person", {"email": "sam.ortiz@example.com"})` → not found → `vault_write("person", …, mode="create")` with `last_contact: ""`. `vault_write("meeting", frontmatter, body, mode="upsert")` exactly as shown in step 7 → `{"path": "Administrator/Meetings/2026-08-25 1000 Budget review.md", "action": "created"}`. `vault_find("daily", {"date": "2026-08-25"})` → not found → nothing added.
 
 Report:
 
 > Sent. Invite went to Sam Ortiz and Jane Doe. Note: `Meetings/2026-08-25 1000 Budget review.md`; new person note `People/Sam Ortiz.md`.
+> obsidian://open?vault=Vault&file=Administrator%2FMeetings%2F2026-08-25%201000%20Budget%20review.md
 
-Had the user answered "b": the draft shown in step 6, a yes, `outlook_send_mail(to=["jane.doe@acme-parts.com"], subject="Proposed times — Budget review", body=…, save_only=true)`, a new `Follow-ups.md` row `| 2026-08-22 | [[People/Jane Doe]] | pick a time — Budget review | | 2026-08-22 |`, and the report "Draft saved in Drafts — open Outlook to send it. Added a follow-up for Jane." No event, no meeting note.
+Had the user answered "b": the draft shown in step 6, a yes, `outlook_send_mail(to=["jane.doe@acme-parts.com"], subject="Proposed times — Budget review", body=…, save_only=true)`, then `vault_append_row("Administrator/Follow-ups.md", "Open", ["2026-08-22", "[[People/Jane Doe]]", "pick a time — Budget review", "", "2026-08-22"], dedupe_key="jane.doe@acme-parts.com # pick a time — Budget review", key_label="proposal")`, and the report "Draft saved in Drafts — open Outlook to send it. Added a follow-up for Jane." No event, no meeting note.
 
 ## Worked example 3 — "move my 2pm with Sam to Thursday"
 
@@ -330,7 +335,7 @@ Had the user answered "b": the draft shown in step 6, a yes, `outlook_send_mail(
 > Move it?
 
 5. "yes" → `outlook_update_event(entry_id="00000000C2…", start="2026-08-27T09:00:00", end="2026-08-27T09:30:00")` → `{"status":"updated","update_sent":true}`.
-6. `Meetings/2026-08-25 1400 Budget review with Sam.md` exists → append:
+6. `vault_find("meeting", {"global_id": "0400…"})` → `Administrator/Meetings/2026-08-25 1400 Budget review with Sam.md` → `vault_write("meeting", <frontmatter as found>, "- Moved from 2026-08-25 14:00 to 2026-08-27 09:00 (attendee: Sam Ortiz; new occurrence_key: 0400…|2026-08-27T09:00:00+02:00)", mode="append")`, which lands in the note as:
 
 ```markdown
 ## Update 2026-08-22T16:10:00+02:00
@@ -338,8 +343,9 @@ Had the user answered "b": the draft shown in step 6, a yes, `outlook_send_mail(
 - Moved from 2026-08-25 14:00 to 2026-08-27 09:00 (attendee: Sam Ortiz; new occurrence_key: 0400…|2026-08-27T09:00:00+02:00)
 ```
 
-`Daily/2026-08-25.md` exists → append `## Update …` with "- Moved: Budget review with Sam → Thu 27 Aug 09:00". `Daily/2026-08-27.md` does not exist → nothing.
+`vault_find("daily", {"date": "2026-08-25"})` → found → `vault_write("daily", …, "- Moved: Budget review with Sam → Thu 27 Aug 09:00", mode="append")`. `vault_find("daily", {"date": "2026-08-27"})` → not found → nothing.
 
 Report:
 
 > Moved to Thu 27 Aug 09:00–09:30; Sam Ortiz has been sent the updated invite. Appended the move to `Meetings/2026-08-25 1400 Budget review with Sam.md`.
+> obsidian://open?vault=Vault&file=Administrator%2FMeetings%2F2026-08-25%201400%20Budget%20review%20with%20Sam.md

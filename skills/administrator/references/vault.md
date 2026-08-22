@@ -1,28 +1,50 @@
 # Vault reference — note templates and rules
 
-Everything the plugin writes goes under `<vault>/Administrator/` where `<vault>` = `ADMINISTRATOR_VAULT`. Notes are plain markdown with YAML frontmatter and must render in vanilla Obsidian.
+Everything the plugin writes goes under `<vault>/Administrator/` where `<vault>` = `ADMINISTRATOR_VAULT`. Notes are plain markdown with YAML frontmatter and must render in vanilla Obsidian. This page is the schema: what each note looks like and what each key means. The `vault` MCP server (`administrator-vault`) enforces it; skills pass a frontmatter object and a markdown body to `vault_write` and never touch files themselves.
 
-Conventions used in every template:
+Conventions the server applies:
 
 - Dates in frontmatter are ISO-8601 with the offset Outlook returned (`2026-08-22T09:14:00+02:00`). Never convert time zones.
-- Strings that may contain `:`, `#`, `[`, or quotes are double-quoted. `entry_id`, `internet_message_id`, `conversation_id` are always quoted.
-- Lists are YAML block lists, one item per line.
+- Quoting is the server's job: `entry_id`, `internet_message_id`, `conversation_id`, `global_id`, `occurrence_key`, `subject`, `location`, `msg_file` are always quoted; plain SMTP addresses and `administrator/0.0.4` stay unquoted. Pass raw values.
+- Lists are YAML block lists; pass arrays (`[]` when empty).
 - Wikilinks in frontmatter are quoted: `from_link: "[[People/Jane Doe]]"`.
-- `created_by: administrator/0.0.3` on every note.
+- `created_by: administrator/0.0.4` on every note (pass it; the server fills in only `type`).
+
+## Writing notes: the `vault_*` tools
+
+The rules on this page are enforced by the `vault` MCP server (`administrator-vault`); skills call its tools instead of writing files. Pass the frontmatter as an object and the body as markdown (no frontmatter fences); the server picks the filename, checks the required keys, quotes what must be quoted, and refuses a second note for an identity that exists.
+
+| Need | Call |
+| --- | --- |
+| Is this mail / meeting / person already in the vault? | `vault_find(type, identity)` — identity `{"internet_message_id": …, "entry_id": …}`, `{"occurrence_key": …, "global_id": …}`, an SMTP address, a date, or a week |
+| Write or update a note | `vault_write(type, frontmatter, body, mode="upsert")` — returns `action: created` or `appended` plus the path |
+| A row in `Follow-ups.md` or a daily table | `vault_append_row(path, section, row, dedupe_key=<entry_id>)` (`key_label="occurrence_key"` for meeting rows) |
+| Close a follow-up | `vault_move_row("Administrator/Follow-ups.md", "Open", "Done", <entry_id>, set_last_cell=<today>)` |
+| Read a note, list notes | `vault_read(path)`, `vault_list(type, since)` |
+| Which daily note was last written? | `vault_list("daily", limit=1)` |
+
+On `append` the server only changes `status`, `last_contact`, `inbox_checked`, `mails_seen` and adds new `aliases`; every other frontmatter key and all existing body text stay as they are. `append` still checks the required keys, so pass the frontmatter `vault_find` returned with just the intended key changed. Use `created_by: administrator/0.0.4` in every frontmatter you pass.
+
+`dedupe_key` for meeting rows is `<occurrence_key> # <What>` (one meeting can create several rows); for proposed-times rows it is `<address> # pick a time — <subject>` with `key_label="proposal"`; for rows `followups` writes from the user's own sent mail it is the `internet_message_id` of that mail with `key_label="internet_message_id"` (`entry_id` when it is empty). The server treats a row as a duplicate when the key value appears in any hidden comment anywhere in the file, whatever the label.
 
 ## Filenames
+
+The server builds these; listed so you can predict the path and the `Attachments/` folder name.
 
 | Note | Path | Rule |
 | --- | --- | --- |
 | Email | `Emails/YYYY-MM-DD <slug>.md` | Date = `received` date (local). Slug from subject, see below. |
-| Meeting | `Meetings/YYYY-MM-DD HHmm <slug>.md` | Date and time = `start` (local). Slug from `subject` with the email rule plus `Canceled:` / `Abgesagt:` / `Updated:` / `Aktualisiert:` prefixes stripped. Full template in `skills/meetings/references/meeting-note.md`. |
+| Meeting | `Meetings/YYYY-MM-DD HHmm <slug>.md` | Date and time = `start` (local). Slug from `subject` with the email rule plus `Canceled:` / `Cancelled:` / `Abgesagt:` / `Updated:` / `Aktualisiert:` prefixes stripped. Full template in `skills/meetings/references/meeting-note.md`. |
 | Preferences | `Preferences.md` | Fixed. |
 | Daily | `Daily/YYYY-MM-DD.md` | Local date of the run. |
-| Person | `People/<Display Name>.md` | Display name as Outlook gives it (`from` / `recipients[].name`), illegal characters replaced by `_`, trimmed. If no display name, use the part of the SMTP address before `@`. |
+| Weekly | `Weekly/YYYY-Www.md` | ISO week (Monday–Sunday) of the review. Written by `/administrator:weekly`. |
+| Person | `People/<Display Name>.md` | Display name as Outlook gives it (`from` / `recipients[].name`), illegal characters replaced by `_`, trimmed. If no display name, the part of the SMTP address before `@`. |
 | Attachments | `Attachments/<YYYY-MM-DD slug>/<filename>` | One subfolder per email note, same name as the note minus `.md`. |
 | Follow-ups | `Follow-ups.md` | Fixed. |
 
 ### Slug rules (email notes)
+
+What the server does with the subject:
 
 1. Start with the subject. Empty subject → `(no subject)`.
 2. Strip leading reply/forward prefixes, repeatedly, case-insensitive: `Re:`, `RE:`, `Fwd:`, `FW:`, `AW:`, `WG:`, `TR:`, `SV:` followed by optional spaces. `Re: Re: FW: Budget` → `Budget`.
@@ -33,7 +55,7 @@ Conventions used in every template:
 
 ### Filename collision
 
-Same filename already present but with a different identity (different `internet_message_id` / `entry_id`): append ` (2)`, ` (3)` before `.md`. Same identity: this is an update, not a new file — see "Append on existing".
+Same filename already present but with a different identity (different `internet_message_id` / `entry_id`): the server appends ` (2)`, ` (3)` before `.md`. Same identity: this is an update, not a new file — see "Append on existing".
 
 ## Email note template
 
@@ -44,6 +66,7 @@ source: outlook
 entry_id: "<exact EntryID from outlook_get_mail>"
 internet_message_id: "<internet_message_id from outlook_get_mail, e.g. <abc123@mail.example.com>; empty string when Outlook has none>"
 conversation_id: "<conversation_id from outlook_get_mail>"
+subject: "<subject as received>"
 from: jane.doe@example.com
 from_name: Jane Doe
 from_link: "[[People/Jane Doe]]"
@@ -58,7 +81,7 @@ has_attachments: true
 attachments:
   - "[[Administrator/Attachments/2026-08-22 Budget Q3/Budget_Q3.xlsx|Budget_Q3.xlsx]]"
 msg_file: "[[Administrator/Attachments/2026-08-22 Budget Q3/Budget Q3.msg|Budget Q3.msg]]"
-created_by: administrator/0.0.3
+created_by: administrator/0.0.4
 ---
 
 # <Subject as received, untouched>
@@ -79,9 +102,8 @@ created_by: administrator/0.0.3
 
 ## Body
 
-<Body as plain text, trimmed: stop before the first quoted reply
-("From: ...", "-----Original Message-----", "On ... wrote:", "> ").
-Drop the signature block when it is obvious. Keep line breaks.
+<Body as plain text, trimmed: `body_trimmed` from outlook_get_mail(trim_quoted=true),
+which stops before the first quoted reply and drops the signature. Keep line breaks.
 For a thread note: one `### 2026-08-21 16:42 — Jane Doe` subsection per message, oldest first.>
 
 ## Attachments
@@ -93,12 +115,13 @@ For a thread note: one `### 2026-08-21 16:42 — Jane Doe` subsection per messag
 
 Rules:
 
+- Required keys (the server refuses the write without them): `type`, `source`, `internet_message_id`, `entry_id`, `conversation_id`, `subject`, `from`, `from_name`, `from_link`, `to`, `cc`, `received`, `status`, `created_by`. Pass `cc: []` when there is no Cc.
 - `status`: `todo` = user must do something; `waiting` = user is waiting on someone; `done` = nothing left; `fyi` = read only. Default for a freshly saved mail with an action item is `todo`, without one `fyi`; `waiting` when the mail is from the user's own address (`outlook_whoami`) and asks someone else for something.
-- `cc`, `has_attachments`, `attachments`, `msg_file` are optional — omit the key when empty. `has_attachments: true` whenever `get_mail` lists attachments, exported or not.
+- `has_attachments`, `attachments`, `msg_file` are optional — omit the key when empty. `has_attachments: true` whenever `get_mail` lists attachments, exported or not. `attachments` and `msg_file` are present only when the export happened before the note was written (the save skill asks first); exports done later are linked in an `## Update` section.
 - `to` / `cc` list SMTP addresses from `recipients[]` where `type == "to"` / `"cc"`. Use the raw `to` / `cc` strings only when `recipients` is empty.
 - The `**Cc:**` line and the `## Attachments` section are only present when there is something to list. Attachments that were not exported appear as plain text with "(not exported)".
 - Only the sender gets a person note and a wikilink. Other recipients are plain text on the `**To:**` / `**Cc:**` lines.
-- The `## Body` section is the record. Never edit it after the note exists; add updates below it.
+- The `## Body` section is the record. Never edit it after the note exists; updates go below it.
 
 ## Daily note template
 
@@ -112,7 +135,7 @@ since: 2026-08-21T18:02:00+02:00
 inbox_checked: 2026-08-22T08:31:10+02:00
 mails_seen: 23
 status: todo
-created_by: administrator/0.0.3
+created_by: administrator/0.0.4
 ---
 
 # 2026-08-22
@@ -142,8 +165,8 @@ Labels: **act** (do something), **reply** (answer), **waiting** (they owe me), *
 
 | Start | End | Subject | Location | Organizer |
 | --- | --- | --- | --- | --- |
-| 09:30 | 10:00 | Stand-up | Teams | Bob Lee |
-| 13:00 | 14:00 | Budget review with Jane | Room 4 | Jane Doe |
+| 09:30 | 10:00 | Stand-up | Teams | Bob Lee <!-- occurrence_key: 0400…|2026-08-22T09:30:00+02:00 --> |
+| 13:00 | 14:00 | Budget review with Jane | Room 4 | Jane Doe <!-- occurrence_key: 0400…|2026-08-22T13:00:00+02:00 --> |
 
 ## Watch out
 
@@ -162,13 +185,13 @@ Labels: **act** (do something), **reply** (answer), **waiting** (they owe me), *
 
 Rules:
 
-- Frontmatter: `date` = the note's date; `folder` = the folder read; `since` = the lower bound used on the first run; `inbox_checked` = the time of the most recent `outlook_list_mails` call (the next run's `since`); `mails_seen` = count of the first run. Only `inbox_checked` and `status` are ever changed on an existing daily note.
+- Required keys: `type`, `date`, `folder`, `since`, `inbox_checked`, `mails_seen`, `status`, `created_by`. `date` = the note's date; `folder` = the folder read; `since` = the lower bound used on the first run; `inbox_checked` = the time of the most recent `outlook_list_mails` call (the next run's `since`); `mails_seen` = count of the first run. The server replaces only `inbox_checked`, `mails_seen` and `status`; pass the frontmatter `vault_find` returned with just `inbox_checked` changed.
 - Table sorted `act`, `reply`, `waiting`, `fyi`, `noise`, newest first within a label. `Received` is `HH:MM` for today's mail, `YYYY-MM-DD HH:MM` otherwise. `Why` is one short line (under 80 characters).
 - Every row ends with `<!-- entry_id: … -->` inside the `Note` cell (hidden in Obsidian reading view). That is the dedupe key for a second run.
 - The `Note` column links to the email note only when one exists (match on `internet_message_id`, else `entry_id`). No link = not saved.
 - `## To do` holds `act` and `reply` items only. `## Waiting on` mirrors what went into `Follow-ups.md`.
-- `## Calendar` and `## Watch out` are only written by `/administrator:daily`; `/administrator:inbox` leaves them out. Times from `outlook_list_events`, `HH:MM` local. All-day events show `all day` in both time columns. `## Watch out` lists clashes (overlapping ranges) and meetings with no prep note (no file under `Meetings/` has this event's `occurrence_key` in its frontmatter; all-day events exempt). Offer `/administrator:prep` for those.
-- `## Suggested Outlook actions (not done)` lists what was offered. When the user says yes and the action runs, append a line `Done <ISO timestamp>: marked 2 as read` under an `## Update` section.
+- `## Calendar` and `## Watch out` are only written by `/administrator:daily`; `/administrator:inbox` leaves them out. Times from `outlook_list_events`, `HH:MM` local. All-day events show `all day` in both time columns. Calendar rows end with `<!-- occurrence_key: … -->` inside the last cell (written by `daily`, or by `schedule` through `vault_append_row`). `## Watch out` lists clashes (overlapping ranges) and meetings with no prep note (`vault_find("meeting", …)` finds nothing; all-day events exempt). Offer `/administrator:prep` for those.
+- `## Suggested Outlook actions (not done)` lists what was offered. When the user says yes and the action runs, a one-line `vault_write(mode="append")` records it: `Done <ISO timestamp>: marked 2 as read`.
 - When the folder is not the inbox, the heading reads `## Inbox (Inbox/Invoices, since …)`.
 
 ## Person note template
@@ -184,7 +207,7 @@ last_contact: 2026-08-22T09:14:00+02:00
 aliases:
   - Doe, Jane
   - jdoe@example.com
-created_by: administrator/0.0.3
+created_by: administrator/0.0.4
 ---
 
 # Jane Doe
@@ -202,15 +225,34 @@ jane.doe@example.com · Example GmbH
 
 Rules:
 
+- Required keys: `type`, `name`, `email`, `aliases`, `last_contact`, `created_by`.
 - `company` is optional: take it from `outlook_search_contacts` when the address matches a directory entry, otherwise omit the key. Do not guess it from the domain.
-- `aliases` holds other display names and other SMTP addresses seen for the same person. Start with an empty list `aliases: []` when there are none.
-- `last_contact` = the newest `received` among linked emails or the `start` of the newest held meeting, whichever is later. A stub created by `prep` or `schedule` with no email yet has `last_contact: ""`. This is the one frontmatter key on a person note the plugin updates in place.
-- `## Emails` is a list; append one line per new email note, newest at the bottom. Never remove lines. `## Meetings` is a list like `## Emails` (one line per meeting note, added when the note is created); append only. Either heading is created at the end of the plugin-written part when missing.
+- `aliases` holds other display names and other SMTP addresses seen for the same person. Start with an empty list `aliases: []` when there are none. `vault_find("person", <address>)` matches `email` and `aliases`, so one person never gets two notes.
+- `last_contact` = the newest `received` among linked emails or the `start` of the newest held meeting, whichever is later. A stub created by `prep` or `schedule` with no email yet has `last_contact: ""`.
+- `## Emails` and `## Meetings` are written at creation. Later email and meeting lines land under the `## Update <ISO>` headings the server adds (one line per append), because the server never edits existing text. `last_contact` is replaced and `aliases` merged on append; nothing else changes.
 - Anything the user writes below these lists (a `## Notes` section, for instance) is left alone.
 
 ## Meeting note
 
-One note per calendar event occurrence, written by the `meetings` skill (`/administrator:prep`, `/administrator:notes`) or by the `schedule` skill when it books a meeting — all three use the one template in `skills/meetings/references/meeting-note.md`. Identity = `occurrence_key`. Frontmatter: `type: meeting`, `source: outlook`, `entry_id` (optional), `global_id`, `occurrence_key`, `subject`, `start`, `end`, `location`, `organizer` (SMTP), `organizer_link`, `attendees` (SMTP list), `attendee_links`, `is_recurring`, `status: upcoming | held | cancelled`, `created_by`. Body sections in fixed order: `## Prep` (written by `prep`, or a one-line placeholder by `schedule` / `notes`), `## Notes` (the user's raw notes, never edited after the first drop), `## Action items`, `## Waiting on`, `## Related emails`, `## Minutes draft` (optional). A moved meeting keeps its filename and frontmatter; the move is an `## Update` line. Template, Prep layout, and append rules: `skills/meetings/references/meeting-note.md`.
+One note per calendar event occurrence, written by the `meetings` skill (`/administrator:prep`, `/administrator:notes`) or by the `schedule` skill when it books a meeting — all three use the one template in `skills/meetings/references/meeting-note.md`. Identity = `occurrence_key`. Frontmatter: `type: meeting`, `source: outlook`, `entry_id` (optional), `global_id`, `occurrence_key`, `subject`, `start`, `end`, `location`, `organizer` (SMTP), `organizer_link`, `attendees` (SMTP list), `attendee_links`, `is_recurring`, `status: upcoming | held | cancelled`, `created_by`. Body sections in fixed order: `## Prep` (written by `prep`, or a one-line placeholder by `schedule` / `notes`), `## Notes`, `## Action items`, `## Waiting on`, `## Related emails`, `## Transcript` (only when a transcript was pasted), `## Minutes draft` (optional). Placeholders are never replaced; later prep runs, note drops, action items and the minutes draft live under `## Update` headings with `###` sub-headings. A moved meeting keeps its filename and frontmatter; the move is an `## Update` line. Template, Prep layout, and append rules: `skills/meetings/references/meeting-note.md`.
+
+## Weekly note
+
+One note per ISO week, written by `/administrator:weekly` (`skills/review/SKILL.md`). Identity = `week`. Frontmatter:
+
+```markdown
+---
+type: weekly
+source: administrator
+week: 2026-W34
+start: 2026-08-17
+end: 2026-08-23
+generated: 2026-08-22T10:20:00+02:00
+created_by: administrator/0.0.4
+---
+```
+
+Required keys: `type`, `week`, `start`, `end`, `created_by`. Body sections in fixed order: `## Still open from inbox`, `## Waiting on`, `## Meetings held`, `## Next week`, `## People going quiet`. A second run on the same week appends `## Update <ISO>` with a fresh set of sections; the earlier text stays. Nothing in a weekly note is edited in place.
 
 ## Follow-ups.md
 
@@ -218,7 +260,7 @@ One note per calendar event occurrence, written by the `meetings` skill (`/admin
 ---
 type: followups
 source: outlook
-created_by: administrator/0.0.3
+created_by: administrator/0.0.4
 ---
 
 # Follow-ups
@@ -239,61 +281,50 @@ Things I am waiting on. One row per thread. Move a row to Done when it is closed
 
 Row rules:
 
-- `Since` = date of the mail that started the wait. `Who` = wikilink to the person note when one exists, else the display name. `What` = ten words or fewer (usually the subject). `Email` = wikilink to the email note, empty if not saved. `Last checked` = date of the run that last saw the thread still open, followed by `<!-- entry_id: … -->` of the newest mail in the thread.
-- A row is identified by the `entry_id` comment, else by the `Email` link, else by `Who` + `What`. Existing row → update `Last checked` only. New → append to the bottom of `## Open`.
-- Closing a row (user says it is done, or a reply from `Who` on the same subject appears in the inbox): cut the row from `## Open`, paste into `## Done` with `Closed` = today. Never delete rows. `inbox`, `save`, `notes` and `schedule` write rows; `inbox` closes them, and `notes` closes a meeting row when the user's notes say it is done.
-- Rows created from a meeting (`/administrator:notes`): `Since` = meeting date, `Email` = `[[Meetings/…]]` link, trailing comment `<!-- occurrence_key: … -->` instead of `entry_id`. Identity = that comment plus `What`. Rows created by a proposed-times draft (`/administrator:schedule`): `What` = "pick a time — <subject>", `Email` empty, no comment; identity = `Who` + `What`.
+- `Since` = date of the mail that started the wait. `Who` = wikilink to the person note when one exists, else the display name. `What` = ten words or fewer (usually the subject). `Email` = wikilink to the email note, empty if not saved. `Last checked` = date of the run that wrote the row, followed by the hidden key comment `vault_append_row` adds.
+- A row is identified by the hidden key comment (`entry_id`, `internet_message_id` for rows written by `followups` from the user's own sent mail, or `occurrence_key`), else by the `Email` link, else by `Who` + `What`. Existing row (same key) → left as it is (`vault_append_row` answers `duplicate`). New → append to the bottom of `## Open`.
+- Closing a row (user says it is done, or a reply from `Who` on the same subject appears): `vault_move_row(..., "Open", "Done", key, set_last_cell=<date>)` cuts the row and sets `Closed`. Never delete rows. `inbox`, `save`, `notes`, `schedule` and `followups` write rows; `inbox` and `followups` close them (`notes` closes a meeting row when the user's notes say it is done).
+- Rows created from a meeting (`/administrator:notes`): `Since` = meeting date, `Email` = `[[Meetings/…]]` link, key `<occurrence_key> # <What>` with `key_label="occurrence_key"` (one meeting can create several rows). Rows created by a proposed-times draft (`/administrator:schedule`): `What` = "pick a time — <subject>", `Email` empty, key `<address> # pick a time — <subject>` with `key_label="proposal"`.
 
 ## Preferences.md
 
-`<vault>/Administrator/Preferences.md` — one file, owned by the user, read by the `schedule` skill before every free/busy call. Created from the template in `skills/schedule/references/preferences.md` only when missing; the plugin never rewrites or appends it. Frontmatter keys: `type: preferences`, `source: administrator`, `work_start`, `work_end` (`"HH:MM"`, quoted), `timezone` (a note only), `buffer_minutes`, `no_meeting_blocks` (list of `"Fri 13:00-17:30"`), `max_meetings_per_day`, `default_duration`, `default_location`, `preferred_days` (list of `Mon`…`Sun`), `created_by`. A missing or malformed key falls back to the template default for that key.
+`<vault>/Administrator/Preferences.md` — one file, owned by the user, read by the `schedule` skill before every free/busy call. Created by `vault_init` (`/administrator:setup` asks for work hours; other commands use the defaults 09:00–17:00, buffer 15, `no_meeting_blocks: ["Fri 13:00-<work_end>"]`). `vault_init(overwrite=true)` is the only thing that ever rewrites it. Frontmatter keys: `type: preferences`, `source: administrator`, `work_start`, `work_end` (`"HH:MM"`, quoted), `timezone` (a note only), `buffer_minutes`, `no_meeting_blocks` (list of `"Fri 13:00-17:00"`), `max_meetings_per_day`, `default_duration`, `default_location`, `preferred_days` (list of `Mon`…`Sun`), `created_by`. A missing or malformed key falls back to the default for that key (`skills/schedule/references/preferences.md`).
 
 ## Append on existing
 
-Applies to email notes, daily notes, meeting notes, and person notes alike:
-
-1. Find the existing note by identity (email: `internet_message_id`, else `entry_id`; daily: date; meeting: `occurrence_key`, else `global_id` for a moved meeting; person: filename, else `email`/`aliases`).
-2. Read it. Do not change anything above the first `## Update` heading, except: `status` (email, daily, meeting), `inbox_checked` (daily) and `last_contact` (person) may be replaced in the frontmatter; `## Emails` / `## Meetings` (person) and `## Open` / `## Done` tables (follow-ups) may receive new rows; `aliases` (person) may receive new items; on a meeting note the `_(none yet)_` / `- none` placeholders may be replaced, lines may be appended to `## Action items`, `## Waiting on`, `## Related emails`, a carried-over box in `## Prep` may be ticked when the user's notes close it, and `## Minutes draft` may be replaced.
-3. Append at the end of the file:
-
-```markdown
-## Update 2026-08-23T10:05:00+02:00
-
-- status: todo → waiting
-- Saved attachment [[Administrator/Attachments/2026-08-22 Budget Q3/Budget_Q3_v2.xlsx|Budget_Q3_v2.xlsx]]
-- Moved to Inbox/Projects/Budget (new entry_id 00000000AB...; old 00000000AA...)
-```
-
-4. Skip the update section entirely when nothing changed. A re-run that finds nothing new writes nothing.
+A write for an identity that exists appends `## Update <ISO>` plus your body; nothing above it changes. Skip the call entirely when nothing changed — a re-run that finds nothing new writes nothing.
 
 ## Worked example 1 — saving one email
 
 User: `/administrator:save budget q3 jane`
 
 1. `outlook_search_mails(query="budget q3 jane", response_format="json")` → one hit, `entry_id` `00000000AA…`.
-2. `outlook_get_mail(entry_id="00000000AA…", response_format="json")` → `subject: "Re: Budget Q3"`, `from: "Jane Doe"`, `from_address: "jane.doe@example.com"`, `internet_message_id: "<7f3a9c@example.com>"`, `conversation_id: "CAE…"`, `received: "2026-08-22T09:14:00+02:00"`, `recipients: [{name:"Hux Waitt", address:"me@example.com", type:"to"}]`, one attachment `Budget_Q3.xlsx`, body ends with a quoted earlier mail.
-3. Slug: `Re: Budget Q3` → `Budget Q3`. Filename `Emails/2026-08-22 Budget Q3.md`.
-4. Grep `Administrator/Emails/` for `internet_message_id: "<7f3a9c@example.com>"` → no match. Filename free.
-5. Write:
+2. `outlook_get_mail(entry_id="00000000AA…", include_body=true, trim_quoted=true, response_format="json")` → `subject: "Re: Budget Q3"`, `from: "Jane Doe"`, `from_address: "jane.doe@example.com"`, `internet_message_id: "<7f3a9c@example.com>"`, `conversation_id: "CAE…"`, `received: "2026-08-22T09:14:00+02:00"`, `recipients: [{name:"Hux Waitt", address:"me@example.com", type:"to"}]`, one attachment `Budget_Q3.xlsx`, `body_trimmed` without the quoted earlier mail.
+3. `vault_find("email", {"internet_message_id": "<7f3a9c@example.com>", "entry_id": "00000000AA…"})` → `found: false`.
+4. `vault_find("person", {"email": "jane.doe@example.com"})` → `found: false`, so `from_link` is `"[[People/Jane Doe]]"`.
+5. Ask: "Export the original .msg and Budget_Q3.xlsx to Administrator/Attachments/2026-08-22 Budget Q3/?" Only on yes: `outlook_save_mail_as` and `outlook_save_attachments`; the returned paths become `msg_file` and `attachments`.
+6. `vault_write("email", frontmatter, body, mode="upsert")` with:
 
-```markdown
----
+```yaml
 type: email
 source: outlook
-entry_id: "00000000AA…"
-internet_message_id: "<7f3a9c@example.com>"
-conversation_id: "CAE…"
+entry_id: 00000000AA…
+internet_message_id: <7f3a9c@example.com>
+conversation_id: CAE…
+subject: Re: Budget Q3
 from: jane.doe@example.com
 from_name: Jane Doe
 from_link: "[[People/Jane Doe]]"
 to:
   - me@example.com
+cc: []
 received: 2026-08-22T09:14:00+02:00
 status: todo
 has_attachments: true
-created_by: administrator/0.0.3
----
+created_by: administrator/0.0.4
+```
 
+```markdown
 # Re: Budget Q3
 
 **From:** [[People/Jane Doe]] <jane.doe@example.com>
@@ -318,19 +349,18 @@ Thanks
 Jane
 ```
 
-6. `People/Jane Doe.md` does not exist and no `People/` note has `jane.doe@example.com` → create from the person template with `aliases: []` and one line under `## Emails`.
-7. Ask: "Save the .msg and Budget_Q3.xlsx to Administrator/Attachments/2026-08-22 Budget Q3/?" Only on yes: `outlook_save_mail_as` and `outlook_save_attachments`, then add `attachments` / `msg_file` keys — this is the one case where keys are added to existing frontmatter, because the note was created seconds earlier in the same run.
-8. Report: "Saved Emails/2026-08-22 Budget Q3.md (todo) and created People/Jane Doe.md."
+   → `{"path": "Administrator/Emails/2026-08-22 Budget Q3.md", "action": "created"}`.
+
+7. `vault_write("person", {type: person, source: outlook, name: "Jane Doe", email: "jane.doe@example.com", last_contact: "2026-08-22T09:14:00+02:00", aliases: [], created_by: "administrator/0.0.4"}, "# Jane Doe\n\njane.doe@example.com\n\n## Emails\n\n- 2026-08-22 — [[Emails/2026-08-22 Budget Q3]] (todo)", mode="create")` → `Administrator/People/Jane Doe.md`.
+8. Report: "Saved Emails/2026-08-22 Budget Q3.md (todo) and created People/Jane Doe.md." plus the `obsidian://open` link.
 
 ## Worked example 2 — running inbox twice on one day
 
-First run at 08:30: `Daily/2026-08-22.md` does not exist. `since` = `inbox_checked` from `Daily/2026-08-21.md`. `outlook_list_mails(unread_only=true, since=<that>, limit=100, response_format="json")` returns 23 mails. Write the daily note from the template, 23 rows, `mails_seen: 23`, `inbox_checked` = the time of the call. Two `waiting` rows → two new rows in `Follow-ups.md` under `## Open`. Offer "Mark 9 fyi/noise as read?" — user does not answer; nothing runs.
+First run at 08:30: `vault_find("daily", {"date": "2026-08-22"})` → `found: false`. `since` = `inbox_checked` from `vault_list("daily", limit=1)` (the 2026-08-21 note). `outlook_list_mails(unread_only=true, since=<that>, limit=100, response_format="json")` returns 23 mails. `vault_write("daily", frontmatter, body, mode="upsert")` with the template body, 23 rows, `mails_seen: 23`, `inbox_checked` = the time of the call. Two `waiting` rows → two `vault_append_row("Administrator/Follow-ups.md", "Open", [...], dedupe_key=<entry_id>)` calls. Offer "Mark 9 fyi/noise as read?" — user does not answer; nothing runs.
 
-Second run at 15:40: `Daily/2026-08-22.md` exists. Read it, collect the `entry_id`s already listed (the `<!-- entry_id: … -->` comments). Call `outlook_list_mails` again with `since` = the note's `inbox_checked`. 3 new results (a mail that was already listed and is still unread would also come back if the user widened `since`; skip anything whose `entry_id` is already in the file). Append:
+Second run at 15:40: `vault_find` → `found: true`. `vault_read` it, collect the `<!-- entry_id: … -->` comments. Call `outlook_list_mails` again with `since` = the note's `inbox_checked`. 3 new results (a mail that was already listed and is still unread would also come back if the user widened `since`; skip anything whose `entry_id` is already in the file). `vault_write("daily", <frontmatter as found with inbox_checked: 2026-08-22T15:40:00+02:00>, body, mode="append")` with the body:
 
 ```markdown
-## Update 2026-08-22T15:40:00+02:00
-
 ### Inbox (since 2026-08-22T08:31:10+02:00)
 
 | # | Label | From | Subject | Received | Why | Note |
@@ -343,4 +373,4 @@ Second run at 15:40: `Daily/2026-08-22.md` exists. Read it, collect the `entry_i
 - Offered: mark 1 noise as read — not done.
 ```
 
-Then set `inbox_checked: 2026-08-22T15:40:00+02:00` in the frontmatter. `Follow-ups.md`: the Carol Ng row moves from `## Open` to `## Done` with `Closed: 2026-08-22`. Frontmatter `mails_seen` stays 23. No second daily file, no repeated rows.
+The server puts it under `## Update 2026-08-22T15:40:00+02:00` and replaces `inbox_checked` (`frontmatter_changed: ["inbox_checked"]`); `mails_seen` stays 23. The Carol Ng row moves with `vault_move_row("Administrator/Follow-ups.md", "Open", "Done", "00000000AC…", set_last_cell="2026-08-22")`. No second daily file, no repeated rows.

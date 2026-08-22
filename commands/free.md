@@ -12,7 +12,7 @@ Argument given: `$ARGUMENTS`
 ## Steps
 
 1. Load the `administrator` skill, then the `schedule` skill. Load the `outlook` skill if it is not already loaded.
-2. Check `ADMINISTRATOR_VAULT` is set. Read `Administrator/Preferences.md`; if it is missing, create it from the template in the `schedule` skill's `references/preferences.md` and say so.
+2. Call `vault_status` if not done yet this session; if `files["Preferences.md"]` or anything else is false, call `vault_init(created_by="administrator/0.0.4")` (it creates `Preferences.md` with defaults; say so and mention `/administrator:setup` for other work hours). Then `vault_read("Administrator/Preferences.md")`.
 3. Turn each name into an SMTP address: `outlook_resolve_name`, then `outlook_search_contacts(include_directory=true, limit=5)`, then ask the user. Never guess an address. Say which address each name became.
 4. Work out `duration_minutes` and the `start` / `end` window as the `schedule` skill describes.
 5. Call `outlook_find_meeting_times(addresses, start, end, duration_minutes, work_start, work_end, buffer_minutes, weekdays_only=true, include_self=true, max_results=15)` with the values from `Preferences.md`. Then drop candidates inside `no_meeting_blocks`, drop days at `max_meetings_per_day` (one `outlook_list_events` per day), put `preferred_days` first, keep five.

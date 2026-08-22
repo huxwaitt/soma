@@ -1,6 +1,6 @@
 # Outlook reference — plugin needs → `outlook_*` tools
 
-This is a map, not a manual. Exact parameter tables, return shapes, and quirks are in the `outlook` skill: `references/tools.md` (parameters) and `references/gotchas.md` (failure modes). Read those the first time you call a tool in a session. Server: outlook-classic-mcp 0.4.0 or later with `outlook_get_conversation`, `internet_message_id`, `outlook_get_event_by_key`, `outlook_get_free_busy` and `outlook_find_meeting_times` (40 tools), classic Outlook only.
+This is a map, not a manual. Exact parameter tables, return shapes, and quirks are in the `outlook` skill: `references/tools.md` (parameters) and `references/gotchas.md` (failure modes). Read those the first time you call a tool in a session. Server: outlook-classic-mcp 0.4.0 or later with `outlook_get_conversation`, `internet_message_id`, `outlook_get_event_by_key`, `outlook_get_free_busy` and `outlook_find_meeting_times` (40 tools), classic Outlook only. The same package ships a second server, `vault` (`administrator-vault`, 8 tools `vault_*`), which writes the notes; see `references/vault.md` and the table at the end of this page.
 
 Always pass `response_format="json"` when you will use a field from the result (an `entry_id`, a `conversation_id`, a `received` time). Use the default markdown only when the result itself is the answer for the user.
 
@@ -10,8 +10,8 @@ Always pass `response_format="json"` when you will use a field from the result (
 | --- | --- | --- | --- |
 | Inbox window (`inbox`, `daily`) | `outlook_list_mails` | `unread_only=true`, `since=<ISO>`, `limit=100`, `folder` (default `inbox`, or the one the user named), `response_format="json"` | `items[]`: `entry_id, internet_message_id, subject, from, from_address, to, received, unread, has_attachments, importance, preview`. `has_more` / `next_offset` → page once more if needed. |
 | Find a mail by words (`save`) | `outlook_search_mails` | `query=<words>`, `scope` = `subject_body` (default) / `subject` / `from`, `limit=5`, `response_format="json"` | Same item shape as `list_mails`. Show the user up to 5 candidates and let them pick. |
-| The whole thread (`save` with "the thread") | `outlook_get_conversation` | `entry_id=<any mail in the thread>`, `include_body=true`, `max_body_chars=0`, `limit=20` (always returns JSON) | `conversation_id`, `items[]` oldest first, each the `list_mails` item shape plus `conversation_id`, `folder`, `body`. `truncated=true` → thread longer than `limit`. One item only when Outlook has no conversation (IMAP/POP, drafts). |
-| Full mail for a note (`save`, ambiguous classification in `inbox`) | `outlook_get_mail` | `entry_id`, `response_format="json"`, `max_body_chars=10000` (raise only if `body_truncated`) | `entry_id, internet_message_id, conversation_id, subject, from, from_address, to, cc, recipients[{name,address,type}], received, sent, categories, attachments[{index,filename,size_bytes}], body` |
+| The whole thread (`save` with "the thread", `followups`) | `outlook_get_conversation` | `entry_id=<any mail in the thread>`, `include_body=true`, `max_body_chars=0`, `limit=20`, `trim_quoted=true` when the bodies go into a note (always returns JSON) | `conversation_id`, `items[]` oldest first, each the `list_mails` item shape plus `conversation_id`, `folder`, `body` (and `body_trimmed`, `trimmed_chars`, `trim_markers` with `trim_quoted=true`). `truncated=true` → thread longer than `limit`. One item only when Outlook has no conversation (IMAP/POP, drafts). |
+| Full mail for a note (`save`, ambiguous classification in `inbox`) | `outlook_get_mail` | `entry_id`, `response_format="json"`, `max_body_chars=10000` (raise only if `body_truncated`), `trim_quoted=true` for a note body, `include_body=false` when only `recipients` are needed | `entry_id, internet_message_id, conversation_id, subject, from, from_address, to, cc, recipients[{name,address,type}], received, sent, categories, attachments[{index,filename,size_bytes}], body`; with `trim_quoted=true` also `body_trimmed` (quoted history and signature removed), `trimmed_chars`, `trim_markers[]` |
 | Many mails' metadata in one call, with `conversation_id` | `outlook_export_mails` | `entry_ids=[...]` or the same filters as `list_mails`, `fmt="json"`, `output_path=<vault>/Administrator/Attachments/_export/<date>.json`, `include_body=false` | File at `path`; columns `entry_id, subject, from, from_address, to, cc, received, sent, unread, flagged, has_attachments, importance, categories, conversation_id, internet_message_id`. Read the file, then delete it when done. |
 | Export the mail itself (`save`, optional) | `outlook_save_mail_as` | `entry_id`, `output_dir=<vault>/Administrator/Attachments/<YYYY-MM-DD slug>`, `fmt="msg"` | `path` → `msg_file` in the note. Never overwrites; Outlook adds ` (1)`. |
 | Export attachments (`save`, optional) | `outlook_save_attachments` | `entry_id`, `output_dir=<same folder>`, `attachment_index` (1-based) or omit for all | `files[]` → `attachments` list in the note. |
@@ -33,6 +33,24 @@ Always pass `response_format="json"` when you will use a field from the result (
 | Mark read / flag / category in bulk (offered by `inbox`) | `outlook_bulk_mark_mails` | `entry_ids`, `read=true|false|null`, `flagged`, `categories=[...]` (replaces the list; `[]` clears) | `status`, `failed`, `failures[]`. Report failures by subject. |
 | Move in bulk (offered by `inbox`) | `outlook_bulk_move_mails` | `entry_ids`, `target_folder=<path from list_folders>` | `results[].new_entry_id` — the old `entry_id` is dead after a cross-store move. |
 | Single mark / move | `outlook_mark_mail`, `outlook_move_mail` | `entry_id` + the change | `unread` (not `read`) / `new_entry_id`. |
+| Sent mail of the last 30 days (`followups`) | `outlook_list_mails` | `folder="sent"`, `since=<now − 30 days>`, `limit=100`, `offset=100` for one more page, `response_format="json"` | Same item shape; `received` of a sent item is the send time. No `conversation_id` — group with `outlook_get_conversation`. |
+
+## Vault tools (`vault_*`, server `administrator-vault`)
+
+Same package, second MCP server named `vault`. All paths are vault-relative with forward slashes and start with `Administrator/`; the server refuses anything else, reads included. Everything returns JSON; an error (missing key, duplicate on create, missing note on append, bad path) comes back as a tool error — fix the input and call again, never fall back to the file tools.
+
+| Plugin need | Tool | Parameters to use | What to take from the result |
+| --- | --- | --- | --- |
+| Is the vault there, what is it called (every session, `setup`) | `vault_status` | — | `vault`, `exists`, `is_dir`, `administrator_dir_exists`, `folders{}`, `files{}`, `under_user_profile`, `vault_name` (for `obsidian://open?vault=…`). Never raises. |
+| Create missing folders and files (`setup`, first use) | `vault_init` | `work_start`, `work_end`, `buffer_minutes`, `created_by="administrator/0.0.4"`; `overwrite=true` only on the user's say-so | `created[]`, `skipped[]`. Never overwrites `Follow-ups.md`. |
+| Does a note exist (before every write) | `vault_find` | `type` (`email` / `meeting` / `person` / `daily` / `weekly`), `identity` object or string | `found`, `path`, `frontmatter`, `matches[]` (newest first) |
+| Write or update a note | `vault_write` | `type`, `frontmatter` (object, every required key included, `created_by` too), `body` (markdown, no fences), `mode="upsert"` (`create` / `append` when you know) | `path`, `action` (`created` / `appended`), `identity`; on append also `update_heading`, `frontmatter_changed[]` |
+| A row in `Follow-ups.md` or a daily table | `vault_append_row` | `path`, `section` (heading text without `## `), `row[]`, `dedupe_key`, `key_label` (`entry_id` default / `occurrence_key` / `internet_message_id` / `proposal`), `header[]` for a table that does not exist yet | `appended` true, or false with `reason: "duplicate"` and `line` |
+| Close a follow-up | `vault_move_row` | `path`, `from_section`, `to_section`, `dedupe_key`, `set_last_cell=<date>` | `moved` true / false with `reason` |
+| Read one note | `vault_read` | `path` | `frontmatter`, `body`, `sections[]` |
+| Newest notes of a type (`inbox` window, `weekly`) | `vault_list` | `type`, `since` (ISO), `limit` | `[{path, frontmatter}]` newest first |
+
+No `vault_*` call needs a yes except `vault_init(overwrite=true)`.
 
 ## Identity fields: where they come from
 

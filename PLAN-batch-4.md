@@ -60,3 +60,27 @@ Principle: the model should decide, not transport. Every byte that is only moved
 - **Measurement**: each command ends with the token count of its turn from the host if available; log into the daily note frontmatter (`tokens_used`) so regressions are visible.
 
 Expected effect: inbox 100 mails ~80k → ~10k; prep per meeting ~15k → ~4k; followups ~40k → ~5k.
+
+---
+
+# v0.6 — the real run-through
+
+No eval suite. One person, one real mailbox, one week, used the way it is meant to be used. Only the batch-3 plugin plus whatever batches 4–5 added.
+
+## Setup (day 0)
+- Real machine, classic Outlook with the user's profile, a fresh work vault under `C:\Users\<you>\`, `OUTLOOK_MCP_DIR` and `ADMINISTRATOR_VAULT` set. Obsidian open on the vault the whole time so every write is seen as it lands.
+- `/administrator:setup` first. It either works in one go or the run stops there and that is the first fix.
+
+## The week
+Each morning and end of day, in natural words, not command syntax where a phrase should do:
+- Mon: "what came in overnight" → accept or reject its labels, say yes to one batch action, check the daily note reads like something you'd keep. "save the thread with <real person> about <real topic>" → open the note, open the .msg, check the person note.
+- Tue: "prep me for my 10am" → does it find last week's note for the recurring one? Paste real Copilot notes after the meeting → are the actions right, is the minutes draft in Drafts and sendable as-is?
+- Wed: "when are <two colleagues> and I free for 30 min this week" → compare against Scheduling Assistant by hand. Book one real meeting with one colleague who has agreed to be the guinea pig. Move it once.
+- Thu: "who hasn't replied to me" → compare with what you know is actually outstanding. Send one nudge from Drafts.
+- Fri: "weekly" → read it. Would you have written anything it missed?
+
+## What gets recorded, per command
+Did it do the thing, how many turns/yeses it took, what it got wrong, what was annoying, token count of the turn (from the host), and whether Outlook or Obsidian showed anything unexpected (duplicate notes, stray invites, mail moved that should not have been).
+
+## Exit rule
+A command passes when it ran on three different days without a correction. Anything else is a bug list for the next batch — and that list, not a plan, decides what gets built next.

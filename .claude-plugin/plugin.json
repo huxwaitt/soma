@@ -1,16 +1,20 @@
 {
   "name": "administrator",
-  "version": "0.0.3",
-  "description": "An assistant that runs your classic Outlook mailbox and keeps the paper trail in an Obsidian vault. Goes through the inbox and writes a daily note, saves any email as a linked note with a person stub, builds a daily page from inbox plus calendar, prepares you for meetings and files your notes afterwards, and finds free times and books meetings. Reads freely; never moves, marks, books, or sends anything without an explicit yes; never sends plain mail. Bundles the outlook-classic-mcp server.",
+  "version": "0.0.4",
+  "description": "An assistant that runs your classic Outlook mailbox and keeps the paper trail in an Obsidian vault. Checks its own setup, goes through the inbox and writes a daily note, saves any email as a linked note with a person stub, builds a daily page from inbox plus calendar, prepares you for meetings and files your notes afterwards, finds free times and books meetings, chases threads nobody answered, and writes a weekly review. Reads freely; never moves, marks, books, or sends anything without an explicit yes; never sends plain mail. Bundles the outlook-classic-mcp server and its vault writer.",
   "author": {
     "name": "huxwaitt"
   },
   "license": "MIT",
-  "keywords": ["outlook", "obsidian", "email", "inbox", "notes", "meetings", "scheduling", "assistant", "windows", "mcp"],
+  "keywords": ["outlook", "obsidian", "email", "inbox", "notes", "meetings", "scheduling", "setup", "followups", "weekly", "assistant", "windows", "mcp"],
   "mcpServers": {
     "outlook": {
       "command": "uv",
       "args": ["run", "--directory", "${OUTLOOK_MCP_DIR}", "outlook-mcp"]
+    },
+    "vault": {
+      "command": "uv",
+      "args": ["run", "--directory", "${OUTLOOK_MCP_DIR}", "administrator-vault"]
     }
   }
 }

@@ -1,19 +1,19 @@
 # Preferences reference — `<vault>/Administrator/Preferences.md`
 
-One file holds the user's scheduling preferences. The `schedule` skill reads it before every free/busy call and applies it on top of what Outlook returns. The user edits it by hand in Obsidian; the plugin only creates it when it is missing and never rewrites it.
+One file holds the user's scheduling preferences. The `schedule` skill reads it (`vault_read("Administrator/Preferences.md")`) before every free/busy call and applies it on top of what Outlook returns. The user edits it by hand in Obsidian; `vault_init` creates it when it is missing (`/administrator:setup` asks for work hours first, every other command uses the defaults below) and only `vault_init(overwrite=true)` ever rewrites it.
 
-## Template (written on first use when the file does not exist)
+## Template (what `vault_init` writes with the defaults)
 
 ```markdown
 ---
 type: preferences
 source: administrator
 work_start: "09:00"
-work_end: "17:30"
+work_end: "17:00"
 timezone: "local — the timezone Outlook reports in outlook_whoami; all times in this file are in it"
 buffer_minutes: 15
 no_meeting_blocks:
-  - "Fri 13:00-17:30"
+  - "Fri 13:00-17:00"
 max_meetings_per_day: 5
 default_duration: 30
 default_location: "Teams"
@@ -21,7 +21,7 @@ preferred_days:
   - Tue
   - Wed
   - Thu
-created_by: administrator/0.0.3
+created_by: administrator/0.0.4
 ---
 
 # Scheduling preferences
@@ -45,8 +45,8 @@ Anything you write below this line is yours; the plugin never touches it.
 ## Rules
 
 - File path is fixed: `<vault>/Administrator/Preferences.md`. Identity is the path; there is never a second file.
-- Created from the template above, exactly as shown, only when the file is missing. Report "Created Administrator/Preferences.md with defaults — edit it any time." once, then carry on.
-- Never rewritten, never appended by the plugin. The user owns it. If a key is missing, malformed, or the frontmatter cannot be parsed, use the default from the template for that key, and say so in one line ("`work_end` missing in Preferences.md, using 17:30"). Do not fix the file.
+- Created by `vault_init` (work hours and buffer from its arguments; `/administrator:setup` asks for them once, other commands pass the defaults 09:00–17:00, 15). Report "Created Administrator/Preferences.md with defaults — edit it any time, or run /administrator:setup to set your work hours." once, then carry on.
+- Never rewritten, never appended by the plugin (only `vault_init(overwrite=true)`, on the user's explicit request). The user owns it. If a key is missing, malformed, or the frontmatter cannot be parsed, use the default from the template for that key, and say so in one line ("`work_end` missing in Preferences.md, using 17:00"). Do not fix the file.
 - Times are `"HH:MM"` strings, always quoted in YAML so `09:00` is not read as a number.
 - `no_meeting_blocks` entries are `<Day> <HH:MM>-<HH:MM>`. An entry that does not match that shape is ignored with a one-line warning naming it.
 - `preferred_days` and the day part of `no_meeting_blocks` use three-letter English names. Anything else is ignored with a warning.

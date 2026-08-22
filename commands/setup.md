@@ -1,0 +1,43 @@
+---
+description: Check that Outlook and the vault are reachable, create the Administrator folder and its files if they are missing, and set your work hours once. Run this first on a new machine.
+argument-hint: ""
+---
+
+# /administrator:setup
+
+No arguments. Read-only apart from one call to `vault_init`, which creates missing folders and files under `<vault>/Administrator/` and never overwrites anything.
+
+## Steps
+
+1. Load the `administrator` skill. Load the `outlook` skill if it is not already loaded.
+2. **Are both MCP servers running?** Look at the tools you have.
+   - No `vault_*` tools: stop and say "The vault server is not running. `OUTLOOK_MCP_DIR` must point to your `outlook-classic-mcp` checkout (a version that has the `administrator-vault` script; run `uv sync` in that folder once), and Claude Code must be restarted after setting it." Do not try to write notes by hand.
+   - No `outlook_*` tools: say the same for the `outlook` server (same variable, same checkout). Continue with the vault checks so the user gets one complete report.
+3. **Vault.** Call `vault_status`. The result has `vault` (the value of `ADMINISTRATOR_VAULT`), `exists`, `is_dir`, `administrator_dir_exists`, `folders`, `files`, `under_user_profile`, `vault_name`.
+   - `vault` empty: say "ADMINISTRATOR_VAULT is not set. Set it to the absolute path of your Obsidian vault (for example `C:\Users\<you>\Documents\Vault`), then restart Claude Code." and skip to step 4; do not guess a vault, do not search the disk.
+   - `exists` or `is_dir` false: say "ADMINISTRATOR_VAULT points to `<vault>`, which is not a directory." Do not create the vault itself.
+   - Otherwise note which of `folders` and `files` are false; they are created in step 5.
+4. **Outlook.** Call `outlook_whoami`. Report the account (`accounts[].smtp_address`) and the timezone (`utc_offset`) in one line.
+   On an error, say what it most likely means, in plain words:
+   - "Class not registered", "Invalid class string", or a COM error: Outlook is not the classic desktop version. The new Outlook (`olk.exe`) has no COM interface; switch back to classic Outlook (`outlook.exe`) and try again.
+   - "No profile", "The operation failed", or a prompt that never returns: Outlook has no mail profile, or asks for one on start. Open Outlook once by hand, finish the profile setup, leave it running, and run this command again.
+   - A timeout on the first call is normal after a cold start; try once more before calling it a failure.
+5. **Create what is missing.** If `administrator_dir_exists` is false or any `folders` / `files` flag is false:
+   - If `files["Preferences.md"]` is false, ask once, in one short message ending in a question: "I will set work hours 09:00–17:00 with a 15 minute buffer between meetings. Keep those, or tell me yours?" Wait for the answer. A plain yes keeps the defaults; otherwise take the hours (`HH:MM`) and buffer (minutes) from the reply. Do not ask when `Preferences.md` already exists.
+   - Call `vault_init(work_start=<HH:MM>, work_end=<HH:MM>, buffer_minutes=<n>, created_by="administrator/0.0.4")`. Never pass `overwrite=true` from this command. Report `created` and `skipped` as two short lists of paths.
+   - When nothing is missing, say so in one line and call nothing.
+6. **Export sandbox.** If `under_user_profile` is false, warn: "The vault is outside `C:\Users\<you>`, so `.msg` and attachment exports (`outlook_save_mail_as`, `outlook_save_attachments`) will be refused. Notes still work. To allow exports anyway set `OUTLOOK_MCP_ALLOW_ANY_PATH=1` and restart Claude Code."
+7. **Report.** Five lines at most: servers (both present or which one is missing), Outlook account and timezone, vault path and name, what was created, the sandbox warning if any. End with the link `obsidian://open?vault=<vault_name>&file=Administrator%2FPreferences.md` (`vault_name` from `vault_status`) and one line: "Edit Preferences.md in Obsidian any time; the plugin reads it on every scheduling request and never changes it."
+
+## Example
+
+```
+/administrator:setup
+```
+
+> Both servers are up. Outlook: hux@example.com, UTC+02:00.
+> Vault: `C:\Users\<you>\Documents\Vault` (name `Vault`). Created `Administrator/`, 7 folders, `Follow-ups.md`, `Preferences.md` (09:00–17:00, buffer 15) and 4 views.
+> obsidian://open?vault=Vault&file=Administrator%2FPreferences.md
+> Edit Preferences.md in Obsidian any time; the plugin reads it on every scheduling request and never changes it.
+
+Running it again when everything exists reports "Nothing to create." and the same link.
