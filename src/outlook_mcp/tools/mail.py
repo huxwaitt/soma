@@ -23,6 +23,22 @@ StopOnError = Annotated[
     bool,
     Field(description="Abort the batch at the first failure instead of continuing."),
 ]
+ConversationEntryId = Annotated[
+    str,
+    Field(min_length=1, description="EntryID of any mail in the thread (from list/search/get_mail)."),
+]
+ConversationIncludeBody = Annotated[
+    bool,
+    Field(description="Include each mail's plain-text body (off by default; summaries carry a 200-char preview)."),
+]
+ConversationMaxBodyChars = Annotated[
+    int,
+    Field(ge=0, description="Per-mail body truncation when include_body=True (0 = no limit)."),
+]
+ConversationLimit = Annotated[
+    int,
+    Field(ge=1, le=500, description="Max mails to return, oldest first."),
+]
 
 
 def register(mcp, bridge) -> None:
@@ -166,6 +182,33 @@ def register(mcp, bridge) -> None:
             max_body_chars=max_body_chars,
         )
         return ui_result(format_response(data, response_format), data)
+
+    @mcp.tool(
+        name="outlook_get_conversation",
+        annotations={
+            "title": "Get the whole Outlook conversation (thread) for a mail",
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+    @safe_call
+    async def outlook_get_conversation(
+        entry_id: ConversationEntryId,
+        include_body: ConversationIncludeBody = False,
+        max_body_chars: ConversationMaxBodyChars = 2000,
+        limit: ConversationLimit = 200,
+    ) -> str:
+        """Return every mail in the thread containing entry_id, oldest first, across folders (Inbox, Sent Items, sub-folders). Use before replying so the reply is grounded in the full exchange."""
+        data = await bridge.call(
+            mail_client.get_conversation,
+            entry_id=entry_id,
+            include_body=include_body,
+            max_body_chars=max_body_chars,
+            limit=limit,
+        )
+        return format_response(data, "json")
 
     @mcp.tool(
         name="outlook_send_mail",

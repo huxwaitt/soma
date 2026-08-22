@@ -4,7 +4,7 @@ Every `outlook_*` tool, with parameters, defaults, return shape, and notes on ch
 
 ## Contents
 
-- [Mail](#mail) — list_mails, search_mails, get_mail, send_mail, reply_mail, forward_mail, move_mail, delete_mail, mark_mail, save_attachments, bulk_move_mails, bulk_delete_mails, bulk_mark_mails, export_mails, save_mail_as
+- [Mail](#mail) — list_mails, search_mails, get_mail, get_conversation, send_mail, reply_mail, forward_mail, move_mail, delete_mail, mark_mail, save_attachments, bulk_move_mails, bulk_delete_mails, bulk_mark_mails, export_mails, save_mail_as
 - [Folders](#folders) — list_folders, create_folder
 - [Calendar](#calendar) — list_events, get_event, create_event, update_event, delete_event, respond_event
 - [Contacts](#contacts) — list_contacts, search_contacts, get_contact, resolve_name
@@ -35,7 +35,7 @@ List mail items from a folder, newest first. Read-only.
 | `has_attachments`| bool/null | `null`      | `true` = only with attachments, `false` = only without. |
 | `response_format`| `markdown`/`json` | `markdown` | Use `json` to extract `entry_id`s. |
 
-**Returns** (`json` shape): `{ folder, count, offset, limit, items: [...], has_more, next_offset }`. Each item has: `entry_id, subject, from, from_address, to, received, unread, has_attachments, importance, preview` (200-char body excerpt). `from_address` is always a real SMTP address when Outlook can resolve one.
+**Returns** (`json` shape): `{ folder, count, offset, limit, items: [...], has_more, next_offset }`. Each item has: `entry_id, internet_message_id, subject, from, from_address, to, received, unread, has_attachments, importance, preview` (200-char body excerpt). `from_address` is always a real SMTP address when Outlook can resolve one.
 
 ### `outlook_search_mails`
 
@@ -70,7 +70,20 @@ Fetch the body, all headers, and the attachment manifest for one mail. Read-only
 | `max_body_chars` | int ≥0 | `10000`  | Body truncation cap; `0` = unlimited. |
 | `response_format` | str | `markdown` | |
 
-**Returns**: `{ entry_id, conversation_id, subject, from, from_address, to, cc, bcc, received, sent, unread, importance, categories, attachments: [{index, filename, size_bytes}], body }` plus `body_truncated`/`body_total_chars` when the cap was hit (re-call with a higher `max_body_chars` to read more) and `html_body` when `include_html=true`.
+**Returns**: `{ entry_id, conversation_id, internet_message_id, subject, from, from_address, to, cc, bcc, recipients: [{name, address, type}], received, sent, unread, importance, categories, attachments: [{index, filename, size_bytes}], body }` — `recipients[].address` is the SMTP address and `type` is `to` / `cc` / `bcc` (the flat `to` / `cc` strings are display names), plus `body_truncated`/`body_total_chars` when the cap was hit (re-call with a higher `max_body_chars` to read more) and `html_body` when `include_html=true`. `internet_message_id` is the RFC 5322 `Message-ID` header (`""` for drafts) — use it to correlate with other systems; it also appears on list/search summaries and export rows.
+
+### `outlook_get_conversation`
+
+Return every mail in the thread that contains a given mail, oldest first, including replies filed in other folders (Sent Items, sub-folders). Read this before drafting a reply to a long exchange.
+
+| Param            | Type   | Default | Notes |
+| ---------------- | ------ | ------- | ----- |
+| `entry_id`       | string | required | Any mail in the thread. |
+| `include_body`   | bool   | `false` | Add each mail's plain-text `body`. |
+| `max_body_chars` | int ≥0 | `2000`  | Per-mail truncation; `0` = unlimited. |
+| `limit`          | int 1–500 | `200` | Max mails returned (oldest first). |
+
+**Returns** (always JSON): `{ conversation_id, count, truncated, items: [...] }`. Each item is the `list_mails` summary shape plus `conversation_id`, `folder`, and (with `include_body`) `body` / `body_truncated` / `body_total_chars`. If Outlook has no conversation for the item (IMAP/POP stores, drafts), `items` contains just that one mail.
 
 `attachments[].index` is **1-indexed**; pass it to `save_attachments` to save a single file.
 
@@ -198,7 +211,7 @@ Write mail metadata to a CSV or JSON file so it can be opened in Excel or consum
 | `max_body_chars`| int     | `2000`    | Body truncation; `0` = unlimited. |
 | `fmt`          | `csv`/`json` | `csv` | CSV is written with a UTF-8 BOM so Excel opens it correctly. |
 
-Columns: `entry_id, subject, from, from_address, to, cc, received, sent, unread, flagged, has_attachments, importance, categories, conversation_id[, body]`.
+Columns: `entry_id, subject, from, from_address, to, cc, received, sent, unread, flagged, has_attachments, importance, categories, conversation_id, internet_message_id[, body]`.
 
 **Returns**: `{ status: "exported", format, path, source, count, truncated, failures }`. Report `path` and `count` to the user; `truncated=true` means the folder query hit `limit`.
 
@@ -466,7 +479,8 @@ Returns the bound user, the account list, and the user's timezone: `{ current_us
 - `entry_id` — opaque, stable handle for an item. Pass back verbatim. Becomes invalid on delete; changes on cross-store move.
 - `conversation_id` — groups mails in a thread. Same value across replies/forwards in one conversation.
 - `from` — display name of the sender.
-- `from_address` — sender address. **For Exchange senders, this is an `EX:/O=...` distinguished name, not SMTP.** Match by substring.
+- `from_address` — sender SMTP address (since 0.4.0 Exchange `EX:/O=...` senders are resolved). The `from_address` *filter* on `list_mails` / `export_mails` matches by substring.
+- `internet_message_id` — RFC 5322 `Message-ID` header; stable across moves and reinstalls, `""` for drafts. Present on list/search summaries, `get_mail`, `get_conversation` items, and export rows.
 - `received` / `sent` / `start` / `end` / `due_date` — ISO-8601 strings **in the user's local timezone with explicit offset** (e.g. `2026-06-10T16:33:22+05:00`). Present as-is; never convert to another timezone.
 - `unread` — bool. Note `mark_mail` returns `unread` (not `read`).
 - `importance` — integer (0=low, 1=normal, 2=high).

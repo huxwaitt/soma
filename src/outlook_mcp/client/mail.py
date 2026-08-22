@@ -43,6 +43,10 @@ SMTP_PROPTAG = "http://schemas.microsoft.com/mapi/proptag/0x5D02001F"
 SENDER_SMTP_PROPTAG = "http://schemas.microsoft.com/mapi/proptag/0x5D01001F"
 # PR_SMTP_ADDRESS on a Recipient object.
 RECIPIENT_SMTP_PROPTAG = "http://schemas.microsoft.com/mapi/proptag/0x39FE001F"
+# PR_INTERNET_MESSAGE_ID — the RFC 5322 Message-ID header. Stable across
+# stores/mailboxes, unlike EntryID, so it is the right key for correlating
+# a mail with external systems (ticketing, other mailboxes, mbox exports).
+INTERNET_MESSAGE_ID_PROPTAG = "http://schemas.microsoft.com/mapi/proptag/0x1035001F"
 
 # DASL property names used to build server-side Restrict filters.
 DASL_SUBJECT = "urn:schemas:httpmail:subject"
@@ -68,7 +72,25 @@ EXPORT_COLUMNS = (
     "importance",
     "categories",
     "conversation_id",
+    "internet_message_id",
 )
+
+
+def internet_message_id(item: Any) -> str:
+    """Return the RFC 5322 Message-ID header, or ``""`` when absent.
+
+    Drafts and some locally created items have no Message-ID yet, and
+    ``PropertyAccessor.GetProperty`` raises for a missing property, so
+    every failure collapses to an empty string.
+    """
+    accessor = _safe_get(item, "PropertyAccessor")
+    if accessor is None:
+        return ""
+    try:
+        value = accessor.GetProperty(INTERNET_MESSAGE_ID_PROPTAG)
+    except Exception:
+        return ""
+    return value if isinstance(value, str) else ""
 
 
 def _looks_smtp(value: Any) -> bool:
@@ -266,6 +288,7 @@ def _mail_summary(item: Any) -> dict[str, Any]:
         "flagged": _safe_get(item, "FlagStatus") == 2,  # olFlagMarked
         "has_attachments": attachments.Count > 0 if attachments else False,
         "importance": _safe_get(item, "Importance"),
+        "internet_message_id": internet_message_id(item),
         "preview": truncate(_safe_get(item, "Body", ""), 200),
     }
 
@@ -288,6 +311,7 @@ def _mail_row(item: Any) -> dict[str, Any]:
         "importance": _safe_get(item, "Importance"),
         "categories": _safe_get(item, "Categories", ""),
         "conversation_id": _safe_get(item, "ConversationID"),
+        "internet_message_id": internet_message_id(item),
     }
 
 
@@ -310,6 +334,7 @@ def _mail_full(
     result = {
         "entry_id": _safe_get(item, "EntryID"),
         "conversation_id": _safe_get(item, "ConversationID"),
+        "internet_message_id": internet_message_id(item),
         "subject": _safe_get(item, "Subject", ""),
         "from": _safe_get(item, "SenderName"),
         "from_address": sender_smtp(item),
@@ -450,6 +475,96 @@ def get_mail(
         include_html=include_html,
         max_body_chars=max_body_chars,
     )
+
+
+def _received_sort_key(item: Any) -> Any:
+    value = _safe_get(item, "ReceivedTime")
+    try:
+        return value.timestamp()
+    except Exception:
+        return float("inf")
+
+
+def _walk_conversation(node: Any, conversation: Any) -> Iterator[Any]:
+    """Depth-first yield of ``node`` and all its descendants."""
+    yield node
+    children = conversation.GetChildren(node)
+    if not children:
+        return
+    for child in children:
+        yield from _walk_conversation(child, conversation)
+
+
+def get_conversation(
+    outlook: Any,
+    namespace: Any,
+    *,
+    entry_id: str,
+    include_body: bool = False,
+    max_body_chars: int = 2000,
+    limit: int = 200,
+) -> dict[str, Any]:
+    """Return every mail in the conversation (thread) containing ``entry_id``.
+
+    Uses ``MailItem.GetConversation()`` and walks the conversation tree
+    from its root items, so replies filed in other folders (Sent Items,
+    sub-folders) are included. Items are returned oldest-first so the
+    thread reads top-to-bottom. When Outlook reports no conversation
+    (IMAP/POP stores, drafts), the single anchor item is returned.
+    """
+    anchor = get_item_by_id(namespace, entry_id)
+    conversation_id = _safe_get(anchor, "ConversationID")
+
+    def describe(item: Any) -> dict[str, Any]:
+        out = _mail_summary(item)
+        out["conversation_id"] = _safe_get(item, "ConversationID")
+        out["folder"] = _safe_get(_safe_get(item, "Parent"), "Name")
+        if include_body:
+            body = _safe_get(item, "Body", "") or ""
+            if max_body_chars and len(body) > max_body_chars:
+                out["body"] = body[:max_body_chars].rstrip()
+                out["body_truncated"] = True
+                out["body_total_chars"] = len(body)
+            else:
+                out["body"] = body
+        return out
+
+    try:
+        conversation = anchor.GetConversation()
+    except Exception:
+        conversation = None
+
+    if conversation is None:
+        return {
+            "conversation_id": conversation_id,
+            "count": 1,
+            "truncated": False,
+            "items": [describe(anchor)],
+        }
+
+    collected: list[Any] = []
+    seen: set[Any] = set()
+    for root in conversation.GetRootItems():
+        for node in _walk_conversation(root, conversation):
+            if _safe_get(node, "Class") not in (OL_CLASS_MAIL, OL_CLASS_MEETING_REQUEST):
+                continue
+            key = _safe_get(node, "EntryID")
+            if key in seen:
+                continue
+            seen.add(key)
+            collected.append(node)
+
+    if not collected:
+        collected = [anchor]
+    collected.sort(key=_received_sort_key)
+    truncated = len(collected) > limit
+    items = [describe(item) for item in collected[:limit]]
+    return {
+        "conversation_id": conversation_id,
+        "count": len(items),
+        "truncated": truncated,
+        "items": items,
+    }
 
 
 def send_mail(

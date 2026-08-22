@@ -119,11 +119,12 @@ server entry in its MCP config:
 
 ## Tools
 
-36 tools across 9 categories, all prefixed `outlook_*`.
+37 tools across 9 categories, all prefixed `outlook_*`.
 
 | Category       | Tools |
 | -------------- | ----- |
 | Mail           | `list_mails`, `search_mails`, `get_mail`, `send_mail`, `reply_mail`, `forward_mail`, `move_mail`, `delete_mail`, `mark_mail`, `save_attachments` |
+| Mail (thread)  | `get_conversation` — whole thread for a mail, oldest first, across folders (Inbox + Sent Items + sub-folders) |
 | Mail (bulk)    | `bulk_move_mails`, `bulk_delete_mails`, `bulk_mark_mails` — up to 500 EntryIDs per call, per-item success/failure report |
 | Mail (export)  | `export_mails` (CSV/JSON table of metadata for Excel / pandas / Power Automate), `save_mail_as` (`.msg` / `.txt` / `.html`) |
 | Folders        | `list_folders`, `create_folder` |

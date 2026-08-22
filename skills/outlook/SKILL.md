@@ -25,7 +25,9 @@ All tools are prefixed `outlook_`. Memorize the categories; consult `references/
 
 | Category       | Tools |
 | -------------- | ----- |
-| Mail           | `list_mails`, `search_mails`, `get_mail`, `send_mail`, `reply_mail`, `forward_mail`, `move_mail`, `delete_mail`, `mark_mail`, `save_attachments` |
+| Mail           | `list_mails`, `search_mails`, `get_mail`, `get_conversation` (whole thread, across folders), `send_mail`, `reply_mail`, `forward_mail`, `move_mail`, `delete_mail`, `mark_mail`, `save_attachments` |
+| Mail (bulk)    | `bulk_move_mails`, `bulk_delete_mails`, `bulk_mark_mails` |
+| Mail (export)  | `export_mails`, `save_mail_as` |
 | Folders        | `list_folders`, `create_folder` |
 | Calendar       | `list_events`, `get_event`, `create_event`, `update_event`, `delete_event`, `respond_event` |
 | Contacts       | `list_contacts`, `search_contacts` (incl. org directory), `get_contact`, `resolve_name` |
@@ -89,7 +91,7 @@ Most read tools accept `response_format='markdown'` (default; pretty for the use
 ### Read tools are free; write tools have side effects
 
 Read freely:
-`list_mails`, `search_mails`, `get_mail`, `list_folders`, `list_events`, `get_event`, `list_contacts`, `search_contacts`, `get_contact`, `resolve_name`, `list_tasks`, `list_categories`, `list_rules`, `get_out_of_office`, `whoami`.
+`list_mails`, `search_mails`, `get_mail`, `get_conversation`, `list_folders`, `list_events`, `get_event`, `list_contacts`, `search_contacts`, `get_contact`, `resolve_name`, `list_tasks`, `list_categories`, `list_rules`, `get_out_of_office`, `whoami`.
 
 Confirm before calling (these change shared state or send messages):
 `send_mail`, `reply_mail`, `forward_mail`, `delete_mail`, `move_mail`, `mark_mail`, `save_attachments`, `create_event` (especially with attendees — that sends a meeting invite immediately), `update_event`, `delete_event`, `respond_event` (with `send_response=true`), `create_folder`, `create_task`, `complete_task`, `set_category`, `toggle_rule`.
@@ -109,7 +111,7 @@ Two staging tricks worth knowing:
 
 Read `references/gotchas.md` for the complete list. The non-negotiables:
 
-- **Exchange sender addresses look like `EX:/O=...` distinguished names**, not SMTP. When filtering with `from_address` in `list_mails`, pass a name substring (e.g. `"sarah"`) rather than an exact address.
+- **`from_address` is a real SMTP address** (since 0.4.0 Exchange senders are resolved, no more `EX:/O=...`), and the `from_address` filter on `list_mails` / `export_mails` accepts an exact or partial address (e.g. `"sarah@corp.com"` or `"@corp.com"`).
 - **Mail rule toggling is live.** `toggle_rule` flips a real rule the instant it's called. Always `list_rules` first, confirm the exact rule name with the user, then toggle.
 - **OOO is read-only here.** `get_out_of_office` reports state; there is no tool to enable/disable. If the user wants to set OOO, tell them to use Outlook → File → Automatic Replies.
 - **Programmatic Access prompts** on corporate machines can silently block `send_mail`/`reply_mail`/`forward_mail`/`delete_mail`. If the user reports "you said you sent it but I don't see it", point them to Outlook → File → Options → Trust Center → Programmatic Access.
