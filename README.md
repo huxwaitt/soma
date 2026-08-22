@@ -2,20 +2,24 @@
 
 A Claude Code plugin that runs your classic Outlook mailbox and keeps the paper trail in an Obsidian vault.
 
-It reads Outlook through the bundled `outlook-classic-mcp` server, decides what matters, and writes plain markdown notes into one folder of your vault. It reads freely. It never moves, marks, deletes, or sends anything without an explicit yes from you, and version 0.0.1 sends no mail at all.
+It reads Outlook through the bundled `outlook-classic-mcp` server, decides what matters, and writes plain markdown notes into one folder of your vault. It reads freely. It never moves, marks, deletes, books, or sends anything without an explicit yes from you, and it never sends plain email: the most it does with mail is save a draft to your Drafts folder.
 
 ## What you get
 
 - **`/administrator:inbox`** — goes through unread mail, sorts each item into act / reply / waiting / fyi / noise, writes today's daily note, and offers batch clean-up you can accept or decline.
 - **`/administrator:save`** — saves one email (or, on request, its whole thread via `outlook_get_conversation`) as a note with stable identity, cleaned body, action items, a link to a person note, and optional `.msg` and attachment exports.
 - **`/administrator:daily`** — inbox plus today's calendar in one daily note, with clashes and meetings that have no prep note called out.
+- **`/administrator:prep`** — a prep brief per meeting in `Meetings\`: the previous occurrence and its open action items, attendee person notes, the last five related email threads, open follow-ups, suggested points. Read-only in Outlook.
+- **`/administrator:notes`** — paste your raw notes after a meeting; they go into the meeting note, action items and waiting-on items are pulled out (and into `Follow-ups.md`), and a minutes email is offered that goes to your Drafts folder only after you say yes. Nothing is ever sent.
+- **`/administrator:free`** — tells you when the named people and you are all free, using `outlook_find_meeting_times` and your own preferences (working hours, buffers, no-meeting blocks, daily limit). Read-only.
+- **`/administrator:schedule`** — the same, then books the slot you pick after you say yes (the invite goes out at once), writes the `Meetings\` note, and adds the meeting to the daily note. Moves one meeting on request, and drafts a "proposed times" email when someone's calendar is not visible.
 
 ## Requirements
 
 - Windows 10 or 11.
 - **Classic** Outlook (desktop, `outlook.exe`) with a configured mail profile. The new Outlook (`olk.exe`) is not supported; switch back to classic if you are on it.
 - [uv](https://docs.astral.sh/uv/) on your PATH.
-- A local checkout of `outlook-classic-mcp` (0.4.0 or later). The plugin currently points at `C:\Users\huxle\PycharmProjects\outlook-classic-mcp`; edit `.claude-plugin/plugin.json` if yours is elsewhere.
+- A local checkout of `outlook-classic-mcp` (the version with `outlook_get_event_by_key`, `outlook_get_free_busy` and `outlook_find_meeting_times` — 40 tools), with its path in the `OUTLOOK_MCP_DIR` environment variable (see "Set the vault path" below). The plugin starts the server with `uv run --directory $OUTLOOK_MCP_DIR outlook-mcp`.
 - An Obsidian vault on disk. Notes are plain markdown with frontmatter; no community plugins are needed to read them.
 
 ## Install
@@ -28,7 +32,7 @@ It reads Outlook through the bundled `outlook-classic-mcp` server, decides what 
    ```
 
    or register it in your marketplace settings, then restart Claude Code.
-3. Confirm the Outlook tools are present: ask "who am I in Outlook?" and the agent should call `outlook_whoami`.
+3. Confirm the Outlook tools are present: ask "who am I in Outlook?" and the agent should call `outlook_whoami`. If it is missing, check that `OUTLOOK_MCP_DIR` is set and restart Claude Code.
 
 ## Set the vault path
 
@@ -42,15 +46,26 @@ $env:ADMINISTRATOR_VAULT = "C:\Users\<you>\Documents\MyVault"
 [Environment]::SetEnvironmentVariable("ADMINISTRATOR_VAULT", "C:\Users\<you>\Documents\MyVault", "User")
 ```
 
-Restart Claude Code after setting it permanently. The plugin creates this layout on first use:
+In the same way, tell the plugin where your `outlook-classic-mcp` checkout is:
+
+```powershell
+$env:OUTLOOK_MCP_DIR = "C:\Users\<you>\PycharmProjects\outlook-classic-mcp"
+[Environment]::SetEnvironmentVariable("OUTLOOK_MCP_DIR", "C:\Users\<you>\PycharmProjects\outlook-classic-mcp", "User")
+```
+
+`OUTLOOK_MCP_DIR` is only needed while the server is run from a local checkout. Once `outlook-classic-mcp` is published, the plugin will start it with `uvx` and this variable goes away.
+
+Restart Claude Code after setting either variable permanently. The plugin creates this layout on first use:
 
 ```
 <vault>\Administrator\
   Daily\YYYY-MM-DD.md          one per day
   Emails\YYYY-MM-DD <slug>.md  one per saved mail
-  People\<Display Name>.md     one per sender
+  Meetings\YYYY-MM-DD HHmm <slug>.md  one per meeting (prepared, noted, or booked)
+  People\<Display Name>.md     one per sender or attendee
   Attachments\<date slug>\     .msg and attachment exports, one folder per saved mail
   Follow-ups.md                rolling "waiting on" list
+  Preferences.md               your scheduling preferences (created on first use of free/schedule)
 ```
 
 ## Commands
@@ -83,13 +98,57 @@ With search terms it shows up to five matches and asks you to pick. Then it writ
 
 Runs the inbox workflow, then adds today's agenda from `outlook_list_events`, flags overlapping meetings and meetings with no prep note, and gives you a short brief.
 
+### `/administrator:prep [date | event words]`
+
+```
+/administrator:prep
+/administrator:prep tomorrow
+/administrator:prep supplier sync
+```
+
+Lists the day's meetings (all-day events skipped unless named) and writes `Meetings\<date> <time> <subject>.md` for each, with a Prep section. Running it twice appends an update instead of making a second note.
+
+### `/administrator:notes [event words | path] <raw notes or file path>`
+
+```
+/administrator:notes supplier sync
+- Jane ok with net 45, I'll sign tomorrow
+- Tom to send updated schedule by Wed
+```
+
+Finds the meeting (today's first, asks if unclear), appends your notes, pulls out action items and things you are waiting on, marks the meeting held, updates `last_contact` on the attendees, then shows a minutes email and asks before saving it to Drafts.
+
+### `/administrator:free <people> [duration] [window]`
+
+```
+/administrator:free Sam
+/administrator:free Sam, Jane Doe 45 min next week
+/administrator:free sam.ortiz@example.com tomorrow afternoon
+```
+
+Turns names into addresses (asks if it cannot), reads free/busy, applies `Administrator\Preferences.md`, and shows up to five times in your local time with who is free. People outside your organisation have no visible calendar; it says so and offers an email instead. Nothing is written or sent.
+
+### `/administrator:schedule <people> [duration] [window] [subject]`
+
+```
+/administrator:schedule Sam 30 min next week "Budget review"
+/administrator:schedule Sam, Jane Doe Thursday
+move my 2pm with Sam to Thursday
+```
+
+Same as `free`, then you pick a slot, it shows subject / time / attendees / location, and only after a clear yes calls `outlook_create_event`. The invite reaches everyone the moment it is created, so it tells you that before asking. Then it writes `Meetings\<date time> <subject>.md` (the same note `prep` uses) and adds a row to that day's daily note if one exists. For a move it finds the meeting, offers new times, and on a yes calls `outlook_update_event`. One meeting per request; it will not move a whole day.
+
+### `Administrator\Preferences.md`
+
+Created with defaults the first time you use `free` or `schedule`. Edit it in Obsidian: `work_start`, `work_end`, `buffer_minutes`, `no_meeting_blocks`, `max_meetings_per_day`, `default_duration`, `default_location`, `preferred_days`. The plugin reads it every time and never changes it.
+
 ## What never happens without a yes
 
 - Marking mail read or unread, flagging, or setting categories (`outlook_mark_mail`, `outlook_bulk_mark_mails`, `outlook_set_category`).
 - Moving or deleting mail (`outlook_move_mail`, `outlook_delete_mail`, `outlook_bulk_move_mails`, `outlook_bulk_delete_mails`). The inbox workflow never deletes at all; it offers a move instead.
 - Writing files from Outlook to disk (`outlook_save_mail_as`, `outlook_save_attachments`); these land in `<vault>\Administrator\Attachments\<date slug>\` and are offered once per save.
-- Sending anything (`outlook_send_mail`, `outlook_reply_mail`, `outlook_forward_mail`). Version 0.0.1 does not send mail even with a yes; that is deferred.
-- Creating, changing, or responding to calendar events. Calendar use in 0.0.1 is read-only.
+- Saving an email draft (`outlook_send_mail(save_only=true)` — minutes after `/administrator:notes`, proposed times from `/administrator:schedule`). The plugin never sends plain email, not even with a yes: `outlook_send_mail` without `save_only`, `outlook_reply_mail` and `outlook_forward_mail` are never called. You send from Drafts.
+- Creating or moving a meeting (`outlook_create_event`, `outlook_update_event`), both only from `/administrator:schedule` after the full summary. An invite goes to every attendee as soon as it is created. Deleting events or answering invites never happens.
 
 Every offer states the exact action, the number of items, and their subjects. "Yes" means that option only.
 
@@ -103,7 +162,7 @@ The connector talks to Outlook through COM, which only classic desktop Outlook e
 
 ## Notes the plugin writes
 
-Every note has frontmatter with `type` (`email`, `daily`, or `person`), `source: outlook`, `created_by: administrator/0.0.1`, and for emails the Outlook identity (`internet_message_id`, `entry_id`, `conversation_id`), sender SMTP address, recipients, `received` with timezone offset, and a `status` of `todo`, `waiting`, `done`, or `fyi`. Links use wikilinks (`[[People/Jane Doe]]`) so Obsidian's graph and backlinks work out of the box.
+Every note has frontmatter with `type` (`email`, `daily`, `person`, `meeting`, or `preferences`), `source: outlook`, `created_by: administrator/0.0.3`, and for emails the Outlook identity (`internet_message_id`, `entry_id`, `conversation_id`), sender SMTP address, recipients, `received` with timezone offset, and a `status` of `todo`, `waiting`, `done`, or `fyi`. Meeting notes carry the event's `global_id` and `occurrence_key` (one note per occurrence of a recurring meeting) and a `status` of `upcoming`, `held`, or `cancelled`. Links use wikilinks (`[[People/Jane Doe]]`) so Obsidian's graph and backlinks work out of the box.
 
 Existing notes are never overwritten. When a mail is saved again, an `## Update <timestamp>` section is appended.
 

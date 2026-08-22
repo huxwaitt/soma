@@ -67,7 +67,7 @@ has_attachments: true
 attachments:
   - "[[Administrator/Attachments/<YYYY-MM-DD slug>/<file>|<file>]]"
 msg_file: "[[Administrator/Attachments/<YYYY-MM-DD slug>/<YYYY-MM-DD slug>.msg|<YYYY-MM-DD slug>.msg]]"
-created_by: administrator/0.0.1
+created_by: administrator/0.0.3
 ---
 ```
 
@@ -150,7 +150,7 @@ email: <smtp>
 company: <from outlook_search_contacts only, see below; omit the key otherwise>
 last_contact: <received>
 aliases: []
-created_by: administrator/0.0.1
+created_by: administrator/0.0.3
 ---
 
 # <Display Name>
@@ -167,7 +167,7 @@ created_by: administrator/0.0.1
 
 Existing note: do not rewrite it. Update only the `last_contact` value when `received` is later than the stored one, add a new display name or address to `aliases` if needed, and append one line to `## Emails` (create the heading at the end if missing). Anything the user wrote by hand in the note stays untouched.
 
-Recipients other than the sender are **not** given person notes in v0.0.1; they appear as plain text on the `**To:**` / `**Cc:**` lines.
+Recipients other than the sender are **not** given person notes by this skill; they appear as plain text on the `**To:**` / `**Cc:**` lines.
 
 ### 7. Follow-ups
 
@@ -232,7 +232,7 @@ Slug: `RE: Q3 supplier contract – signature needed` → strip `RE:` → `Q3 su
 
 User said yes to exporting the .msg and the PDF (image001.png skipped as a 4 KB inline image).
 
-Output `C:\Users\huxle\Vault\Administrator\Emails\2026-08-21 Q3 supplier contract – signature needed.md`:
+Output `C:\Users\<you>\Vault\Administrator\Emails\2026-08-21 Q3 supplier contract – signature needed.md`:
 
 ```markdown
 ---
@@ -254,7 +254,7 @@ has_attachments: true
 attachments:
   - "[[Administrator/Attachments/2026-08-21 Q3 supplier contract – signature needed/Q3-supplier-contract-v3.pdf|Q3-supplier-contract-v3.pdf]]"
 msg_file: "[[Administrator/Attachments/2026-08-21 Q3 supplier contract – signature needed/2026-08-21 Q3 supplier contract – signature needed.msg|2026-08-21 Q3 supplier contract – signature needed.msg]]"
-created_by: administrator/0.0.1
+created_by: administrator/0.0.3
 ---
 
 # RE: Q3 supplier contract – signature needed
@@ -288,7 +288,7 @@ One more thing: please confirm the delivery address is still the Leipzig warehou
 - image001.png (4 KB, inline image, not exported)
 ```
 
-Output `C:\Users\huxle\Vault\Administrator\People\Jane Doe.md` (did not exist before):
+Output `C:\Users\<you>\Vault\Administrator\People\Jane Doe.md` (did not exist before):
 
 ```markdown
 ---
@@ -299,7 +299,7 @@ email: jane.doe@acme-parts.com
 company: ACME Parts GmbH
 last_contact: 2026-08-21T16:42:10+02:00
 aliases: []
-created_by: administrator/0.0.1
+created_by: administrator/0.0.3
 ---
 
 # Jane Doe

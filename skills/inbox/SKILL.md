@@ -77,7 +77,7 @@ since: 2026-08-21T17:05:00+02:00
 inbox_checked: 2026-08-22T09:14:00+02:00
 mails_seen: 5
 status: todo
-created_by: administrator/0.0.1
+created_by: administrator/0.0.3
 ---
 
 # 2026-08-22
