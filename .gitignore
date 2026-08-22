@@ -1,0 +1,23 @@
+# Local agent state
+.claude/settings.local.json
+.claude/*.local.*
+
+# Python / uv (if a helper script ever lands here)
+__pycache__/
+*.pyc
+.venv/
+.uv/
+
+# Editors and OS
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Never commit mail exports or vault contents
+*.msg
+*.eml
+Attachments/
+scratch/

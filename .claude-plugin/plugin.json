@@ -1,0 +1,16 @@
+{
+  "name": "administrator",
+  "version": "0.0.1",
+  "description": "An assistant that runs your classic Outlook mailbox and keeps the paper trail in an Obsidian vault. Goes through the inbox and writes a daily note, saves any email as a linked note with a person stub, and builds a daily page from inbox plus calendar. Reads freely; never moves, marks, or sends anything without an explicit yes. Bundles the outlook-classic-mcp server.",
+  "author": {
+    "name": "huxwaitt"
+  },
+  "license": "MIT",
+  "keywords": ["outlook", "obsidian", "email", "inbox", "notes", "assistant", "windows", "mcp"],
+  "mcpServers": {
+    "outlook": {
+      "command": "uv",
+      "args": ["run", "--directory", "C:\\Users\\huxle\\PycharmProjects\\outlook-classic-mcp", "outlook-mcp"]
+    }
+  }
+}

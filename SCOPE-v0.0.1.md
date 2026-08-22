@@ -91,9 +91,7 @@ Rules: never overwrite a note that already has an `entry_id` match — append a 
 
 Everything needed exists in 0.4.0: `list_mails` (unread/since/from/has_attachments), `search_mails`, `get_mail` (now with `recipients` + SMTP `from_address`), `bulk_move/delete/mark`, `export_mails`, `save_mail_as`, `save_attachments`, `list_events`, `list_categories`, `whoami`.
 
-Nice-to-have for 0.0.2 (not blocking): `outlook_get_conversation(conversation_id)` to pull a whole thread in one call — save currently approximates with `search_mails(scope="dasl")` on `conversation_id`.
-
-Housekeeping in `outlook-classic-mcp` before wiring it in: `skills/outlook/SKILL.md` line 112 still states the pre-0.4.0 "EX:/O=… addresses" gotcha — update to match `references/gotchas.md`.
+Added to the server during the v0.0.1 build: `internet_message_id` on every mail item (stable identity) and `outlook_get_conversation(entry_id)` to pull a whole thread in one call (37 tools). The stale "EX:/O=… addresses" line in `skills/outlook/SKILL.md` was fixed at the same time.
 
 ## Definition of done (v0.0.1)
 
