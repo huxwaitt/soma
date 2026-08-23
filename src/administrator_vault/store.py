@@ -208,6 +208,15 @@ def init(
         write_text(pref, preferences_template(work_start, work_end, buffer_minutes, created_by))
         created.append(rel(root, pref))
 
+    from administrator_vault.workflows import rules_template  # local import: workflows imports store
+
+    rules = admin / "Rules.md"
+    if rules.exists():
+        skipped.append(rel(root, rules))  # holds the user's rules; never overwritten
+    else:
+        write_text(rules, rules_template(created_by))
+        created.append(rel(root, rules))
+
     if VIEWS_DIR.is_dir():
         for src in sorted(VIEWS_DIR.glob("*.base")):
             dst = admin / "_views" / src.name
@@ -236,7 +245,14 @@ def _iter_notes(root: Path, note_type: str):
         yield p, fm
 
 
-def find(note_type: str, identity: Any) -> dict[str, Any]:
+def _pick(fm: dict[str, Any], fields: Optional[list[str]]) -> dict[str, Any]:
+    """Only the named frontmatter keys (all of them when ``fields`` is empty)."""
+    if not fields:
+        return fm
+    return {k: fm[k] for k in fields if k in fm}
+
+
+def find(note_type: str, identity: Any, fields: Optional[list[str]] = None) -> dict[str, Any]:
     root = vault_root()
     ident = notes.normalize_identity(note_type, identity)
     hits = [(p, fm) for p, fm in _iter_notes(root, note_type) if notes.matches(note_type, fm, ident)]
@@ -247,12 +263,14 @@ def find(note_type: str, identity: Any) -> dict[str, Any]:
     return {
         "found": True,
         "path": rel(root, p),
-        "frontmatter": fm,
+        "frontmatter": _pick(fm, fields),
         "matches": [rel(root, h[0]) for h in hits],
     }
 
 
-def list_notes(note_type: str, since: Optional[str] = None, limit: int = 200) -> list[dict[str, Any]]:
+def list_notes(
+    note_type: str, since: Optional[str] = None, limit: int = 200, fields: Optional[list[str]] = None
+) -> list[dict[str, Any]]:
     root = vault_root()
     items = [(p, fm) for p, fm in _iter_notes(root, note_type)]
     if since:
@@ -263,7 +281,7 @@ def list_notes(note_type: str, since: Optional[str] = None, limit: int = 200) ->
         since_key = notes.sort_value(note_type, {notes.schema(note_type)["date_key"]: since_dt.isoformat()})
         items = [(p, fm) for p, fm in items if notes.sort_value(note_type, fm) >= since_key]
     items.sort(key=lambda h: notes.sort_value(note_type, h[1]), reverse=True)
-    return [{"path": rel(root, p), "frontmatter": fm} for p, fm in items[:limit]]
+    return [{"path": rel(root, p), "frontmatter": _pick(fm, fields)} for p, fm in items[:limit]]
 
 
 # ---------------------------------------------------------------- read/write
@@ -379,22 +397,31 @@ def _table_rows(lines: list[str], lo: int, hi: int) -> list[int]:
     return rows
 
 
+def _unescape_cell(text: str) -> str:
+    return text.replace("\\|", "|")
+
+
 def _cells(line: str) -> list[str]:
+    """Cells of a table line, with ``\\|`` turned back into ``|``.
+
+    The inverse of ``_row_line``: a cell (or a hidden key comment inside it,
+    such as an ``occurrence_key`` ``GID|start``) may hold a pipe, which is
+    stored escaped so the table stays one row per line."""
     s = line.strip()
     if s.startswith("|"):
         s = s[1:]
     if s.endswith("|"):
         s = s[:-1]
-    return [c.strip() for c in re.split(r"(?<!\\)\|", s)]
+    return [_unescape_cell(c.strip()) for c in re.split(r"(?<!\\)\|", s)]
 
 
 def _row_line(cells: list[str]) -> str:
-    return "| " + " | ".join(c.replace("|", "\\|") if "<!--" not in c else c for c in cells) + " |"
+    return "| " + " | ".join(c.replace("|", "\\|") for c in cells) + " |"
 
 
 def _comment_key(line: str) -> Optional[str]:
     m = _COMMENT_RE.search(line)
-    return m.group(2) if m else None
+    return _unescape_cell(m.group(2)) if m else None
 
 
 def _header_for(p: Path, section: str, n: int) -> list[str]:

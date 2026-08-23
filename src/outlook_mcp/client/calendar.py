@@ -22,6 +22,7 @@ from outlook_mcp.constants import (
 )
 from outlook_mcp.errors import OutlookError
 from outlook_mcp.schemas import Recurrence
+from outlook_mcp.utils.fields import apply_fields
 from outlook_mcp.utils.formatting import from_iso, to_iso, truncate
 
 
@@ -167,6 +168,7 @@ def list_events(
     end: str | None = None,
     limit: int = 50,
     include_recurrences: bool = True,
+    fields: list[str] | None = None,
 ) -> dict[str, Any]:
     start_dt = from_iso(start) or dt.datetime.now()
     end_dt = from_iso(end) or (start_dt + dt.timedelta(days=14))
@@ -177,12 +179,15 @@ def list_events(
         if len(results) >= limit:
             break
 
-    return {
-        "start": start_dt.isoformat(),
-        "end": end_dt.isoformat(),
-        "count": len(results),
-        "items": results,
-    }
+    return apply_fields(
+        {
+            "start": start_dt.isoformat(),
+            "end": end_dt.isoformat(),
+            "count": len(results),
+            "items": results,
+        },
+        fields,
+    )
 
 
 def _iter_window(
@@ -209,8 +214,10 @@ def _iter_window(
     return items.Restrict(restrict)
 
 
-def get_event(outlook: Any, namespace: Any, *, entry_id: str) -> dict[str, Any]:
-    return _event_full(get_item_by_id(namespace, entry_id))
+def get_event(
+    outlook: Any, namespace: Any, *, entry_id: str, fields: list[str] | None = None
+) -> dict[str, Any]:
+    return apply_fields(_event_full(get_item_by_id(namespace, entry_id)), fields)
 
 
 def _naive(value: Any) -> dt.datetime | None:

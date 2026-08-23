@@ -11,9 +11,10 @@ from . import (
     ooo,
     rules,
     tasks,
+    workflows,
 )
 
 
 def register_all(mcp, bridge) -> None:
-    for mod in (mail, folders, calendar, freebusy, contacts, tasks, categories, rules, ooo, account):
+    for mod in (mail, workflows, folders, calendar, freebusy, contacts, tasks, categories, rules, ooo, account):
         mod.register(mcp, bridge)

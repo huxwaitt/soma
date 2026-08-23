@@ -7,6 +7,7 @@ from typing import Annotated, Optional
 from mcp.types import CallToolResult
 from pydantic import Field
 
+from outlook_mcp.client import attachments as attachments_client
 from outlook_mcp.client import mail as mail_client
 from outlook_mcp.ui import ui_meta, ui_result
 from outlook_mcp.utils.formatting import format_response
@@ -49,6 +50,19 @@ TrimQuoted = Annotated[
         ),
     ),
 ]
+Fields = Annotated[
+    Optional[list[str]],
+    Field(
+        description=(
+            "Keep only these keys on each returned item (entry_id is always kept; "
+            "unknown names are ignored). Omit for the full shape."
+        ),
+    ),
+]
+PreviewChars = Annotated[
+    int,
+    Field(ge=0, le=5000, description="Length of each item's preview; 0 leaves preview out."),
+]
 
 
 def register(mcp, bridge) -> None:
@@ -82,6 +96,8 @@ def register(mcp, bridge) -> None:
         until: Annotated[Optional[str], Field(description="ISO-8601 upper bound on ReceivedTime.")] = None,
         from_address: Annotated[Optional[str], Field(description="Substring match on sender email (resolved to SMTP, filtered server-side).")] = None,
         has_attachments: Annotated[Optional[bool], Field(description="True = only mails with attachments, False = only without, None = any.")] = None,
+        fields: Fields = None,
+        preview_chars: PreviewChars = 200,
         response_format: Annotated[str, Field(description="'markdown' or 'json'.")] = "markdown",
     ) -> CallToolResult:
         """List mail items from a folder, newest first. All filters are pushed into Outlook's index (DASL Restrict), so large folders stay fast."""
@@ -95,6 +111,8 @@ def register(mcp, bridge) -> None:
             until=until,
             from_address=from_address,
             has_attachments=has_attachments,
+            fields=fields,
+            preview_chars=preview_chars,
         )
         return ui_result(format_response(data, response_format), data)
 
@@ -128,6 +146,8 @@ def register(mcp, bridge) -> None:
         until: Annotated[Optional[str], Field(description="ISO-8601 upper bound on ReceivedTime (ignored for scope='dasl').")] = None,
         unread_only: Annotated[bool, Field(description="Return only unread (ignored for scope='dasl').")] = False,
         has_attachments: Annotated[Optional[bool], Field(description="Filter on attachment presence (ignored for scope='dasl').")] = None,
+        fields: Fields = None,
+        preview_chars: PreviewChars = 200,
         response_format: Annotated[str, Field(description="'markdown' or 'json'.")] = "markdown",
     ) -> CallToolResult:
         """Search a mail folder by subject, body, or sender. Keyword + date/unread/attachment filters are combined into one server-side DASL Restrict."""
@@ -141,8 +161,113 @@ def register(mcp, bridge) -> None:
             until=until,
             unread_only=unread_only,
             has_attachments=has_attachments,
+            fields=fields,
+            preview_chars=preview_chars,
         )
         return ui_result(format_response(data, response_format), data)
+
+    @mcp.tool(
+        name="outlook_search_attachments",
+        annotations={
+            "title": "Find Outlook mails by attachment filename",
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+    @safe_call
+    async def outlook_search_attachments(
+        query: Annotated[
+            str,
+            Field(
+                min_length=1,
+                description=(
+                    "Words that must all appear in the attachment filename (any order, "
+                    "case-insensitive), or a glob like '*.pdf' / 'budget*.xlsx' when it "
+                    "contains * or ?."
+                ),
+            ),
+        ],
+        folder: Annotated[str, Field(description="Folder to start in (well-known name or path).")] = "inbox",
+        since: Annotated[Optional[str], Field(description="ISO-8601 lower bound on ReceivedTime.")] = None,
+        limit: Annotated[int, Field(ge=1, le=200, description="Max mails to return.")] = 50,
+        include_subfolders: Annotated[bool, Field(description="Also walk every folder below `folder`.")] = True,
+        fields: Fields = None,
+    ) -> str:
+        """Find mails whose attachment filenames match. Only mails with attachments are read; inline images are ignored. Returns mail summaries newest-first, each with the matching attachments (index, filename, size)."""
+        data = await bridge.call(
+            mail_client.search_attachments,
+            query=query,
+            folder=folder,
+            since=since,
+            limit=limit,
+            include_subfolders=include_subfolders,
+            fields=fields,
+        )
+        return format_response(data, "json")
+
+    @mcp.tool(
+        name="outlook_advanced_search",
+        annotations={
+            "title": "Indexed search across all Outlook folders (Windows Search)",
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+    @safe_call
+    async def outlook_advanced_search(
+        query: Annotated[
+            str,
+            Field(min_length=1, description="Words that must all match (index phrase match) in subject, body, or indexed attachment text."),
+        ],
+        scope: Annotated[
+            str,
+            Field(description="'all' = every store (mailboxes, archives, PSTs), or one folder path to search with its sub-folders."),
+        ] = "all",
+        since: Annotated[Optional[str], Field(description="ISO-8601 lower bound on ReceivedTime.")] = None,
+        limit: Annotated[int, Field(ge=1, le=200, description="Max mails to return, newest first.")] = 50,
+        timeout_sec: Annotated[int, Field(ge=1, le=55, description="How long to wait for the index before returning what has arrived.")] = 20,
+        fields: Fields = None,
+    ) -> str:
+        """Search every folder at once through Outlook's Windows Search index (Application.AdvancedSearch). Matches attachment contents when the store is indexed. Returns mail summaries newest-first plus timed_out."""
+        data = await bridge.call(
+            mail_client.advanced_search,
+            query=query,
+            scope=scope,
+            since=since,
+            limit=limit,
+            timeout_sec=timeout_sec,
+            fields=fields,
+        )
+        return format_response(data, "json")
+
+    @mcp.tool(
+        name="outlook_extract_attachment_text",
+        annotations={
+            "title": "Read the text of one Outlook attachment",
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+    @safe_call
+    async def outlook_extract_attachment_text(
+        entry_id: Annotated[str, Field(min_length=1, description="EntryID of the mail.")],
+        index: Annotated[int, Field(ge=1, description="1-indexed attachment (from get_mail.attachments[].index).")],
+        max_chars: Annotated[int, Field(ge=0, description="Truncate the text beyond this many chars (0 = no limit).")] = 20000,
+    ) -> str:
+        """Extract plain text from a .pdf, .docx, .xlsx, .pptx, .txt, .csv or .md attachment. The file is saved to a temporary folder under the user profile and deleted again. PDF and Excel need the optional 'search' extra."""
+        data = await bridge.call(
+            attachments_client.extract_attachment_text,
+            entry_id=entry_id,
+            index=index,
+            max_chars=max_chars,
+        )
+        return format_response(data, "json")
 
     @mcp.tool(
         name="outlook_get_mail",
@@ -178,6 +303,7 @@ def register(mcp, bridge) -> None:
             ),
         ] = 10000,
         trim_quoted: TrimQuoted = False,
+        fields: Fields = None,
         response_format: Annotated[str, Field(description="'markdown' or 'json'.")] = "markdown",
     ) -> CallToolResult:
         """Fetch body, headers, and attachment list for one mail item.
@@ -192,6 +318,7 @@ def register(mcp, bridge) -> None:
             include_html=include_html,
             max_body_chars=max_body_chars,
             trim_quoted=trim_quoted,
+            fields=fields,
         )
         return ui_result(format_response(data, response_format), data)
 
@@ -212,6 +339,8 @@ def register(mcp, bridge) -> None:
         max_body_chars: ConversationMaxBodyChars = 2000,
         limit: ConversationLimit = 200,
         trim_quoted: TrimQuoted = False,
+        fields: Fields = None,
+        preview_chars: PreviewChars = 200,
     ) -> str:
         """Return every mail in the thread containing entry_id, oldest first, across folders (Inbox, Sent Items, sub-folders). Use before replying so the reply is grounded in the full exchange."""
         data = await bridge.call(
@@ -221,6 +350,8 @@ def register(mcp, bridge) -> None:
             max_body_chars=max_body_chars,
             limit=limit,
             trim_quoted=trim_quoted,
+            fields=fields,
+            preview_chars=preview_chars,
         )
         return format_response(data, "json")
 
@@ -278,8 +409,9 @@ def register(mcp, bridge) -> None:
         reply_all: Annotated[bool, Field(description="Reply to all recipients.")] = False,
         html: Annotated[bool, Field(description="Treat body as HTML.")] = False,
         attachments: Annotated[Optional[list[str]], Field(description="Files to attach.")] = None,
+        save_only: Annotated[bool, Field(description="If true, save the reply to Drafts (threaded under the original) instead of sending.")] = False,
     ) -> str:
-        """Reply (or reply-all) to an existing mail."""
+        """Reply (or reply-all) to an existing mail. Set save_only=True to save the reply to Drafts instead of sending."""
         data = await bridge.call(
             mail_client.reply_mail,
             entry_id=entry_id,
@@ -287,6 +419,7 @@ def register(mcp, bridge) -> None:
             reply_all=reply_all,
             html=html,
             attachments=attachments,
+            save_only=save_only,
         )
         return format_response(data, "json")
 
@@ -307,8 +440,9 @@ def register(mcp, bridge) -> None:
         body: Annotated[str, Field(description="Optional note above the forwarded mail.")] = "",
         cc: Annotated[Optional[list[str]], Field(description="CC recipients.")] = None,
         html: Annotated[bool, Field(description="Treat body as HTML.")] = False,
+        save_only: Annotated[bool, Field(description="If true, save the forward to Drafts instead of sending.")] = False,
     ) -> str:
-        """Forward an existing mail with an optional added note."""
+        """Forward an existing mail with an optional added note. Set save_only=True to save to Drafts instead of sending."""
         data = await bridge.call(
             mail_client.forward_mail,
             entry_id=entry_id,
@@ -316,6 +450,7 @@ def register(mcp, bridge) -> None:
             body=body,
             cc=cc,
             html=html,
+            save_only=save_only,
         )
         return format_response(data, "json")
 

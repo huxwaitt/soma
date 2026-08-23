@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
+import fnmatch
 import json
 import ntpath
 import os
 import re
+import time
+import uuid
 from typing import Any, Callable, Iterator
 
 from outlook_mcp.client.folders import _safe_get, get_item_by_id, resolve_folder
@@ -28,6 +31,7 @@ from outlook_mcp.utils.paths import (
     validate_output_dir,
     validate_output_file,
 )
+from outlook_mcp.utils.fields import apply_fields
 from outlook_mcp.utils.safety import safe_dasl
 from outlook_mcp.utils.trim import trim_quoted as _trim_quoted
 
@@ -57,6 +61,20 @@ DASL_FROM_NAME = "urn:schemas:httpmail:fromname"
 DASL_RECEIVED = "urn:schemas:httpmail:datereceived"
 DASL_READ = "urn:schemas:httpmail:read"
 DASL_HAS_ATTACH = "urn:schemas:httpmail:hasattachment"
+
+# PR_ATTACHMENT_HIDDEN — true for inline images (cid: references in an
+# HTML body) and other attachments Outlook does not show in the list.
+ATTACHMENT_HIDDEN_PROPTAG = "http://schemas.microsoft.com/mapi/proptag/0x7FFE000B"
+
+# Properties AdvancedSearch's ``ci_phrasematch`` runs against. Both are
+# served by the Windows Search index when the store is indexed. There is
+# no documented separate DASL name for attachment *content*: Windows
+# Search folds the text an IFilter pulls out of an attachment (PDF, Word,
+# Excel...) into the item's indexed content, so a ``ci_phrasematch`` on
+# ``textdescription`` matches attachment text too — but only when the
+# store is indexed and a filter for that file type is installed. Not
+# verified against every store type; treat attachment hits as a bonus.
+ADVANCED_SEARCH_PROPS = (DASL_SUBJECT, DASL_BODY)
 
 EXPORT_COLUMNS = (
     "entry_id",
@@ -155,6 +173,21 @@ def recipient_smtp(recipient: Any) -> str:
     except Exception:
         pass
     return raw
+
+
+def current_user_smtp(namespace: Any) -> str:
+    """The signed-in user's SMTP address (``""`` when it cannot be read)."""
+    user = _safe_get(namespace, "CurrentUser")
+    if user is None:
+        return ""
+    return recipient_smtp(user) or ""
+
+
+def current_user_name(namespace: Any) -> str:
+    user = _safe_get(namespace, "CurrentUser")
+    if user is None:
+        return ""
+    return str(_safe_get(user, "Name", "") or "")
 
 
 def _recipients(item: Any) -> list[dict[str, Any]]:
@@ -276,9 +309,14 @@ def _search_haystack(item: Any, scope: str) -> str:
     return " ".join(str(_safe_get(item, f, "") or "") for f in fields).lower()
 
 
-def _mail_summary(item: Any) -> dict[str, Any]:
+def _mail_summary(item: Any, preview_chars: int = 200) -> dict[str, Any]:
+    """Summary shape shared by list/search/conversation results.
+
+    ``preview_chars`` sets the length of ``preview``; ``0`` leaves the key
+    out entirely (and never reads ``Body``, which is the slow part).
+    """
     attachments = _safe_get(item, "Attachments")
-    return {
+    out = {
         "entry_id": _safe_get(item, "EntryID"),
         "subject": _safe_get(item, "Subject", ""),
         "from": _safe_get(item, "SenderName"),
@@ -290,8 +328,10 @@ def _mail_summary(item: Any) -> dict[str, Any]:
         "has_attachments": attachments.Count > 0 if attachments else False,
         "importance": _safe_get(item, "Importance"),
         "internet_message_id": internet_message_id(item),
-        "preview": truncate(_safe_get(item, "Body", ""), 200),
     }
+    if preview_chars:
+        out["preview"] = truncate(_safe_get(item, "Body", ""), preview_chars)
+    return out
 
 
 def _mail_row(item: Any) -> dict[str, Any]:
@@ -393,6 +433,8 @@ def list_mails(
     until: str | None = None,
     from_address: str | None = None,
     has_attachments: bool | None = None,
+    fields: list[str] | None = None,
+    preview_chars: int = 200,
 ) -> dict[str, Any]:
     f = resolve_folder(namespace, folder)
     dasl = build_mail_filter(
@@ -409,39 +451,36 @@ def list_mails(
         if skipped < offset:
             skipped += 1
             continue
-        results.append(_mail_summary(item))
+        results.append(_mail_summary(item, preview_chars))
         if len(results) >= limit:
             break
 
-    return {
-        "folder": f.Name,
-        "count": len(results),
-        "offset": offset,
-        "limit": limit,
-        "items": results,
-        "has_more": len(results) == limit,
-        "next_offset": offset + len(results) if len(results) == limit else None,
-    }
+    return apply_fields(
+        {
+            "folder": f.Name,
+            "count": len(results),
+            "offset": offset,
+            "limit": limit,
+            "items": results,
+            "has_more": len(results) == limit,
+            "next_offset": offset + len(results) if len(results) == limit else None,
+        },
+        fields,
+    )
 
 
-def search_mails(
-    outlook: Any,
-    namespace: Any,
+def _search_items(
+    folder_obj: Any,
     *,
     query: str,
-    folder: str | None = "inbox",
-    limit: int = 25,
     scope: str = "subject_body",
     since: str | None = None,
     until: str | None = None,
     unread_only: bool = False,
     has_attachments: bool | None = None,
-) -> dict[str, Any]:
-    f = resolve_folder(namespace, folder)
-
-    # Multi-word queries: Restrict on the most selective word, then
-    # require the remaining words per item in Python (see
-    # split_search_words for why DASL can't do the AND itself).
+    limit: int = 25,
+) -> Iterator[Any]:
+    """Yield matching COM items newest-first; shared by search_mails and find."""
     remaining: list[str] = []
     if scope == "dasl":
         # Caller is explicitly passing a raw DASL filter; don't mangle it,
@@ -456,24 +495,330 @@ def search_mails(
             has_attachments=has_attachments,
             extra=[search_clause(anchor, scope)],
         )
-
-    results: list[dict[str, Any]] = []
-    for item in _iter_mail_items(f, dasl):
+    n = 0
+    for item in _iter_mail_items(folder_obj, dasl):
         if remaining:
             haystack = _search_haystack(item, scope)
             if not all(word in haystack for word in remaining):
                 continue
-        results.append(_mail_summary(item))
-        if len(results) >= limit:
+        yield item
+        n += 1
+        if n >= limit:
             break
 
-    return {
-        "query": query,
-        "scope": scope,
-        "folder": f.Name,
-        "count": len(results),
-        "items": results,
-    }
+
+def search_mails(
+    outlook: Any,
+    namespace: Any,
+    *,
+    query: str,
+    folder: str | None = "inbox",
+    limit: int = 25,
+    scope: str = "subject_body",
+    since: str | None = None,
+    until: str | None = None,
+    unread_only: bool = False,
+    has_attachments: bool | None = None,
+    fields: list[str] | None = None,
+    preview_chars: int = 200,
+) -> dict[str, Any]:
+    f = resolve_folder(namespace, folder)
+
+    # Multi-word queries: Restrict on the most selective word, then
+    # require the remaining words per item in Python (see
+    # split_search_words for why DASL can't do the AND itself).
+    results = [
+        _mail_summary(item, preview_chars)
+        for item in _search_items(
+            f,
+            query=query,
+            scope=scope,
+            since=since,
+            until=until,
+            unread_only=unread_only,
+            has_attachments=has_attachments,
+            limit=limit,
+        )
+    ]
+
+    return apply_fields(
+        {
+            "query": query,
+            "scope": scope,
+            "folder": f.Name,
+            "count": len(results),
+            "items": results,
+        },
+        fields,
+    )
+
+
+# --------------------------------------------------------------------------
+# Attachment search / indexed search
+# --------------------------------------------------------------------------
+
+
+def _attachment_hidden(att: Any) -> bool:
+    """True for inline images and other hidden attachments; False when unknown."""
+    accessor = _safe_get(att, "PropertyAccessor")
+    if accessor is None:
+        return False
+    try:
+        return bool(accessor.GetProperty(ATTACHMENT_HIDDEN_PROPTAG))
+    except Exception:
+        return False
+
+
+def attachment_name_matcher(query: str) -> Callable[[str], bool]:
+    """Return ``match(filename)`` for a filename query.
+
+    With ``*`` or ``?`` in the query it is a case-insensitive glob over the
+    whole filename; otherwise every whitespace-separated word must occur
+    in the filename, any order, case-insensitive.
+    """
+    q = (query or "").strip().lower()
+    if "*" in q or "?" in q:
+        return lambda name: fnmatch.fnmatchcase((name or "").lower(), q)
+    words = q.split()
+    return lambda name: all(w in (name or "").lower() for w in words)
+
+
+def _walk_folders(folder: Any, include_subfolders: bool) -> Iterator[Any]:
+    """Yield ``folder`` and, when asked, every folder below it, depth-first."""
+    yield folder
+    if not include_subfolders:
+        return
+    subs = _safe_get(folder, "Folders")
+    if not subs:
+        return
+    try:
+        children = list(subs)
+    except Exception:
+        return
+    for sub in children:
+        yield from _walk_folders(sub, True)
+
+
+def _matching_attachments(item: Any, match: Callable[[str], bool]) -> list[dict[str, Any]]:
+    attachments = _safe_get(item, "Attachments")
+    if not attachments:
+        return []
+    out: list[dict[str, Any]] = []
+    try:
+        for i, att in enumerate(attachments, start=1):
+            if _attachment_hidden(att):
+                continue
+            name = str(_safe_get(att, "FileName", "") or "")
+            if match(name):
+                out.append({"index": i, "filename": name, "size_bytes": _safe_get(att, "Size")})
+    except Exception:
+        pass
+    return out
+
+
+def search_attachments(
+    outlook: Any,
+    namespace: Any,
+    *,
+    query: str,
+    folder: str | None = "inbox",
+    since: str | None = None,
+    limit: int = 50,
+    include_subfolders: bool = True,
+    fields: list[str] | None = None,
+) -> dict[str, Any]:
+    """Find mails whose attachment filenames match ``query``.
+
+    Only mails with attachments (DASL ``hasattachment = 1`` plus ``since``)
+    are touched. Inline images (hidden attachments) never match. Walks
+    sub-folders depth-first when ``include_subfolders`` is set; results are
+    sorted newest-first across all folders and cut to ``limit``.
+    """
+    f = resolve_folder(namespace, folder)
+    match = attachment_name_matcher(query)
+    dasl = build_mail_filter(since=since, has_attachments=True)
+
+    found: list[tuple[Any, dict[str, Any]]] = []
+    folders_searched = 0
+    for fo in _walk_folders(f, include_subfolders):
+        folders_searched += 1
+        per_folder = 0
+        for item in _iter_mail_items(fo, dasl):
+            matches = _matching_attachments(item, match)
+            if not matches:
+                continue
+            summary = _mail_summary(item)
+            summary["folder"] = _safe_get(fo, "Name")
+            summary["matches"] = matches
+            found.append((item, summary))
+            per_folder += 1
+            # One past the limit so ``truncated`` can be reported honestly.
+            if per_folder > limit:
+                break
+
+    found.sort(key=lambda pair: _received_sort_key(pair[0]), reverse=True)
+    items = [summary for _item, summary in found[:limit]]
+    return apply_fields(
+        {
+            "query": query,
+            "folder": f.Name,
+            "folders_searched": folders_searched,
+            "count": len(items),
+            "truncated": len(found) > limit,
+            "items": items,
+        },
+        fields,
+    )
+
+
+def advanced_search_filter(query: str, since: str | None = None) -> str:
+    """Build the ``@SQL=`` filter for ``Application.AdvancedSearch``.
+
+    Every word must phrase-match (``ci_phrasematch``, index-backed) the
+    subject or the body; ``since`` adds a ``datereceived`` clause.
+    """
+    words = [w for w in (query or "").split() if w]
+    if not words:
+        raise OutlookError("query is empty.")
+    clauses: list[str] = []
+    for word in words:
+        esc = safe_dasl(word)
+        clauses.append(
+            "(" + " OR ".join(f"\"{prop}\" ci_phrasematch '{esc}'" for prop in ADVANCED_SEARCH_PROPS) + ")"
+        )
+    since_dt = from_iso(since)
+    if since_dt:
+        clauses.append(f"\"{DASL_RECEIVED}\" >= '{_dasl_date(since_dt)}'")
+    return "@SQL=" + " AND ".join(clauses)
+
+
+def advanced_search_scope(namespace: Any, scope: str | None) -> str:
+    """Scope string for ``AdvancedSearch``: every store root for ``all``,
+    else the resolved folder's path; each path single-quoted, comma-joined."""
+    if not scope or scope.strip().lower() == "all":
+        paths: list[str] = []
+        for store in namespace.Stores:
+            try:
+                path = store.GetRootFolder().FolderPath
+            except Exception:
+                continue
+            if path:
+                paths.append(str(path))
+        if not paths:
+            raise OutlookError("No stores found to search.")
+    else:
+        paths = [str(resolve_folder(namespace, scope).FolderPath)]
+    return ",".join("'" + p.replace("'", "''") + "'" for p in paths)
+
+
+def wait_for_search(
+    search: Any,
+    *,
+    timeout_sec: float,
+    poll_sec: float = 0.25,
+    stable_sec: float = 1.0,
+    min_wait_sec: float = 3.0,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+    pump: Callable[[], Any] | None = None,
+) -> bool:
+    """Poll ``search.Results.Count`` until it stops changing. Returns ``timed_out``.
+
+    Runs on the STA thread, so it pumps waiting COM messages between
+    polls — without that Outlook never delivers results. The count is
+    "done" once it has not moved for ``stable_sec``; a count of zero is
+    trusted only after ``min_wait_sec`` so a slow first search is not
+    mistaken for "nothing found".
+    """
+    if pump is None:
+        import pythoncom
+
+        pump = pythoncom.PumpWaitingMessages
+    start = clock()
+    last = -1
+    stable_since = start
+    while True:
+        pump()
+        try:
+            count = int(search.Results.Count)
+        except Exception:
+            count = 0
+        now = clock()
+        if count != last:
+            last = count
+            stable_since = now
+        elif now - stable_since >= stable_sec and (count > 0 or now - start >= min_wait_sec):
+            return False
+        if now - start >= timeout_sec:
+            return True
+        sleep(poll_sec)
+
+
+def advanced_search(
+    outlook: Any,
+    namespace: Any,
+    *,
+    query: str,
+    scope: str = "all",
+    since: str | None = None,
+    limit: int = 50,
+    timeout_sec: float = 20.0,
+    fields: list[str] | None = None,
+    _wait: Callable[..., bool] = wait_for_search,
+) -> dict[str, Any]:
+    """Index-backed search through ``Application.AdvancedSearch``.
+
+    Uses Windows Search, so it covers every folder of every store in one
+    call and (when the store is indexed) matches attachment contents as
+    well as bodies. Results come back in no particular order; they are
+    sorted by ``ReceivedTime`` newest-first here before ``limit`` applies.
+    """
+    dasl = advanced_search_filter(query, since)
+    scope_str = advanced_search_scope(namespace, scope)
+    tag = "outlook_mcp_" + uuid.uuid4().hex[:8]
+    search = outlook.AdvancedSearch(scope_str, dasl, True, tag)
+    timed_out = _wait(search, timeout_sec=timeout_sec)
+
+    since_dt = from_iso(since)
+    collected: list[Any] = []
+    try:
+        results = list(search.Results)
+    except Exception:
+        results = []
+    for item in results:
+        if _safe_get(item, "Class") != OL_CLASS_MAIL:
+            continue
+        if since_dt is not None:
+            received = _safe_get(item, "ReceivedTime")
+            try:
+                if received is not None and received.replace(tzinfo=None) < since_dt.replace(tzinfo=None):
+                    continue
+            except Exception:
+                pass
+        collected.append(item)
+    try:
+        search.Stop()
+    except Exception:
+        pass
+
+    collected.sort(key=_received_sort_key, reverse=True)
+    items = []
+    for item in collected[:limit]:
+        summary = _mail_summary(item)
+        summary["folder"] = _safe_get(_safe_get(item, "Parent"), "Name")
+        items.append(summary)
+    return apply_fields(
+        {
+            "query": query,
+            "scope": scope,
+            "filter": dasl,
+            "count": len(items),
+            "total_found": len(collected),
+            "timed_out": timed_out,
+            "items": items,
+        },
+        fields,
+    )
 
 
 def get_mail(
@@ -485,13 +830,17 @@ def get_mail(
     include_html: bool = False,
     max_body_chars: int = 10000,
     trim_quoted: bool = False,
+    fields: list[str] | None = None,
 ) -> dict[str, Any]:
-    return _mail_full(
-        get_item_by_id(namespace, entry_id),
-        include_body=include_body,
-        include_html=include_html,
-        max_body_chars=max_body_chars,
-        trim_quoted=trim_quoted,
+    return apply_fields(
+        _mail_full(
+            get_item_by_id(namespace, entry_id),
+            include_body=include_body,
+            include_html=include_html,
+            max_body_chars=max_body_chars,
+            trim_quoted=trim_quoted,
+        ),
+        fields,
     )
 
 
@@ -513,6 +862,47 @@ def _walk_conversation(node: Any, conversation: Any) -> Iterator[Any]:
         yield from _walk_conversation(child, conversation)
 
 
+def _conversation_items(anchor: Any) -> list[Any]:
+    """Every mail COM item in ``anchor``'s conversation, oldest first.
+
+    Falls back to ``[anchor]`` when Outlook has no conversation for it.
+    """
+    try:
+        conversation = anchor.GetConversation()
+    except Exception:
+        conversation = None
+    if conversation is None:
+        return [anchor]
+
+    collected: list[Any] = []
+    seen: set[Any] = set()
+    for root in conversation.GetRootItems():
+        for node in _walk_conversation(root, conversation):
+            if _safe_get(node, "Class") not in (OL_CLASS_MAIL, OL_CLASS_MEETING_REQUEST):
+                continue
+            key = _safe_get(node, "EntryID")
+            if key in seen:
+                continue
+            seen.add(key)
+            collected.append(node)
+    if not collected:
+        collected = [anchor]
+    collected.sort(key=_received_sort_key)
+    return collected
+
+
+def _body_with_cap(item: Any, max_body_chars: int) -> dict[str, Any]:
+    body = _safe_get(item, "Body", "") or ""
+    out: dict[str, Any] = {}
+    if max_body_chars and len(body) > max_body_chars:
+        out["body"] = body[:max_body_chars].rstrip()
+        out["body_truncated"] = True
+        out["body_total_chars"] = len(body)
+    else:
+        out["body"] = body
+    return out
+
+
 def get_conversation(
     outlook: Any,
     namespace: Any,
@@ -522,6 +912,8 @@ def get_conversation(
     max_body_chars: int = 2000,
     limit: int = 200,
     trim_quoted: bool = False,
+    fields: list[str] | None = None,
+    preview_chars: int = 200,
 ) -> dict[str, Any]:
     """Return every mail in the conversation (thread) containing ``entry_id``.
 
@@ -535,57 +927,27 @@ def get_conversation(
     conversation_id = _safe_get(anchor, "ConversationID")
 
     def describe(item: Any) -> dict[str, Any]:
-        out = _mail_summary(item)
+        out = _mail_summary(item, preview_chars)
         out["conversation_id"] = _safe_get(item, "ConversationID")
         out["folder"] = _safe_get(_safe_get(item, "Parent"), "Name")
         if include_body:
-            body = _safe_get(item, "Body", "") or ""
-            if max_body_chars and len(body) > max_body_chars:
-                out["body"] = body[:max_body_chars].rstrip()
-                out["body_truncated"] = True
-                out["body_total_chars"] = len(body)
-            else:
-                out["body"] = body
+            out.update(_body_with_cap(item, max_body_chars))
             if trim_quoted:
                 _attach_trimmed(out, out["body"], item)
         return out
 
-    try:
-        conversation = anchor.GetConversation()
-    except Exception:
-        conversation = None
-
-    if conversation is None:
-        return {
-            "conversation_id": conversation_id,
-            "count": 1,
-            "truncated": False,
-            "items": [describe(anchor)],
-        }
-
-    collected: list[Any] = []
-    seen: set[Any] = set()
-    for root in conversation.GetRootItems():
-        for node in _walk_conversation(root, conversation):
-            if _safe_get(node, "Class") not in (OL_CLASS_MAIL, OL_CLASS_MEETING_REQUEST):
-                continue
-            key = _safe_get(node, "EntryID")
-            if key in seen:
-                continue
-            seen.add(key)
-            collected.append(node)
-
-    if not collected:
-        collected = [anchor]
-    collected.sort(key=_received_sort_key)
+    collected = _conversation_items(anchor)
     truncated = len(collected) > limit
     items = [describe(item) for item in collected[:limit]]
-    return {
-        "conversation_id": conversation_id,
-        "count": len(items),
-        "truncated": truncated,
-        "items": items,
-    }
+    return apply_fields(
+        {
+            "conversation_id": conversation_id,
+            "count": len(items),
+            "truncated": truncated,
+            "items": items,
+        },
+        fields,
+    )
 
 
 def send_mail(
@@ -647,6 +1009,7 @@ def reply_mail(
     reply_all: bool = False,
     html: bool = False,
     attachments: list[str] | None = None,
+    save_only: bool = False,
 ) -> dict[str, Any]:
     original = get_item_by_id(namespace, entry_id)
     reply = original.ReplyAll() if reply_all else original.Reply()
@@ -657,6 +1020,17 @@ def reply_mail(
         reply.Body = body + "\n\n" + (reply.Body or "")
     for raw_path in attachments or []:
         reply.Attachments.Add(validate_attachment_path(raw_path))
+    if save_only:
+        # Keeps the conversation headers (In-Reply-To, ConversationIndex)
+        # that a hand-built send_mail(save_only=True) draft would lack.
+        reply.Save()
+        return {
+            "status": "saved",
+            "reply_all": reply_all,
+            "in_reply_to": entry_id,
+            "entry_id": reply.EntryID,
+            "subject": reply.Subject,
+        }
     # Cache properties BEFORE Send(): once the reply is sent, the underlying
     # COM object has effectively moved from Drafts to Sent Items and reading
     # any of its properties raises a "item has been moved or deleted" COM
@@ -681,6 +1055,7 @@ def forward_mail(
     body: str = "",
     cc: list[str] | None = None,
     html: bool = False,
+    save_only: bool = False,
 ) -> dict[str, Any]:
     original = get_item_by_id(namespace, entry_id)
     fwd = original.Forward()
@@ -693,6 +1068,15 @@ def forward_mail(
             fwd.HTMLBody = body + (fwd.HTMLBody or "")
         else:
             fwd.Body = body + "\n\n" + (fwd.Body or "")
+    if save_only:
+        fwd.Save()
+        return {
+            "status": "saved",
+            "forwarded": entry_id,
+            "to": to,
+            "entry_id": fwd.EntryID,
+            "subject": fwd.Subject,
+        }
     # Cache properties BEFORE Send(): once the forward is sent, the underlying
     # COM object has effectively moved from Drafts to Sent Items and reading
     # any of its properties raises a "item has been moved or deleted" COM

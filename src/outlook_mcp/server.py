@@ -22,7 +22,12 @@ server auto-launches Outlook on first call; the new "modern" Outlook
 (olk.exe) is NOT supported.
 
 Tool categories (all prefixed `outlook_`):
-  - Mail: list, search, get, send, reply, forward, move, delete, mark, save_attachments
+  - Mail: list, search, get, get_conversation, send, reply, forward, move, delete, mark, save_attachments
+  - Mail (find): search_attachments (by filename), advanced_search (Windows Search
+    index, every folder, attachment contents), extract_attachment_text
+  - Mail (computed, read-only): awaiting_reply (sent threads nobody answered),
+    find (people + words + dates -> scored threads with the matching sentence),
+    voice_sample (how the user writes, from sent mail)
   - Folders: list_folders, create_folder
   - Calendar: list_events, get_event, get_event_by_key, create_event, update_event, delete_event, respond_event
   - Availability: get_free_busy, find_meeting_times (Exchange free/busy; external people show as unknown)
@@ -37,6 +42,10 @@ Tool categories (all prefixed `outlook_`):
 Most read tools accept response_format='markdown' (default) or 'json'.
 Item references use Outlook EntryID strings; list tools return them on
 every item — pass them back to detail/edit/delete tools.
+
+Keep results small: list/search/get tools take fields=[...] to return
+only the named keys (entry_id is always kept), and list/search/
+conversation results take preview_chars (default 200, 0 = no preview).
 
 All datetimes are in the USER'S LOCAL timezone with an explicit UTC
 offset (e.g. 2026-06-10T16:33:22+05:00). Present them as-is — do NOT

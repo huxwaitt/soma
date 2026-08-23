@@ -26,6 +26,8 @@ All tools are prefixed `outlook_`. Memorize the categories; consult `references/
 | Category       | Tools |
 | -------------- | ----- |
 | Mail           | `list_mails`, `search_mails`, `get_mail`, `get_conversation` (whole thread, across folders), `send_mail`, `reply_mail`, `forward_mail`, `move_mail`, `delete_mail`, `mark_mail`, `save_attachments` |
+| Mail (find)    | `search_attachments` (by attachment filename, walks sub-folders), `advanced_search` (Windows Search index: every folder in one call, matches attachment contents), `extract_attachment_text` (text of one .pdf/.docx/.xlsx/.pptx/.txt/.csv attachment) |
+| Mail (computed)| `awaiting_reply` (sent threads nobody answered for N days, with the last line the user wrote), `find` (people + words + dates → top threads by score with the matching sentence), `voice_sample` (openings, closings, greeting and sign-off counts from the user's sent mail) — all read-only, all JSON |
 | Mail (bulk)    | `bulk_move_mails`, `bulk_delete_mails`, `bulk_mark_mails` |
 | Mail (export)  | `export_mails`, `save_mail_as` |
 | Folders        | `list_folders`, `create_folder` |
@@ -70,6 +72,10 @@ Resolve relative phrasing ("Friday at 3", "next Monday morning", "tomorrow") you
 
 Most read tools accept `response_format='markdown'` (default; pretty for the user) or `response_format='json'` (structured for you to parse). Pick **`json`** when you need to extract a field (almost always an `entry_id`) to chain into another call. Pick **`markdown`** when the result is the final answer to the user.
 
+### Smaller results
+
+`fields=[...]` on `list_mails`, `search_mails`, `get_mail`, `get_conversation`, `list_events`, `get_event`, `advanced_search` and `search_attachments` keeps only the named keys on each item (`entry_id` is always kept, unknown names are ignored). `preview_chars` (default 200, `0` = none) on `list_mails`, `search_mails` and `get_conversation` sets the preview length. `get_free_busy` returns only merged `busy_blocks` unless `busy_blocks_only=false`; `find_meeting_times` returns candidates only unless `include_slots=true`. Ask for what you will read — a 100-mail list with `fields=["from_address", "subject", "received"]` and `preview_chars=0` is a fraction of the default.
+
 ### Recurrence (calendar)
 
 `outlook_create_event` accepts an optional `recurrence` object:
@@ -92,18 +98,18 @@ Most read tools accept `response_format='markdown'` (default; pretty for the use
 ### Read tools are free; write tools have side effects
 
 Read freely:
-`list_mails`, `search_mails`, `get_mail`, `get_conversation`, `list_folders`, `list_events`, `get_event`, `get_event_by_key`, `get_free_busy`, `find_meeting_times`, `list_contacts`, `search_contacts`, `get_contact`, `resolve_name`, `list_tasks`, `list_categories`, `list_rules`, `get_out_of_office`, `whoami`.
+`list_mails`, `search_mails`, `search_attachments`, `advanced_search`, `extract_attachment_text`, `get_mail`, `get_conversation`, `awaiting_reply`, `find`, `voice_sample`, `list_folders`, `list_events`, `get_event`, `get_event_by_key`, `get_free_busy`, `find_meeting_times`, `list_contacts`, `search_contacts`, `get_contact`, `resolve_name`, `list_tasks`, `list_categories`, `list_rules`, `get_out_of_office`, `whoami`.
 
 Confirm before calling (these change shared state or send messages):
 `send_mail`, `reply_mail`, `forward_mail`, `delete_mail`, `move_mail`, `mark_mail`, `save_attachments`, `create_event` (especially with attendees — that sends a meeting invite immediately), `update_event`, `delete_event`, `respond_event` (with `send_response=true`), `create_folder`, `create_task`, `complete_task`, `set_category`, `toggle_rule`.
 
 Two staging tricks worth knowing:
-- `outlook_send_mail(..., save_only=true)` saves to Drafts without sending — perfect for "draft a reply for me to look at" requests.
+- `outlook_send_mail(..., save_only=true)`, `outlook_reply_mail(..., save_only=true)` and `outlook_forward_mail(..., save_only=true)` save to Drafts without sending — perfect for "draft a reply for me to look at" requests. The reply draft stays threaded under the original.
 - `outlook_respond_event(..., send_response=false)` records your local accept/decline without emailing the organizer.
 
 ## Default workflow
 
-1. **Identify the item.** For mail, prefer `search_mails` over `list_mails` when the user describes content (subject keyword, sender name). For calendar, `list_events` with a date range. Capture `entry_id`s as you go (`response_format='json'` makes this clean).
+1. **Identify the item.** For mail, prefer `search_mails` over `list_mails` when the user describes content (subject keyword, sender name). When the user describes an attachment ("the spreadsheet", "that PDF"), use `search_attachments`; when the words are probably inside an attachment or the folder is unknown, `advanced_search` (needs indexing). For calendar, `list_events` with a date range. Capture `entry_id`s as you go (`response_format='json'` makes this clean).
 2. **Read the full record before editing or replying.** `get_mail` / `get_event` return the full body — list/search results only include a 200-char preview, which is not enough to write a grounded reply.
 3. **Confirm destructive or outbound actions** unless explicitly authorized. State the verb, recipients, and key fields. For replies, show the user the body you're about to send, or save it as a draft and tell them where to find it.
 4. **Act, then report briefly.** "Sent — replied-all to 'Re: Q3 budget' with the revised numbers." Don't echo raw JSON unless asked.

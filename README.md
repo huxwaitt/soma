@@ -119,17 +119,19 @@ server entry in its MCP config:
 
 ## Tools
 
-40 tools across 10 categories, all prefixed `outlook_*`.
+46 tools across 10 categories, all prefixed `outlook_*`. Every list / search / get tool takes `fields=[...]` to return only the keys you need (`entry_id` is always kept), and list, search and conversation results take `preview_chars` (default 200, `0` = no preview).
 
 | Category       | Tools |
 | -------------- | ----- |
-| Mail           | `list_mails`, `search_mails`, `get_mail`, `send_mail`, `reply_mail`, `forward_mail`, `move_mail`, `delete_mail`, `mark_mail`, `save_attachments` |
+| Mail           | `list_mails`, `search_mails`, `get_mail`, `send_mail`, `reply_mail`, `forward_mail` (both with `save_only` to land in Drafts), `move_mail`, `delete_mail`, `mark_mail`, `save_attachments` |
 | Mail (thread)  | `get_conversation` — whole thread for a mail, oldest first, across folders (Inbox + Sent Items + sub-folders) |
+| Mail (find)    | `search_attachments` (by attachment filename, words or glob, walks sub-folders, skips inline images), `advanced_search` (Windows Search index via `Application.AdvancedSearch`: every store in one call, matches attachment contents where indexed), `extract_attachment_text` (text of one `.pdf` / `.docx` / `.xlsx` / `.pptx` / `.txt` / `.csv` / `.md` attachment; PDF and Excel need `pip install outlook-classic-mcp[search]`) |
+| Mail (computed)| `awaiting_reply` (sent threads where the user wrote last and nobody answered for N days, with the last line written), `find` (people + words + dates → top threads by score, one per conversation, with the sentence that matches), `voice_sample` (openings, closings, greeting and sign-off counts from the user's own sent mail) — whole jobs done in code, read-only |
 | Mail (bulk)    | `bulk_move_mails`, `bulk_delete_mails`, `bulk_mark_mails` — up to 500 EntryIDs per call, per-item success/failure report |
 | Mail (export)  | `export_mails` (CSV/JSON table of metadata for Excel / pandas / Power Automate), `save_mail_as` (`.msg` / `.txt` / `.html`) |
 | Folders        | `list_folders`, `create_folder` |
 | Calendar       | `list_events`, `get_event`, `get_event_by_key` (lookup by stable `GlobalAppointmentID` / per-occurrence `occurrence_key`), `create_event`, `update_event`, `delete_event`, `respond_event` — events return `global_id`, `occurrence_key`, `organizer_address`, SMTP-resolved `attendees[]` with RSVP status |
-| Availability   | `get_free_busy` (per-person free/tentative/busy/OOF slots + merged busy blocks), `find_meeting_times` (slots where everyone is free, honouring working hours, buffer, weekdays) — Exchange free/busy via `Recipient.FreeBusy` |
+| Availability   | `get_free_busy` (per-person merged busy blocks; `busy_blocks_only=false` adds every slot), `find_meeting_times` (slots where everyone is free, honouring working hours, buffer, weekdays; `include_slots=true` adds the per-person arrays) — Exchange free/busy via `Recipient.FreeBusy` |
 | Contacts       | `list_contacts`, `search_contacts` (saved contacts + org directory), `get_contact`, `resolve_name` |
 | Tasks          | `list_tasks`, `create_task`, `complete_task` |
 | Categories     | `list_categories`, `set_category` |

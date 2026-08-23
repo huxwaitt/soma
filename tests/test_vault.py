@@ -412,6 +412,38 @@ def test_append_row_creates_section_and_header(vault):
     assert store.read(path)["sections"] == ["Note", "Body", "Related"]
 
 
+def test_meeting_row_with_pipe_in_occurrence_key_round_trips(vault):
+    path = "Administrator/Follow-ups.md"
+    key = "GID1|2026-08-25T13:00:00+02:00 # Confirm Leipzig address"
+    row = ["2026-08-25", "[[People/Tom Lee]]", "Confirm Leipzig address", "[[Meetings/2026-08-25 1300 Supplier sync]]", "2026-08-25"]
+    r1 = store.append_row(path, "Open", row, key, key_label="occurrence_key")
+    assert r1["appended"]
+    text = (vault / path).read_text(encoding="utf-8")
+    line = next(l for l in text.split("\n") if "Leipzig" in l)
+    # the pipe inside the hidden comment is escaped, so the row still has five cells
+    assert "<!-- occurrence_key: GID1\\|2026-08-25T13:00:00+02:00 # Confirm Leipzig address -->" in line
+    assert len(store._cells(line)) == 5
+    assert store._cells(line)[-1].endswith("<!-- occurrence_key: " + key + " -->")
+    assert store._comment_key(line) == key
+    # the same key is a duplicate
+    assert store.append_row(path, "Open", row, key, key_label="occurrence_key")["appended"] is False
+    # move finds it by the unescaped key and keeps the cells intact
+    m = store.move_row(path, "Open", "Done", key, set_last_cell="2026-08-26")
+    assert m["moved"] and m["row"] == "| 2026-08-25 | [[People/Tom Lee]] | Confirm Leipzig address | [[Meetings/2026-08-25 1300 Supplier sync]] | 2026-08-26 <!-- occurrence_key: GID1\\|2026-08-25T13:00:00+02:00 # Confirm Leipzig address --> |"
+    open_part, done_part = (vault / path).read_text(encoding="utf-8").split("## Open")[1].split("## Done")
+    assert "Leipzig" not in open_part and done_part.count("<!-- occurrence_key:") == 1
+    assert store.move_row(path, "Open", "Done", key)["moved"] is False
+
+
+def test_pipe_in_plain_cell_survives_move_without_double_escaping(vault):
+    path = "Administrator/Follow-ups.md"
+    store.append_row(path, "Open", ["2026-08-21", "Bob", "a|b or c", "", "2026-08-22"], "00AF")
+    m = store.move_row(path, "Open", "Done", "00AF", set_last_cell="2026-08-23")
+    assert m["row"] == "| 2026-08-21 | Bob | a\\|b or c |  | 2026-08-23 <!-- entry_id: 00AF --> |"
+    text = (vault / path).read_text(encoding="utf-8")
+    assert "a\\\\|b" not in text and text.count("a\\|b or c") == 1
+
+
 def test_append_row_into_update_section_dedupes_across_file(vault):
     d = {"type": "daily", "source": "outlook", "date": "2026-08-22", "folder": "inbox",
          "since": "x", "inbox_checked": "y", "mails_seen": 1, "status": "todo", "created_by": CB}
@@ -461,8 +493,10 @@ def test_server_tools():
     assert names == {
         "vault_status", "vault_init", "vault_find", "vault_write",
         "vault_append_row", "vault_move_row", "vault_read", "vault_list",
+        "vault_rules", "vault_inbox_prepare", "vault_write_daily", "vault_save_email",
+        "vault_prep_context", "vault_weekly_facts", "vault_attach_transcript",
     }
-    assert len(tools) == 8
+    assert len(tools) == 15
 
 
 def test_server_call_round_trip(vault):

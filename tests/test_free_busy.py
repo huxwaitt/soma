@@ -65,7 +65,7 @@ def test_slots_decode_status_and_cover_window_only():
     # 60-min slots: 00-09 free, 09 tentative, 10 busy, 11 oof, 12 elsewhere, rest free
     digits = "0" * 9 + "1234" + "0" * 11
     ns = FakeNamespace({"a@corp.com": FakeRecipient("a@corp.com", digits=digits)})
-    out = get_free_busy(None, ns, addresses=["a@corp.com"], start="2026-03-02T09:00", end="2026-03-02T13:00", interval_minutes=60)
+    out = get_free_busy(None, ns, addresses=["a@corp.com"], start="2026-03-02T09:00", end="2026-03-02T13:00", interval_minutes=60, busy_blocks_only=False)
     p = out["people"][0]
     assert p["resolved"] and p["has_data"]
     assert [s["status"] for s in p["slots"]] == ["tentative", "busy", "oof", "elsewhere"]
@@ -81,7 +81,7 @@ def test_interval_handling_partial_overlap_slots_included():
 
     digits = _digits_for_day([(9, 10)], interval=30)
     ns = FakeNamespace({"a@corp.com": FakeRecipient("a@corp.com", digits=digits)})
-    out = get_free_busy(None, ns, addresses=["a@corp.com"], start="2026-03-02T09:15", end="2026-03-02T10:15", interval_minutes=30)
+    out = get_free_busy(None, ns, addresses=["a@corp.com"], start="2026-03-02T09:15", end="2026-03-02T10:15", interval_minutes=30, busy_blocks_only=False)
     slots = out["people"][0]["slots"]
     # 09:00-09:30 overlaps 09:15 so it is included; 10:00-10:30 too
     assert [s["start"][11:16] for s in slots] == ["09:00", "09:30", "10:00"]
@@ -110,7 +110,7 @@ def test_unresolved_and_blank_freebusy_go_to_unknown():
             "ok@corp.com": FakeRecipient("ok@corp.com", digits="0" * 48),
         }
     )
-    out = get_free_busy(None, ns, addresses=["ext@other.com", "blank@corp.com", "ok@corp.com"], start="2026-03-02T09:00", end="2026-03-02T10:00")
+    out = get_free_busy(None, ns, addresses=["ext@other.com", "blank@corp.com", "ok@corp.com"], start="2026-03-02T09:00", end="2026-03-02T10:00", busy_blocks_only=False)
     assert out["unknown"] == ["ext@other.com", "blank@corp.com"]
     by = {p["address"]: p for p in out["people"]}
     assert by["ext@other.com"]["resolved"] is False and by["ext@other.com"]["slots"] == []
@@ -124,7 +124,7 @@ def test_multi_day_window_chains_freebusy_calls():
     # Each call returns one day (24 slots of 60 min); the lookup must keep asking.
     rec = FakeRecipient("a@corp.com", digits={_d(2): "0" * 24, _d(3): "2" * 24, _d(4): "0" * 24})
     ns = FakeNamespace({"a@corp.com": rec})
-    out = get_free_busy(None, ns, addresses=["a@corp.com"], start="2026-03-02T00:00", end="2026-03-04T00:00", interval_minutes=60)
+    out = get_free_busy(None, ns, addresses=["a@corp.com"], start="2026-03-02T00:00", end="2026-03-04T00:00", interval_minutes=60, busy_blocks_only=False)
     assert [c[0] for c in rec.calls] == [_d(2), _d(3), _d(4)]
     assert len(out["people"][0]["slots"]) == 48
     assert out["people"][0]["busy_blocks"][0]["start"].startswith("2026-03-03T00:00")

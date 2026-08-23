@@ -50,18 +50,21 @@ Updating an event with attendees usually triggers Outlook to send an updated-mee
 
 ## "I replied — can you save that to drafts so I can edit it first?"
 
-`outlook_reply_mail` doesn't have a `save_only` flag. It sends.
+Call `outlook_reply_mail(entry_id, body, reply_all=..., save_only=true)`. Nothing is sent; the draft lands in Drafts, threaded under the original, with the recipients and quoted text Outlook would have used. The result carries the draft's `entry_id`. `outlook_forward_mail` has the same flag.
 
-**Workaround**: build the reply yourself and save it via `outlook_send_mail(save_only=true)`:
-
-```
-to = [original.from_address]                        # or all of original.to/cc for reply-all
-subject = "Re: " + original.subject                 # don't double-prefix
-body = your_reply + "\n\n" + original.body          # quote manually
-outlook_send_mail(to=to, subject=subject, body=body, save_only=true)
-```
+Do **not** build the reply by hand with `outlook_send_mail(save_only=true)` any more — that draft is a new message with no conversation headers, so it does not show up in the thread.
 
 Tell the user the draft is in the Drafts folder for them to review.
+
+## `advanced_search` returns nothing, or only old mail, or takes ages
+
+`outlook_advanced_search` is Outlook's Instant Search (`Application.AdvancedSearch`), which reads the **Windows Search index**, not the mailbox. Three things follow:
+
+- **Indexing must be on.** If Outlook is not in the indexed locations (Windows Settings → Searching Windows, or Outlook → File → Options → Search → Indexing Options) or the index is still building, the search returns `count: 0` with `timed_out: false`. That is "not indexed", not "no such mail". Fall back to `search_mails` per folder (plus `search_attachments` for filenames) and tell the user why.
+- **Unindexed stores return nothing.** Archive PSTs and shared mailboxes that are not in the index contribute zero results even with `scope="all"`. Attachment contents only match where Windows has a filter for the file type (PDF needs the PDF filter; password-protected files are never indexed).
+- **The first search after a cold start is slow.** The index handle warms up on first use; 5–15 s is normal, later calls are fast. `timed_out: true` means the `timeout_sec` passed while results were still arriving — what was collected so far is returned; re-run with a higher `timeout_sec` (max 55) if the count looks short.
+
+Results come back from the index in no particular order; the server sorts them newest-first, so `limit` keeps the most recent mails.
 
 ## Item not found / EntryID errors after a move
 

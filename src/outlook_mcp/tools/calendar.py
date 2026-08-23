@@ -13,6 +13,16 @@ from outlook_mcp.ui import ui_meta, ui_result
 from outlook_mcp.utils.formatting import format_response
 from outlook_mcp.utils.safety import safe_call
 
+Fields = Annotated[
+    Optional[list[str]],
+    Field(
+        description=(
+            "Keep only these keys on each returned event (entry_id is always kept; "
+            "unknown names are ignored). Omit for the full shape."
+        ),
+    ),
+]
+
 
 def register(mcp, bridge) -> None:
     @mcp.tool(
@@ -33,6 +43,7 @@ def register(mcp, bridge) -> None:
         end: Annotated[Optional[str], Field(description="ISO-8601 end of range. Defaults to start+14d.")] = None,
         limit: Annotated[int, Field(ge=1, le=200)] = 50,
         include_recurrences: Annotated[bool, Field()] = True,
+        fields: Fields = None,
         response_format: Annotated[str, Field(description="'markdown' or 'json'.")] = "markdown",
     ) -> CallToolResult:
         """List calendar events in a date range, including recurring instances."""
@@ -42,6 +53,7 @@ def register(mcp, bridge) -> None:
             end=end,
             limit=limit,
             include_recurrences=include_recurrences,
+            fields=fields,
         )
         return ui_result(format_response(data, response_format), data)
 
@@ -59,10 +71,11 @@ def register(mcp, bridge) -> None:
     @safe_call
     async def outlook_get_event(
         entry_id: Annotated[str, Field(description="EntryID of the event.")],
+        fields: Fields = None,
         response_format: Annotated[str, Field(description="'markdown' or 'json'.")] = "markdown",
     ) -> CallToolResult:
         """Fetch an event with attendees, body, and recurrence info."""
-        data = await bridge.call(cal_client.get_event, entry_id=entry_id)
+        data = await bridge.call(cal_client.get_event, entry_id=entry_id, fields=fields)
         return ui_result(format_response(data, response_format), data)
 
     @mcp.tool(

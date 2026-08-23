@@ -13,7 +13,7 @@ from typing import Any
 ADMIN_DIR = "Administrator"
 
 FOLDERS = ("Daily", "Emails", "Meetings", "People", "Attachments", "Weekly", "_views")
-FILES = ("Follow-ups.md", "Preferences.md")
+FILES = ("Follow-ups.md", "Preferences.md", "Rules.md")
 
 # type -> (folder under Administrator/, required frontmatter keys, date key)
 SCHEMAS: dict[str, dict[str, Any]] = {

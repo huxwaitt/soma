@@ -162,14 +162,24 @@ def get_free_busy(
     start: str,
     end: str,
     interval_minutes: int = 30,
+    busy_blocks_only: bool = True,
 ) -> dict[str, Any]:
+    """Per-person free/busy.
+
+    ``busy_blocks_only`` (default) leaves out the per-slot ``slots`` array —
+    for a week at 30 minutes that is 336 entries per person — and keeps the
+    merged ``busy_blocks``, which is what a reader needs anyway.
+    """
     if not 1 <= interval_minutes <= 1440:
         raise OutlookError("interval_minutes must be between 1 and 1440.")
     addrs = _validate_addresses(addresses)
     start_dt, end_dt = _parse_window(start, end)
     people, unknown = _lookup(namespace, addrs, start_dt, end_dt, interval_minutes)
     for p in people:
-        p["slots"] = _iso_slots(p["slots"])
+        if busy_blocks_only:
+            p.pop("slots", None)
+        else:
+            p["slots"] = _iso_slots(p["slots"])
         p["busy_blocks"] = _iso_slots(p["busy_blocks"])
     return {
         "start": to_iso(start_dt),
@@ -210,7 +220,15 @@ def find_meeting_times(
     weekdays_only: bool = True,
     include_self: bool = True,
     max_results: int = 10,
+    include_slots: bool = False,
 ) -> dict[str, Any]:
+    """Candidate times when everyone with free/busy data is free.
+
+    With ``include_slots`` the result also carries ``people[]`` (each
+    person's ``slots`` and ``busy_blocks``); off by default because those
+    arrays are the bulk of the payload and the candidates already say who
+    was checked.
+    """
     if duration_minutes < 1:
         raise OutlookError("duration_minutes must be at least 1.")
     if buffer_minutes < 0:
@@ -274,7 +292,7 @@ def find_meeting_times(
             t += step
         day += dt.timedelta(days=1)
 
-    return {
+    out: dict[str, Any] = {
         "start": to_iso(start_dt),
         "end": to_iso(end_dt),
         "duration_minutes": duration_minutes,
@@ -283,3 +301,9 @@ def find_meeting_times(
         "count": len(candidates),
         "items": candidates,
     }
+    if include_slots:
+        for p in people:
+            p["slots"] = _iso_slots(p["slots"])
+            p["busy_blocks"] = _iso_slots(p["busy_blocks"])
+        out["people"] = people
+    return out
