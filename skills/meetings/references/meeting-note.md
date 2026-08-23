@@ -40,7 +40,7 @@ attendee_links:
   - "[[People/Tom Lee]]"
 is_recurring: false
 status: upcoming
-created_by: administrator/0.0.4
+created_by: administrator/0.1.0
 ---
 
 # <Subject as Outlook returned it>
@@ -76,7 +76,7 @@ created_by: administrator/0.0.4
 <Only present when /administrator:notes created this note and saved a minutes email in the same run. Otherwise the draft text sits under "## Update <ISO>" as "### Minutes draft".>
 ```
 
-A `## Transcript` section (speakers, decisions, collapsed callout) sits between `## Related emails` and `## Minutes draft` when a transcript was pasted in the run that created the note; see `references/transcript.md`.
+A transcript never sits in the body `notes` creates: `vault_attach_transcript` appends it as `### Transcript` (speakers line, collapsed callout or a file link) under its own `## Update` heading, and the decisions go into a separate append under `### Decisions`; see `references/transcript.md`.
 
 ## Frontmatter rules
 
@@ -93,7 +93,7 @@ A `## Transcript` section (speakers, decisions, collapsed callout) sits between 
 | `attendee_links` | One `"[[People/<Display Name>]]"` per entry in `attendees`, same order. |
 | `is_recurring` | `true` / `false` from the event. |
 | `status` | `upcoming` on creation by `prep` or `schedule`; `held` set by `notes`; `cancelled` set by `prep` when `outlook_get_event_by_key` no longer finds the occurrence or the subject starts with `Canceled:` / `Abgesagt:`. This is the only frontmatter key edited in place. |
-| `created_by` | `administrator/0.0.4`. |
+| `created_by` | `administrator/0.1.0`. |
 
 Header lines under the `# Subject`: `**When:**` is `YYYY-MM-DD HH:MM–HH:MM` (one date; if `end` is on another day write both dates). `**Organizer:**` is `me <address>` when the user organised it. `**Attendees:**` lists every attendee as a wikilink with `(required|optional|resource, <response>)` where `<response>` is the event's `attendees[].response` in plain words: `accepted`, `tentative`, `declined`, `no reply` (for `none` and `notresponded`), `organizer`.
 
@@ -106,10 +106,10 @@ Header lines under the `# Subject`: `**When:**` is `YYYY-MM-DD HH:MM–HH:MM` (o
 | `## Action items` | `prep` / `schedule` write `- none`; `notes` fills it only on creation | Never. New `- [ ]` lines go under `## Update <ISO>` as `### Action items`. Boxes are never ticked by the plugin; a closed item is named under `### Closed` in the same Update. The unchecked action items of a meeting = all `- [ ]` lines in the note, in any section. |
 | `## Waiting on` | same as `## Action items` | Never; later items go under `## Update` as `### Waiting on`. |
 | `## Related emails` | `prep` | Never; a second `prep` run puts new lines under `## Update` as `### Related emails`. Skip a line whose `[[Emails/…]]` link or `entry_id` comment is already in the note. |
-| `## Transcript` | `notes`, only when a transcript is pasted in the run that creates the note (`references/transcript.md`) | Never; a transcript for an existing note goes under `## Update` as `### Transcript`. |
+| `### Transcript` (under `## Update`) | `vault_attach_transcript`, called by `notes` after the transcript file was written once (`references/transcript.md`) | Never; every transcript lands under its own `## Update` heading, never in the created body. |
 | `## Minutes draft` | `notes`, only when it creates the note and a draft was saved in the same run | Never; the draft text is appended under `## Update` as `### Minutes draft` (not replaced — the newest one mirrors the Drafts item). |
 
-The section order above is fixed. `prep` writes every heading even when a section is empty (with the single line `- none` for lists, `_(none yet)_` for `## Notes`). `## Transcript` and `## Minutes draft` are the exceptions: not present unless `notes` wrote them on creation. The server (`vault_write`) never edits text that is already in the file, so everything a later run adds lives under its own `## Update <ISO>` heading with `###` sub-headings.
+The section order above is fixed. `prep` writes every heading even when a section is empty (with the single line `- none` for lists, `_(none yet)_` for `## Notes`). `## Minutes draft` is the exception: not present unless `notes` wrote it. The server (`vault_write`) never edits text that is already in the file, so everything a later run adds lives under its own `## Update <ISO>` heading with `###` sub-headings.
 
 ## Prep section
 

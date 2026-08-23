@@ -24,10 +24,10 @@ No arguments. Read-only apart from one call to `vault_init`, which creates missi
    - A timeout on the first call is normal after a cold start; try once more before calling it a failure.
 5. **Create what is missing.** If `administrator_dir_exists` is false or any `folders` / `files` flag is false:
    - If `files["Preferences.md"]` is false, ask once, in one short message ending in a question: "I will set work hours 09:00–17:00 with a 15 minute buffer between meetings. Keep those, or tell me yours?" Wait for the answer. A plain yes keeps the defaults; otherwise take the hours (`HH:MM`) and buffer (minutes) from the reply. Do not ask when `Preferences.md` already exists.
-   - Call `vault_init(work_start=<HH:MM>, work_end=<HH:MM>, buffer_minutes=<n>, created_by="administrator/0.0.4")`. Never pass `overwrite=true` from this command. Report `created` and `skipped` as two short lists of paths.
+   - Call `vault_init(work_start=<HH:MM>, work_end=<HH:MM>, buffer_minutes=<n>, created_by="administrator/0.1.0")`. Never pass `overwrite=true` from this command. Report `created` and `skipped` as two short lists of paths.
    - When nothing is missing, say so in one line and call nothing.
 6. **Export sandbox.** If `under_user_profile` is false, warn: "The vault is outside `C:\Users\<you>`, so `.msg` and attachment exports (`outlook_save_mail_as`, `outlook_save_attachments`) will be refused. Notes still work. To allow exports anyway set `OUTLOOK_MCP_ALLOW_ANY_PATH=1` and restart Claude Code."
-7. **Report.** Five lines at most: servers (both present or which one is missing), Outlook account and timezone, vault path and name, what was created, the sandbox warning if any. End with the link `obsidian://open?vault=<vault_name>&file=Administrator%2FPreferences.md` (`vault_name` from `vault_status`) and one line: "Edit Preferences.md in Obsidian any time; the plugin reads it on every scheduling request and never changes it."
+7. **Report.** Five lines at most: servers (both present or which one is missing), Outlook account and timezone, vault path and name, what was created, the sandbox warning if any. End with the link `obsidian://open?vault=<vault_name>&file=Administrator%2FPreferences.md` (`vault_name` from `vault_status`) and one line: "Edit Preferences.md in Obsidian any time; the plugin reads it once per session and never changes it."
 
 ## Example
 
@@ -38,6 +38,6 @@ No arguments. Read-only apart from one call to `vault_init`, which creates missi
 > Both servers are up. Outlook: hux@example.com, UTC+02:00.
 > Vault: `C:\Users\<you>\Documents\Vault` (name `Vault`). Created `Administrator/`, 7 folders, `Follow-ups.md`, `Preferences.md` (09:00–17:00, buffer 15) and 4 views.
 > obsidian://open?vault=Vault&file=Administrator%2FPreferences.md
-> Edit Preferences.md in Obsidian any time; the plugin reads it on every scheduling request and never changes it.
+> Edit Preferences.md in Obsidian any time; the plugin reads it once per session and never changes it.
 
 Running it again when everything exists reports "Nothing to create." and the same link.

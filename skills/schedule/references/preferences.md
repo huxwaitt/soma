@@ -1,6 +1,6 @@
 # Preferences reference — `<vault>/Administrator/Preferences.md`
 
-One file holds the user's scheduling preferences. The `schedule` skill reads it (`vault_read("Administrator/Preferences.md")`) before every free/busy call and applies it on top of what Outlook returns. The user edits it by hand in Obsidian; `vault_init` creates it when it is missing (`/administrator:setup` asks for work hours first, every other command uses the defaults below) and only `vault_init(overwrite=true)` ever rewrites it.
+One file holds the user's scheduling preferences. The `schedule` skill reads it (`vault_read("Administrator/Preferences.md")`) once per session — again only when the user says they changed it — and applies it on top of what Outlook returns. The user edits it by hand in Obsidian; `vault_init` creates it when it is missing (`/administrator:setup` asks for work hours first, every other command uses the defaults below) and only `vault_init(overwrite=true)` ever rewrites it.
 
 ## Template (what `vault_init` writes with the defaults)
 
@@ -21,7 +21,7 @@ preferred_days:
   - Tue
   - Wed
   - Thu
-created_by: administrator/0.0.4
+created_by: administrator/0.1.0
 ---
 
 # Scheduling preferences

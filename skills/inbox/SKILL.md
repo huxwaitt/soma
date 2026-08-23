@@ -1,167 +1,115 @@
 ---
 name: inbox
-description: Go through the user's new Outlook mail, label each message as act / reply / waiting / fyi / noise, write the result into today's daily note in the Obsidian vault, add "waiting" items to Follow-ups.md, and then offer (never run unasked) batch clean-up in Outlook. Trigger on /administrator:inbox, "go through my inbox", "what's new in my inbox", "anything urgent?", "what do I need to reply to", "what came in since yesterday", "sort my mail", "clear my inbox". Requires the outlook_* and vault_* tools and ADMINISTRATOR_VAULT.
+description: Go through the user's new Outlook mail, label each message as act / reply / waiting / fyi / noise, have the vault server render today's daily note in the Obsidian vault (waiting items also land in Follow-ups.md), and then offer (never run unasked) batch clean-up in Outlook. Trigger on /administrator:inbox, /administrator:daily, "go through my inbox", "what's new in my inbox", "anything urgent?", "what do I need to reply to", "what came in since yesterday", "sort my mail", "clear my inbox", "what's today". Requires the outlook_* and vault_* tools and ADMINISTRATOR_VAULT.
 ---
 
 # Inbox
 
-Read new mail, decide what each message needs from the user, write that down in the vault, then offer to tidy Outlook. Reads are free. Nothing that changes Outlook runs without an explicit yes.
+The model decides, the tools move the bytes. You read a short list, label what no rule could, and hand the labels back; `vault_write_daily` renders the note, links existing email notes, adds the Follow-ups rows and (for `daily`) the calendar, clashes and missing prep notes. You never write a table row, never compare `entry_id`s, never copy text a tool already holds. Reads are free. Nothing that changes Outlook runs without an explicit yes.
 
-Vault conventions (paths, frontmatter, what a note looks like) live in the core `administrator` skill and `administrator/references/vault.md`; the notes themselves are written through the `vault_*` tools (`references/vault.md` has the table of which call does what). Outlook mechanics live in the `outlook` skill. This file only describes the inbox workflow.
+Vault conventions live in the core `administrator` skill and `administrator/references/vault.md` ("Workflow helpers" section); Outlook mechanics in the `outlook` skill and `administrator/references/outlook.md`. Label rules: `references/labels.md`. A full run, call by call: `references/examples.md` — load it the first time you run this workflow in a session, not before.
 
 ## Inputs
 
 - `folder` (optional, default `inbox`) — any folder reference the `outlook` skill accepts.
-- `since` (optional) — ISO-8601 lower bound. If absent, work it out as described in "Finding the window".
-- A working vault: `vault_status` once per session; if `administrator_dir_exists` or any folder or file flag is false, call `vault_init(created_by="administrator/0.0.4")` and mention `/administrator:setup`. If `vault_status` says the vault is unset or not a directory, stop and tell the user; do not guess a path.
+- `since` (optional) — ISO-8601 lower bound. If absent, see step 1.
+- `date` (`daily` only, default today) and, for `daily`, the day's events.
+- A working vault: `vault_status` once per session; if `administrator_dir_exists` or any folder or file flag is false (including `Rules.md`), call `vault_init(created_by="administrator/0.1.0")` and mention `/administrator:setup`. Vault unset or not a directory: stop and tell the user; do not guess a path.
 
 ## Steps
 
 ### 1. Find the window
 
-1. `vault_list("daily", limit=1)` → the newest daily note, if any.
-2. Use its frontmatter `inbox_checked` (ISO with offset) as `since`. If the note has no `inbox_checked`, use its `date` at `00:00` local time.
-3. If there is no daily note at all, or the user gave a `since`, use that. Otherwise fall back to now minus 24 hours.
-4. Call `outlook_whoami` once if you need the local time zone offset to write ISO timestamps; its `utc_offset` is the one to use.
+`vault_list("daily", limit=1, fields=["date", "inbox_checked"])` → `since` = that note's `inbox_checked` (its `date` at 00:00 local when the key is missing). User gave `since` → use it. No daily note → now minus 24 hours. `outlook_whoami(response_format="json")` once per session for `utc_offset` and `local_time`. Say in one line which window you use: "Checking mail since Thu 21 Aug 17:05."
 
-Tell the user in one line which window you are using, e.g. "Checking mail since Thu 21 Aug 17:05."
-
-### 2. List the mail
+### 2. List the mail — one call, small fields
 
 ```
-outlook_list_mails(folder=<folder>, unread_only=true, since=<since>, limit=100, response_format="json")
+outlook_list_mails(folder=<folder>, unread_only=true, since=<since>, limit=100,
+    fields=["entry_id", "internet_message_id", "from_address", "from", "subject", "received", "preview"],
+    preview_chars=80, response_format="json")
 ```
 
-Use the `json` shape: you need `entry_id`, `internet_message_id`, `subject`, `from`, `from_address`, `to`, `received`, `importance`, `has_attachments`, `preview`. Remember the time you made this call; it becomes `inbox_checked`.
+Remember the time of this call; it is `inbox_checked`. Never ask for more fields or a longer preview here — step 4 reads the few bodies that matter.
 
-- **0 mails:** still write (or append to) today's daily note with a one-line "Inbox: nothing new since <since>." and set `inbox_checked`. Tell the user and stop. Do not offer batch actions.
-- **`has_more` is true (more than 100):** do not page through everything. Label the 100 you have, and write a line at the top of the inbox section: "More than 100 unread since <since>; showed the newest 100. Run again with `since` set to <received of the oldest one shown> to see the rest." Then ask the user whether to continue with the next page before doing so.
+- **0 mails:** `vault_write_daily(date, labels=[], items=[], since, inbox_checked, created_by="administrator/0.1.0")` still runs so the window moves on; tell the user "nothing new since <since>" and stop. No batch offer.
+- **`has_more`:** label the 100 you have; say "More than 100 unread since <since>; the newest 100 are in the note" and ask before paging (`offset=100`), never page on your own.
 
-### 3. Label each mail
-
-Give every message exactly one label and a reason of one short sentence. The full decision rules are in `references/labels.md`; the short form:
-
-| Label | Meaning | Typical signs |
-|---|---|---|
-| `act` | The user has to do something other than write back (pay, review, sign, fix, attend, decide). | Asks with a deadline, approvals, tickets assigned to the user, calendar invites needing a response, documents to review. |
-| `reply` | The user is expected to write back, and a reply is the whole job. | Direct question to the user, the user is in To, sender is a real person, thread is waiting on the user. |
-| `waiting` | The user asked for something and this message shows it is still pending, or it moves the ball to someone else. | "Will get back to you", acknowledgements, auto-replies to the user's own request, handoffs to a third party. |
-| `fyi` | Worth knowing, nothing to do. | The user is in Cc, status updates, meeting changes already on the calendar, notifications from systems the user watches, finished threads. |
-| `noise` | Safe to mark read and file without reading. | Newsletters, marketing, unsubscribe links, bulk senders, automated digests nobody acts on. |
-
-Work from subject, sender, recipients, preview and importance. Only call `outlook_get_mail(entry_id, max_body_chars=3000)` when those are not enough to choose between two labels, and do that for at most 10 messages per run. Everything still ambiguous after that gets `reply` if the user is in To and the sender is a person, otherwise `fyi`, and the reason says "unsure".
-
-Prefer the more demanding label when torn: `act` over `reply`, `reply` over `fyi`, `fyi` over `noise`. A wrong `noise` costs more than a wrong `fyi`.
-
-Use vault context when it is cheap: `vault_find("person", <from_address>)` with `found: true` means the sender is known and a message from them is less likely to be `noise`. Do this for senders you are unsure about, not for every sender.
-
-### 4. Link to existing email notes
-
-For each message, `vault_find("email", {"internet_message_id": <internet_message_id>, "entry_id": <entry_id>})`. If `found` is true, the `path` (without `Administrator/` and `.md`) becomes a wikilink for the `Note` column, e.g. `[[Emails/2026-08-22 Sign the NDA by Friday]]`; otherwise leave the link out. Do not create email notes from this skill — that is the `save` skill's job.
-
-### 5. Write the daily note
-
-One note per day, identity = the date. `vault_find("daily", {"date": <today>})` tells you whether it exists; `vault_write("daily", frontmatter, body, mode="upsert")` writes it and returns `action: created` or `appended` plus the `path`.
-
-The exact layout is the daily note template in `administrator/references/vault.md`; follow it, do not improvise headings. In short:
-
-**No note yet** — pass this frontmatter and body (the server adds nothing and checks the keys; `type` may be left out):
-
-```yaml
-type: daily
-source: outlook
-date: 2026-08-22
-folder: inbox
-since: 2026-08-21T17:05:00+02:00
-inbox_checked: 2026-08-22T09:14:00+02:00
-mails_seen: 5
-status: todo
-created_by: administrator/0.0.4
-```
-
-```markdown
-# 2026-08-22
-
-## Inbox (since 2026-08-21T17:05:00+02:00)
-
-| # | Label | From | Subject | Received | Why | Note |
-| --- | --- | --- | --- | --- | --- | --- |
-| 1 | act | Jane Doe | Sign the NDA by Friday | 08:52 | Deadline Friday, attachment to sign | [[Emails/2026-08-22 Sign the NDA by Friday]] <!-- entry_id: 00000000A1… --> |
-| 2 | reply | Tom Lee | Re: Q3 numbers | 08:40 | Asks you directly for the revised figure | <!-- entry_id: 00000000A2… --> |
-| 3 | waiting | Acme Support | Ticket 4411 received | 07:55 | Acknowledges your request, no answer yet | <!-- entry_id: 00000000A3… --> |
-| 4 | fyi | Build Bot | Nightly build passed | 06:10 | Status only | <!-- entry_id: 00000000A4… --> |
-| 5 | noise | Vendor News | August newsletter | 06:00 | Newsletter | <!-- entry_id: 00000000A5… --> |
-
-Labels: **act** (do something), **reply** (answer), **waiting** (they owe me), **fyi** (read), **noise** (ignore).
-
-## To do
-
-- [ ] act — Sign the NDA by Friday (Jane Doe) — [[Emails/2026-08-22 Sign the NDA by Friday]]
-- [ ] reply — Re: Q3 numbers (Tom Lee)
-
-## Waiting on
-
-- Acme Support — Ticket 4411 received (since 2026-08-22) → also in [[Follow-ups]]
-
-## Suggested Outlook actions (not done)
-
-- Mark 2 fyi/noise as read
-```
-
-Sort the table `act`, `reply`, `waiting`, `fyi`, `noise`, newest first within a label. Every row carries `<!-- entry_id: … -->` inside its last cell; that is how a later run knows the row is there. `## To do` holds `act` and `reply` items only. `## Waiting on` mirrors what goes into `Follow-ups.md`. `## Suggested Outlook actions (not done)` lists what step 7 offers. Leave `## Calendar` and `## Watch out` to `/administrator:daily`.
-
-**Note already exists** (second run today, or `/administrator:daily` already wrote it) — never rewrite it. First `vault_read(path)` and collect every `<!-- entry_id: … -->` in the body; drop any message whose `entry_id` is already there, so running twice never lists a mail twice. Then call `vault_write("daily", frontmatter, body, mode="append")` where:
-
-- `frontmatter` is the one `vault_find` returned with `inbox_checked` set to the time you ran `outlook_list_mails` (the only key this skill changes on an existing note; the server keeps every other key as it was, `mails_seen` included).
-- `body` is the new material only. The server puts it under a heading `## Update <ISO>` it adds itself (the heading text comes back as `update_heading`), so the body starts with the sub-heading and continues the row numbers:
-
-```markdown
-### Inbox (since 2026-08-22T09:14:00+02:00)
-
-<table, continuing the row numbers, then the To do / Waiting on / Suggested lists as above, only for the new messages>
-```
-
-When nothing is new, the body is the one line "Inbox: nothing new since <since>." and `inbox_checked` is still set.
-
-Set `inbox_checked` to the time you ran `outlook_list_mails`, not to the newest mail's `received`, so the next run picks up anything that arrived during the run.
-
-### 6. Add waiting items to Follow-ups.md
-
-`Administrator/Follow-ups.md` exists once `vault_init` has run. For each `waiting` item, one call:
+### 3. Let the rules go first
 
 ```
-vault_append_row("Administrator/Follow-ups.md", "Open",
-                 [<Since>, <Who>, <What>, <Email>, <today>],
-                 dedupe_key=<entry_id>)
+vault_inbox_prepare(items=<the items[] exactly as returned>, date=<today>)
 ```
 
-`Since` = the mail's date, `Who` = `[[People/<Name>]]` when `vault_find("person", <from_address>)` finds a note, else the display name, `What` = the subject (ten words or fewer), `Email` = the email-note wikilink if any, else empty. The server writes `<!-- entry_id: … -->` into the last cell and answers `appended: false, reason: "duplicate"` when that `entry_id` is already in the file; then leave the row alone (nothing else is edited on an existing row).
+Back come `to_label[]` (only mails not yet in any daily note of this ISO week and not on a never-save rule; `label` and `rule` already filled where a built-in or `Rules.md` rule decided; `preview` only where not), `already_seen[]`, `never_save[]`, `labelled_by_rule`. The list is cached on disk, so you never pass items back. Do not re-check, overrule or re-read the rule-labelled ones: a rule hit is a mail you do not read.
 
-Closing: when a mail in this run is a reply from the `Who` of an open row on the same subject (a reply on the thread the user was waiting for), `vault_read("Administrator/Follow-ups.md")`, find the row in the `## Open` table by `Who` and `What`, take the key from its trailing comment, and call `vault_move_row("Administrator/Follow-ups.md", "Open", "Done", <key>, set_last_cell=<today>)`. Say so in the daily note ("Carol Ng replied on 'Contract draft' → Follow-ups row moved to Done."). Rows are never deleted; rows the user edited by hand are only ever moved, never rewritten.
+### 4. Label the rest
+
+Only for `to_label[]` entries with `label: null`. Work from `from_name`, `from_address`, `subject`, `received`, `preview`, using `references/labels.md` (short form: **act** do something, **reply** write back, **waiting** they owe me, **fyi** read, **noise** ignore; when torn take the more demanding label — a wrong `noise` costs the most). Your whole output for this step is one compact JSON list, nothing else:
+
+```json
+[{"entry_id": "00000000A2…", "label": "reply", "reason": "Asks you for the revised Q3 figure"}]
+```
+
+`reason` is at most 12 words, plain, starts with what the sender wants. Do not echo subjects, previews or addresses back.
+
+Open a mail only when subject and preview cannot settle it between two labels, at most **5 per run**:
+
+```
+outlook_get_mail(entry_id, trim_quoted=true, max_body_chars=3000, fields=["subject", "body_trimmed"], response_format="json")
+```
+
+Past the cap, or still unsure: `reply` when a person wrote and the preview addresses the user, else `fyi`, with the reason ending in "(unsure)". `vault_find("person", <from_address>, fields=["name", "status"])` is allowed for a sender you cannot place, not for every sender.
+
+### 5. Write the note — one call
+
+```
+vault_write_daily(date=<today>, labels=<the JSON from step 4>, since=<since>, inbox_checked=<time of step 2>,
+    folder=<folder unless inbox>, events=<daily only, step 6>, watch_out=<daily only, extra bullets or omitted>,
+    tokens_used=<the turn's token count when the host shows one, else omit>, created_by="administrator/0.1.0")
+```
+
+Items come from the cache; rule-labelled mails need no entry in `labels`. The server sorts the table, writes the `<!-- entry_id -->` comments, links the `Note` column to existing email notes, fills `## To do` and `## Waiting on`, appends one `Follow-ups.md` row per `waiting` mail, and on a second run today appends only new rows under `## Update <ISO>` (the only frontmatter key that moves is `inbox_checked`). Read the result: `action` (`created` / `appended` / `unchanged`), `rows_written`, `duplicates_skipped`, `followups_added`, `unlabelled[]` (fix: label them and call again — they were left out of the note). `unchanged` means nothing was written; say so.
+
+Closing a follow-up: when a fresh mail is a reply from the `Who` of an open row on the same subject, `vault_read("Administrator/Follow-ups.md")` once (it is small), take the key from that row's hidden comment and `vault_move_row("Administrator/Follow-ups.md", "Open", "Done", <key>, set_last_cell=<today>)`. Say so in the report. Skip the read when no fresh mail is a reply from a person.
+
+### 6. `daily` only — the calendar
+
+Before step 5: `outlook_list_events(start="<date>T00:00:00", end="<date>T23:59:59", include_recurrences=true, limit=50, fields=["occurrence_key", "global_id", "subject", "start", "end", "location", "organizer", "all_day"], response_format="json")` and pass `items[]` as `events`. Clashes and "No prep note" are computed in code; `watch_out` is only for something the user should hear that the code cannot know (a deadline from an `act` mail that falls today, a meeting with no location). Do not call `vault_find("meeting", …)` per event. `## Calendar` and `## Watch out` are never written by `/administrator:inbox`.
 
 ### 7. Report, then offer batch actions
 
-Tell the user in a few lines: counts per label, the `act` and `reply` subjects, and where the note went, ending with `obsidian://open?vault=<vault_name>&file=<url-encoded path>` (`vault_name` from `vault_status`, `path` from `vault_write`, every `/` and space encoded, e.g. `obsidian://open?vault=Vault&file=Administrator%2FDaily%2F2026-08-22.md`). Then offer, as a numbered list, only the actions that apply:
+Three to five lines: counts per label (including `labelled_by_rule` and `already_seen`), the `act` and `reply` subjects, the Follow-ups rows added or closed, the note path, and `obsidian://open?vault=<vault_name>&file=<url-encoded path>` (`vault_name` from `vault_status`, `path` from `vault_write_daily`). No raw JSON. For `daily`, add the agenda lines and the watch-out bullets.
 
-1. Mark `fyi` and `noise` as read — `outlook_bulk_mark_mails(entry_ids=[...], read=true)`. List the count and subjects (collapse to the first 10 plus "and N more" when long).
-2. Move `noise` to a folder — `outlook_bulk_move_mails(entry_ids=[...], target_folder=<name>)`. Ask the user for the folder name; check it with `outlook_list_folders` and use the returned `path` verbatim. Do not create folders.
-3. Tag by label — `outlook_bulk_mark_mails(entry_ids=[...], categories=[...])`. First call `outlook_list_categories`; only offer names that come back. Suggest a mapping (for example "To Respond" for `reply`, "FYI" for `fyi`) only from those names. If no matching categories exist, say so and skip this option rather than inventing one. Remember `categories` replaces the item's current list.
-4. Flag `act` items for follow-up — `outlook_bulk_mark_mails(entry_ids=[...], flagged=true)`.
+Then offer, as a numbered list, only the actions that apply, each with count and subjects (first 10 plus "and N more"):
 
-Run an action only after the user answers yes to that specific item. "Yes" to item 1 is not yes to item 2. After a bulk call, read the result: if `failed > 0`, say which subjects failed and why. Then record it: `vault_write("daily", <frontmatter as found>, "Done <ISO>: marked 2 as read", mode="append")`. Never call `outlook_bulk_delete_mails` or `outlook_delete_mail` from this skill, even if asked to "get rid of" noise — move it instead, and say so.
+1. Mark `fyi` and `noise` as read — `outlook_bulk_mark_mails(entry_ids=[...], read=true)`.
+2. Move `noise` to a folder — ask for the folder, check it with `outlook_list_folders`, pass the returned `path` verbatim to `outlook_bulk_move_mails`. Never create folders.
+3. Tag by label — `outlook_bulk_mark_mails(entry_ids=[...], categories=[...])` only with names from `outlook_list_categories`; none match → say so, skip. `categories` replaces the list.
+4. Flag `act` items — `outlook_bulk_mark_mails(entry_ids=[...], flagged=true)`.
 
-Nothing in this skill sends mail. If the user asks you to reply from here, point them to the reply as a separate request that will be confirmed on its own.
+One yes per item; "yes" to 1 is not yes to 2. Ask with one short message ending in a question and wait. A yes covers only the list shown; if you re-ran `list_mails`, ask again. After a bulk call read `failed` and name failed subjects. Record it: `vault_write("daily", <frontmatter from vault_find("daily", {"date": …})>, "Done <ISO>: marked 2 as read", mode="append")`. Never `outlook_delete_mail` / `outlook_bulk_delete_mails` from here, even for "get rid of" — move instead and say so. Nothing in this skill sends mail.
+
+### 8. Propose a rule (after the note, before the batch offer)
+
+Count, in this run's `to_label[]`, the mails you labelled yourself per `from_address` (or per domain for automated senders) and label. When one sender got the same label **5 or more times**, and `vault_rules(action="get")` has no row for it yet, propose one line: "You labelled 6 mails from news@vendor.example as noise. Add the rule `news@vendor.example → noise` to Rules.md so they skip the model next time?" Only on a clear yes:
+
+```
+vault_append_row("Administrator/Rules.md", "Labels", [<match>, <field: from | domain | name | subject>, <label>])
+```
+
+No `dedupe_key` (the `Rules.md` parser reads plain cells); the `vault_rules` check is the duplicate guard. `never_save` rules are never proposed — the user writes those by hand. One proposal per run.
 
 ## Edge cases
 
-- **`vault_status` reports no vault or a missing folder:** `vault_init` fixes missing folders and files; an unset or wrong `ADMINISTRATOR_VAULT` needs the user — stop before listing mail.
-- **`vault_*` tools missing:** the vault server is not running; point the user to `/administrator:setup` and do not write notes by hand.
-- **`outlook_*` tools missing:** follow the `outlook` skill's setup instructions; do not write a daily note.
-- **A `since` in the future or unparsable:** say so and fall back to 24 hours.
-- **Same message appears twice (duplicate delivery):** label once, list once; identical `entry_id`s collapse.
-- **The user is the sender (mail from self):** `fyi` unless it is a note-to-self with a verb in it, then `act`.
-- **Run on a folder other than the inbox:** same flow; name the folder in the section heading, e.g. `## Inbox (Inbox/Invoices, since ...)`, and in the `folder` frontmatter key.
+- `vault_*` tools missing → vault server not running: point to `/administrator:setup`, write nothing. `outlook_*` missing → the `outlook` skill's setup notes; no daily note.
+- `since` unparsable or in the future: say so, fall back to 24 hours.
+- Duplicate delivery (same `entry_id` twice): `vault_inbox_prepare` collapses it.
+- Mail from self: `fyi`, unless it is a note-to-self with a verb in it, then `act`.
+- Another folder: pass `folder=<path>`; the server writes `## Inbox (<folder>, since …)`.
+- `vault_write_daily` raises "no cached list": step 3 did not run for this date; run it and call again.
 
 ## References
 
-- `references/labels.md` — full decision rules per label, with the Fyxer eight-label mapping and the tie-break order.
+- `references/labels.md` — decision rules per label, tie-break order, when to open a mail.
+- `references/examples.md` — a normal run and a second run the same day, every call and result.

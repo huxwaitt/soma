@@ -6,7 +6,7 @@ It reads Outlook through the bundled `outlook-classic-mcp` server, decides what 
 
 ## What you get
 
-- **`/administrator:setup`** — checks that both MCP servers, classic Outlook and the vault are reachable, creates the `Administrator\` folder, `Follow-ups.md`, `Preferences.md` and the Bases views if missing (asking your work hours once), and warns when exports cannot work. Run it first.
+- **`/administrator:setup`** — checks that both MCP servers, classic Outlook and the vault are reachable, creates the `Administrator\` folder, `Follow-ups.md`, `Preferences.md`, `Rules.md` and the Bases views if missing (asking your work hours once), and warns when exports cannot work. Run it first.
 - **`/administrator:inbox`** — goes through unread mail, sorts each item into act / reply / waiting / fyi / noise, writes today's daily note, and offers batch clean-up you can accept or decline.
 - **`/administrator:save`** — saves one email (or, on request, its whole thread via `outlook_get_conversation`) as a note with stable identity, the body without quoted history or signature (`trim_quoted`), action items, a link to a person note, and optional `.msg` and attachment exports.
 - **`/administrator:daily`** — inbox plus today's calendar in one daily note, with clashes and meetings that have no prep note called out.
@@ -16,13 +16,15 @@ It reads Outlook through the bundled `outlook-classic-mcp` server, decides what 
 - **`/administrator:schedule`** — the same, then books the slot you pick after you say yes (the invite goes out at once), writes the `Meetings\` note, and adds the meeting to the daily note. Moves one meeting on request, and drafts a "proposed times" email when someone's calendar is not visible.
 - **`/administrator:followups`** — threads where you wrote last and nobody answered for N days (default 3): who, subject, days waiting, the last line you wrote. Updates `Follow-ups.md` (new rows, closes rows that got a reply) and offers a short nudge email per thread that goes to your Drafts folder only after you say yes.
 - **`/administrator:weekly`** — one review note per week in `Weekly\`: inbox items still open, what you are waiting on and for how long, meetings held with their unchecked action items, next week's calendar with clashes, and people you have not heard from in 30+ days. Read-only in Outlook.
+- **`/administrator:find`** — describe an email the way you remember it ("the email where we agreed on the Q3 budget with Sam", "the spreadsheet Maria sent with vendor pricing last month") and get up to three candidates with the exact line that answers you, attachment names, and a link if the note already exists. One `outlook_find` call searches Inbox and Sent and ranks; attachment names and indexed text are checked when you mention a file. Read-only; offers to save the winner.
+- **`/administrator:draft`** — a reply to any thread, written the way you write: it reads the thread with the quoted history removed, the sender's person note and your open follow-ups, learns your greeting, sign-off and length from your sent mail, answers every question in the last mail and marks anything it does not know as `[fill in: …]`. Shows the draft; on a yes it lands in Outlook Drafts as a reply in the thread. Never sends.
 
 ## Requirements
 
 - Windows 10 or 11.
 - **Classic** Outlook (desktop, `outlook.exe`) with a configured mail profile. The new Outlook (`olk.exe`) is not supported; switch back to classic if you are on it.
 - [uv](https://docs.astral.sh/uv/) on your PATH.
-- A local checkout of `outlook-classic-mcp` (the version with `outlook_get_event_by_key`, `outlook_get_free_busy`, `outlook_find_meeting_times`, `trim_quoted` and the `administrator-vault` script — 40 Outlook tools plus 8 vault tools), with its path in the `OUTLOOK_MCP_DIR` environment variable (see "Set the vault path" below). The plugin starts two servers from that checkout: `outlook` (`uv run --directory $OUTLOOK_MCP_DIR outlook-mcp`, reads Outlook) and `vault` (`… administrator-vault`, writes the notes). Both need `OUTLOOK_MCP_DIR`; `vault` also needs `ADMINISTRATOR_VAULT`.
+- A local checkout of `outlook-classic-mcp` 0.4.0 or later (the current checkout with `outlook_get_event_by_key`, `outlook_get_free_busy`, `outlook_find_meeting_times`, `outlook_search_attachments`, `outlook_advanced_search`, `outlook_extract_attachment_text`, `outlook_reply_mail(save_only=true)`, `outlook_awaiting_reply`, `outlook_find`, `outlook_voice_sample`, `fields=` / `preview_chars=` on every list, search and get tool, `trim_quoted` and the `administrator-vault` script — 46 Outlook tools plus 15 vault tools; install its `search` extra for PDF and Excel attachment text), with its path in the `OUTLOOK_MCP_DIR` environment variable (see "Set the vault path" below). The plugin starts two servers from that checkout: `outlook` (`uv run --directory $OUTLOOK_MCP_DIR outlook-mcp`, reads Outlook) and `vault` (`… administrator-vault`, writes the notes). Both need `OUTLOOK_MCP_DIR`; `vault` also needs `ADMINISTRATOR_VAULT`.
 - An Obsidian vault on disk. Notes are plain markdown with frontmatter; no community plugins are needed to read them.
 
 ## Install
@@ -71,7 +73,12 @@ Restart Claude Code after setting either variable permanently. `/administrator:s
   _views\*.base                four Bases views (People, Follow-ups, Meetings, Emails)
   Follow-ups.md                rolling "waiting on" list
   Preferences.md               your scheduling preferences (created by setup, edited by you)
+  Rules.md                     sender / subject rules applied before the inbox is labelled (created by setup, edited by you)
 ```
+
+## How it keeps cost down
+
+The model decides; code moves the text. Every list, search and get call names the `fields=` it will read, and the mechanical parts of each workflow run inside the servers: `vault_inbox_prepare` drops mail already noted and applies `Rules.md`, `vault_write_daily` renders the daily note from a list of labels, `vault_save_email` writes the email note and person note from the Outlook JSON, `vault_prep_context` and `vault_weekly_facts` collect what the vault knows in one call, `vault_attach_transcript` files a transcript, and `outlook_awaiting_reply`, `outlook_find`, `outlook_voice_sample` do the thread, search and voice work in the Outlook server. Every command ends with the turn's token count when Claude Code shows one.
 
 ## Commands
 
@@ -82,9 +89,9 @@ Restart Claude Code after setting either variable permanently. `/administrator:s
 ```
 
 > Both servers are up. Outlook: hux@example.com, UTC+02:00.
-> Vault: `C:\Users\<you>\Documents\Vault` (name `Vault`). Created `Administrator/`, 7 folders, `Follow-ups.md`, `Preferences.md` (09:00–17:00, buffer 15) and 4 views.
+> Vault: `C:\Users\<you>\Documents\Vault` (name `Vault`). Created `Administrator/`, 7 folders, `Follow-ups.md`, `Preferences.md` (09:00–17:00, buffer 15), `Rules.md` and 4 views.
 > obsidian://open?vault=Vault&file=Administrator%2FPreferences.md
-> Edit Preferences.md in Obsidian any time; the plugin reads it on every scheduling request and never changes it.
+> Edit Preferences.md in Obsidian any time; the plugin reads it once per session and never changes it.
 
 Running it again when everything exists reports "Nothing to create." and the same link.
 
@@ -96,7 +103,7 @@ Running it again when everything exists reports "Nothing to create." and the sam
 /administrator:inbox "Inbox/Projects/Acme"
 ```
 
-Lists unread mail since the last daily note's `inbox_checked` time (or the last 24 hours), sorts it, writes `Daily\<today>.md`, adds waiting items to `Follow-ups.md`, then lists possible batch changes (mark fyi/noise as read, move to a folder, set categories) with the count and subjects each one touches. Nothing runs until you say yes to a specific option.
+Lists unread mail since the last daily note's `inbox_checked` time (or the last 24 hours), lets `Rules.md` and the built-in rules label what they can, labels the rest, has the vault server write `Daily\<today>.md` and the waiting items in `Follow-ups.md`, then lists possible batch changes (mark fyi/noise as read, move to a folder, set categories) with the count and subjects each one touches. Nothing runs until you say yes to a specific option.
 
 ### `/administrator:save <entry_id | search terms>`
 
@@ -165,7 +172,7 @@ Same as `free`, then you pick a slot, it shows subject / time / attendees / loca
 /administrator:followups 5
 ```
 
-Reads your Sent folder for the last 30 days, fetches each thread once, and lists the ones where your mail is the last message and it is at least `days` old. New threads get a row in `Follow-ups.md`; rows whose thread has since been answered move to Done. Then it shows one nudge draft at a time and saves it to Drafts only on a yes. Nothing is ever sent.
+One `outlook_awaiting_reply` call checks your Sent folder for the last 30 days and lists the threads where your mail is the last message and it is at least `days` old, with the last line you wrote. New threads get a row in `Follow-ups.md`; rows whose thread has since been answered move to Done. Then it shows one nudge draft at a time and saves it to Drafts only on a yes. Nothing is ever sent.
 
 ### `/administrator:weekly [week]`
 
@@ -175,18 +182,36 @@ Reads your Sent folder for the last 30 days, fetches each thread once, and lists
 /administrator:weekly 2026-W33
 ```
 
-Writes `Weekly\YYYY-Www.md` from the week's daily notes, `Follow-ups.md`, the meeting notes, next week's calendar and the person notes. Running it again on the same week appends an update section.
+Writes `Weekly\YYYY-Www.md` from `vault_weekly_facts` (the week's daily notes, `Follow-ups.md`, the meeting notes and the person notes, counted in the vault server) and next week's calendar, plus a few bullets of its own under `## Notes`. Running it again on the same week appends an update section.
+
+### `/administrator:find <sentence>`
+
+```
+/administrator:find the email where we agreed on the Q3 budget with Sam
+/administrator:find the spreadsheet Maria sent with vendor pricing last month
+```
+
+Pulls people, topic words, dates and attachment hints out of the sentence, makes one `outlook_find` call (the server searches the folders, ranks and returns ten snippets), opens at most two threads, and quotes the sentence that answers the question. Hard cap of 6 Outlook calls. Changes nothing; saving is offered through `/administrator:save`.
+
+### `/administrator:draft <thread words or entry_id> [what to say]`
+
+```
+/administrator:draft delivery schedule tom — 8 Sep is fine, ask for the packaging spec
+/administrator:draft offsite venue priya
+```
+
+Finds the thread (asks when more than one matches), reads it, reads what the vault knows about the sender, and writes the reply in your voice. Your voice comes from one `outlook_voice_sample` call: the opening and sign-off of your last 10 sent mails to that person (or overall) plus counted greetings and sign-offs; you can add hard rules in `Preferences.md` under `## Voice` — the plugin only reads that file. Missing facts become `[fill in: …]` markers, never guesses. Only after a yes does it call `outlook_reply_mail(save_only=true)`; the draft sits in Drafts inside the conversation and you send it from Outlook.
 
 ### `Administrator\Preferences.md`
 
-Created by `/administrator:setup` (or with defaults the first time any command needs it). Edit it in Obsidian: `work_start`, `work_end`, `buffer_minutes`, `no_meeting_blocks`, `max_meetings_per_day`, `default_duration`, `default_location`, `preferred_days`. The plugin reads it every time and never changes it.
+Created by `/administrator:setup` (or with defaults the first time any command needs it). Edit it in Obsidian: `work_start`, `work_end`, `buffer_minutes`, `no_meeting_blocks`, `max_meetings_per_day`, `default_duration`, `default_location`, `preferred_days`. The plugin reads it once per session and never changes it. An optional `## Voice` section (plain bullets: greeting, sign-off, length, formality, hard rules like "no exclamation marks") is read by `/administrator:draft`, nudges and minutes; you write it yourself, the plugin never edits the file.
 
 ## What never happens without a yes
 
 - Marking mail read or unread, flagging, or setting categories (`outlook_mark_mail`, `outlook_bulk_mark_mails`, `outlook_set_category`).
 - Moving or deleting mail (`outlook_move_mail`, `outlook_delete_mail`, `outlook_bulk_move_mails`, `outlook_bulk_delete_mails`). The inbox workflow never deletes at all; it offers a move instead.
 - Writing files from Outlook to disk (`outlook_save_mail_as`, `outlook_save_attachments`); these land in `<vault>\Administrator\Attachments\<date slug>\` and are offered once per save.
-- Saving an email draft (`outlook_send_mail(save_only=true)` — minutes after `/administrator:notes`, proposed times from `/administrator:schedule`, nudge drafts from `/administrator:followups`). The plugin never sends plain email, not even with a yes: `outlook_send_mail` without `save_only`, `outlook_reply_mail` and `outlook_forward_mail` are never called. You send from Drafts.
+- Saving an email draft (`outlook_send_mail(save_only=true)` — minutes after `/administrator:notes`, proposed times from `/administrator:schedule`, nudge drafts from `/administrator:followups`; `outlook_reply_mail(save_only=true)` — a reply in the thread from `/administrator:draft`). The plugin never sends plain email, not even with a yes: `outlook_send_mail` without `save_only`, `outlook_reply_mail` without `save_only` and `outlook_forward_mail` are never called. You send from Drafts.
 - Creating or moving a meeting (`outlook_create_event`, `outlook_update_event`), both only from `/administrator:schedule` after the full summary. An invite goes to every attendee as soon as it is created. Deleting events or answering invites never happens.
 
 Every offer states the exact action, the number of items, and their subjects. "Yes" means that option only.
@@ -201,7 +226,7 @@ The connector talks to Outlook through COM, which only classic desktop Outlook e
 
 ## Notes the plugin writes
 
-Every note has frontmatter with `type` (`email`, `daily`, `person`, `meeting`, `weekly`, or `preferences`), `source: outlook` (`administrator` for preferences and weekly notes), `created_by: administrator/0.0.4`, and for emails the Outlook identity (`internet_message_id`, `entry_id`, `conversation_id`), sender SMTP address, recipients, `received` with timezone offset, and a `status` of `todo`, `waiting`, `done`, or `fyi`. Meeting notes carry the event's `global_id` and `occurrence_key` (one note per occurrence of a recurring meeting) and a `status` of `upcoming`, `held`, or `cancelled`. Links use wikilinks (`[[People/Jane Doe]]`) so Obsidian's graph and backlinks work out of the box.
+Every note has frontmatter with `type` (`email`, `daily`, `person`, `meeting`, `weekly`, or `preferences`), `source: outlook` (`administrator` for preferences and weekly notes), `created_by: administrator/0.1.0`, and for emails the Outlook identity (`internet_message_id`, `entry_id`, `conversation_id`), sender SMTP address, recipients, `received` with timezone offset, and a `status` of `todo`, `waiting`, `done`, or `fyi`. Meeting notes carry the event's `global_id` and `occurrence_key` (one note per occurrence of a recurring meeting) and a `status` of `upcoming`, `held`, or `cancelled`. Links use wikilinks (`[[People/Jane Doe]]`) so Obsidian's graph and backlinks work out of the box.
 
 Existing notes are never overwritten. When a mail is saved again, an `## Update <timestamp>` section is appended. Every command that writes a note ends with an `obsidian://open` link to it. The notes are written by the `vault` server, which also enforces the frontmatter and never edits text that is already there.
 

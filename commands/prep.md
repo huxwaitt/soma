@@ -1,5 +1,5 @@
 ---
-description: Write a prep brief into a meeting note for today's meetings (or one meeting named by date or words) — previous occurrence, carried-over action items, attendee person notes, the last related email threads, open follow-ups. Read-only in Outlook.
+description: Write a prep brief into a meeting note for today's meetings (or one meeting named by date or words) — previous occurrence, carried-over action items, attendee person notes, related email threads, open follow-ups. Read-only in Outlook.
 argument-hint: "[date | event words]"
 ---
 
@@ -11,16 +11,16 @@ Argument given: `$ARGUMENTS`
 
 ## Steps
 
-1. Load the `administrator` skill, then the `meetings` skill and its `references/meeting-note.md`. Load the `outlook` skill if it is not already loaded.
-2. Call `vault_status` if not done yet this session; if `administrator_dir_exists` or any folder or file flag is false, call `vault_init(created_by="administrator/0.0.4")`. Call `outlook_whoami` once for the user's own address.
-3. Find the events: `outlook_list_events(start=<day 00:00>, end=<day 23:59:59>, include_recurrences=true, response_format="json")`. With words, list today plus the next 7 days and match against subject, attendee names, location and start time; one hit → take it, several → show a numbered list and ask, none → say so and stop. Skip all-day and `Canceled:` events unless named.
-4. For each event, in this order, as the `meetings` skill describes:
-   - `vault_find("meeting", {"occurrence_key": <key>, "global_id": <id>})`. Found → the note exists (it may have been written by `/administrator:schedule`); everything below is written with `vault_write(..., mode="append")` as a body of `### Prep` with what is new (plus `### Related emails` for new thread lines), and the report says "existing note found" with the path. Not found → `vault_find("meeting", {"global_id": <id>})`; the newest match whose Update section says it was moved to this start is a moved meeting (treat as existing); earlier matches are previous occurrences — the most recent one becomes the previous meeting and its unchecked action items (read with `vault_read`) are carried over.
-   - Find or create a person note for the organizer and every attendee except the user: `vault_find("person", {"email": <smtp>})` (it also matches `aliases`, so nobody gets two notes); `vault_write("person", …, mode="create")` for a stub with `last_contact: ""`, else `mode="append"` with the `## Meetings` line as the body.
-   - Pull the last 5 related threads from the last 30 days (`outlook_search_mails` on subject words, `outlook_list_mails(from_address=<attendee>)`, a Sent search per name; dedupe by `internet_message_id` and stripped subject); `outlook_get_conversation` for the top 2; `vault_find("email", …)` to link existing `Emails/` notes.
-   - `vault_read("Administrator/Follow-ups.md")` and copy the `## Open` rows whose `Who` is an attendee.
-   - `vault_write("meeting", frontmatter, body, mode="upsert")`: frontmatter (`global_id`, `occurrence_key`, `subject`, `start`, `end`, `location`, `organizer`, `organizer_link`, `attendees`, `attendee_links`, `is_recurring`, `status: upcoming`, `created_by: administrator/0.0.4`), body from the template: header lines, `## Prep` with Previous meeting / Carried over / People / Open follow-ups with them / Recent threads / Suggested points, then empty `## Notes`, `## Action items`, `## Waiting on`, and `## Related emails` with the thread links. The server names the file `Meetings/YYYY-MM-DD HHmm <slug>.md`.
-5. Report one or two lines per event (path, new or existing, carried-over count, threads, follow-ups) with `obsidian://open?vault=<vault_name>&file=<url-encoded path>`, and the suggested points for the next meeting. Do not call any Outlook tool that changes anything; prep is read-only.
+1. Load the `administrator` skill, then the `meetings` skill and its `references/meeting-note.md`. Load the `outlook` skill if it is not already loaded. Open `skills/meetings/references/examples.md` only if a shape is unclear.
+2. `vault_status` if not done yet this session (any folder or file flag false → `vault_init(created_by="administrator/0.1.0")`); `outlook_whoami(response_format="json")` once for the user's own address.
+3. `outlook_list_events(start=<day 00:00>, end=<day 23:59:59>, include_recurrences=true, fields=["entry_id","global_id","occurrence_key","subject","start","end","location","organizer","organizer_address","attendees","is_recurring","all_day"], response_format="json")`. With words: today plus 7 days, matched against subject, attendee names, location and start time; one hit → take it, several → numbered list and ask, none → say so and stop. Skip all-day and `Canceled:` events unless named.
+4. Per event, as the `meetings` skill describes:
+   - `vault_prep_context(occurrence_key, global_id, attendees=[{name, address}…])` — one call gives `existing_note`, `previous_occurrence.open_actions` (carried over), `people[]` (person notes, `company`, `last_contact`) and `followups_open[]`. Do not `vault_find` / `vault_read` for any of that.
+   - `outlook_find(people=[attendee addresses, max 6], since=<now − 30 days>, limit=5)` — the related threads, best first, with a `snippet` each. No `outlook_get_conversation` unless the user asks about a thread.
+   - A person stub (`vault_write("person", …, mode="create")`) only for `people[]` entries with `path: null`; a `## Meetings` line appended to existing person notes only when the meeting note is new.
+   - `vault_write("meeting", frontmatter, body, mode="upsert")`: new note with `## Prep` (Previous meeting / Carried over / People / Open follow-ups with them / Recent threads / Suggested points), empty `## Notes`, `## Action items`, `## Waiting on`, and `## Related emails`; existing note → `mode="append"` with `### Prep` holding only what is new.
+5. Report one or two lines per event (path, new / existing / moved, carried-over count, threads, follow-ups) with `obsidian://open?vault=<vault_name>&file=<url-encoded path>`, and the suggested points for the next meeting. No Outlook tool that changes anything; prep is read-only.
+6. If the host shows the turn's token count, end with `Tokens this turn: N`; otherwise skip the line silently. `prep` does not call `vault_write_daily`; when a later command in this session does, pass the number as `tokens_used`.
 
 ## Example
 
@@ -30,10 +30,10 @@ Argument given: `$ARGUMENTS`
 /administrator:prep supplier sync
 ```
 
-`/administrator:prep supplier sync` on 2026-08-25 finds "Weekly supplier sync" at 13:00, finds no note for its `occurrence_key` but one for the same `global_id` dated 2026-08-18, writes `Meetings/2026-08-25 1300 Weekly supplier sync.md` with two carried-over items, three threads and one open follow-up, creates `People/Tom Lee.md`, and reports:
+`/administrator:prep supplier sync` on 2026-08-25: one event, one `vault_prep_context` call (previous occurrence 2026-08-18 with two open actions, Jane Doe has a note, Tom Lee does not, one open follow-up), one `outlook_find` call (three threads), one person stub, one `vault_write`:
 
 > Prep written: `Meetings/2026-08-25 1300 Weekly supplier sync.md` (previous: 2026-08-18, 2 items carried over, 3 threads, 1 open follow-up). New person note `People/Tom Lee.md`.
 > obsidian://open?vault=Vault&file=Administrator%2FMeetings%2F2026-08-25%201300%20Weekly%20supplier%20sync.md
 > Points: sign the contract or say what blocks it; answer Tom on the 8 Sep delivery; packaging spec; Leipzig address.
 
-Running it again appends `## Update 2026-08-25T…` with "Nothing new since the last prep." and reports "existing note found". The full worked example is in `skills/meetings/SKILL.md`.
+Running it again appends `## Update 2026-08-25T…` with "Nothing new since the last prep." and reports "existing note found". Full example: `skills/meetings/references/examples.md`.
