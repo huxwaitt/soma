@@ -50,7 +50,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "outlook_mcp.ui" = ["*.html"]
-"administrator_vault" = ["views/*.base"]
+"administrator_vault" = ["views/*.base", "wiki_schema.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

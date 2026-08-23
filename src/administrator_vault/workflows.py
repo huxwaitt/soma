@@ -16,11 +16,11 @@ from pathlib import Path
 from typing import Any, Optional
 
 from administrator_vault import frontmatter as fmt
-from administrator_vault import notes, store
+from administrator_vault import notes, store, wiki
 from administrator_vault.notes import ADMIN_DIR, NoteError
 from administrator_vault.store import VaultError, read_text, rel, resolve, write_text
 
-CREATED_BY = "administrator/0.1.0"
+CREATED_BY = "administrator/0.2.0"
 RULES_PATH = f"{ADMIN_DIR}/Rules.md"
 FOLLOWUPS_PATH = f"{ADMIN_DIR}/Follow-ups.md"
 CACHE_DIR = f"{ADMIN_DIR}/Attachments/_cache"
@@ -682,7 +682,7 @@ def save_email(
     people = _people(root)
     person_hit = _person_for(people, from_addr)
     person_name = person_hit[1].get("name") if person_hit else from_name
-    person_path = person_hit[0] if person_hit else f"{ADMIN_DIR}/People/{notes.person_filename(from_name, from_addr)}.md"
+    person_path = person_hit[0] if person_hit else f"{notes.folder_of('person')}/{notes.person_filename(from_name, from_addr)}.md"
     from_link = _link(person_path) if from_addr and not from_self else ""
 
     fm: dict[str, Any] = {
@@ -749,32 +749,25 @@ def save_email(
 
     person_action = None
     if from_addr and not from_self:
-        line = f"- {_date_of(received)} — {_link(path)} ({status})"
-        pfm: dict[str, Any] = {
-            "type": "person",
-            "source": "outlook",
-            "name": person_name or from_name,
-            "email": person_hit[1].get("email") if person_hit else from_addr,
-            "aliases": [],
-            "last_contact": received,
-            "created_by": created_by,
-        }
+        # the person page lives in the wiki: a draft page on first sight, a Records line after that
+        aliases = []
         if person_hit:
-            old_lc = _s(person_hit[1].get("last_contact"))
-            if old_lc and notes.sort_value("person", {"last_contact": old_lc}) >= notes.sort_value("person", {"last_contact": received}):
-                pfm["last_contact"] = old_lc
-            aliases = []
             if from_name and from_name.lower() != _s(person_hit[1].get("name")).lower():
                 aliases.append(from_name)
             if from_addr.lower() != _s(person_hit[1].get("email")).lower():
                 aliases.append(from_addr)
-            pfm["aliases"] = aliases
-            pres = store.write("person", pfm, line, "append")
-        else:
-            if company:
-                pfm["company"] = company
-            pbody = f"# {pfm['name']}\n\n{from_addr}" + (f" · {company}" if company else "") + f"\n\n## Emails\n\n{line}\n\n## Meetings\n\n- none"
-            pres = store.write("person", pfm, pbody, "create")
+        pres = wiki.record_person(
+            name=person_name or from_name,
+            email=person_hit[1].get("email") if person_hit else from_addr,
+            aliases=aliases,
+            last_contact=received,
+            company=company,
+            record_path=path,
+            record_date=_date_of(received),
+            summary=_short(summary, 120),
+            created_by=created_by,
+            existing=person_hit[0] if person_hit else None,
+        )
         person_path, person_action = pres["path"], pres["action"]
     else:
         person_path = None
@@ -833,7 +826,7 @@ def _row_mentions(row: dict[str, str], names: set[str], addresses: set[str], pat
     return plain in names or plain in addresses
 
 
-def prep_context(occurrence_key: str, global_id: str = "", attendees: Optional[list[Any]] = None) -> dict[str, Any]:
+def prep_context(occurrence_key: str, global_id: str = "", attendees: Optional[list[Any]] = None, subject: str = "") -> dict[str, Any]:
     root = store.vault_root()
     occurrence_key = _s(occurrence_key).strip()
     global_id = _s(global_id).strip() or (occurrence_key.split("|", 1)[0] if "|" in occurrence_key else "")
@@ -870,15 +863,18 @@ def prep_context(occurrence_key: str, global_id: str = "", attendees: Optional[l
             paths.add(_stem(hit[0]))
             names.add(_s(hit[1].get("name")).lower())
             body = fmt.split_note(read_text(resolve(root, hit[0])))[2]
-            entry.update({"path": hit[0], "last_contact": _s(hit[1].get("last_contact")), "company": _s(hit[1].get("company")), "last_emails": _email_lines(body)})
+            entry.update({"path": hit[0], "last_contact": _s(hit[1].get("last_contact")), "company": _s(hit[1].get("org") or hit[1].get("company")), "last_emails": _email_lines(body)})
         people_out.append(entry)
     rows = [row["_line"] for row in _followups_open(root) if _row_mentions(row, names, addresses, paths)]
+    subject = _s(subject).strip() or (_s(existing["frontmatter"].get("subject")) if existing["found"] else "")
+    wiki_pages = wiki.prep_pages(root, [e["path"] for e in people_out if e["path"]], subject, sorted(addresses))
     return {
         "existing_note": existing["path"] if existing["found"] else None,
         "existing_status": _s(existing["frontmatter"].get("status")) if existing["found"] else None,
         "previous_occurrence": previous,
         "people": people_out,
         "followups_open": rows,
+        "wiki": wiki_pages,
     }
 
 
@@ -941,6 +937,8 @@ def weekly_facts(week: str, today: Optional[str] = None) -> dict[str, Any]:
             quiet.append({"name": _s(fm.get("name")), "email": _s(fm.get("email")), "path": path, "last_contact": lc, "days": days})
     quiet.sort(key=lambda q: q["last_contact"])
 
+    from administrator_vault import wiki_lint  # local import: wiki_lint imports wiki, which workflows already loads
+
     return {
         "week": week,
         "start": start.isoformat(),
@@ -950,6 +948,7 @@ def weekly_facts(week: str, today: Optional[str] = None) -> dict[str, Any]:
         "meetings_held": held,
         "no_notes": no_notes,
         "quiet_people": quiet[:20],
+        "wiki": wiki_lint.summary(root),
     }
 
 

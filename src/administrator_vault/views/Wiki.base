@@ -1,0 +1,114 @@
+filters:
+  and:
+    - file.inFolder("Administrator/Wiki")
+    - note.type != "redirect"
+    - note.type != "wiki-index"
+    - note.type != "wiki-review"
+    - note.type != "wiki-schema"
+formulas:
+  verified_date: 'if(note.verified.isType("date"), note.verified, date(note.verified))'
+  age: "formula.verified_date.relative()"
+  flag_list: 'note.flags.join(", ")'
+properties:
+  file.name:
+    displayName: Page
+  note.type:
+    displayName: Type
+  note.title:
+    displayName: Title
+  note.status:
+    displayName: Status
+  note.verified:
+    displayName: Verified
+  formula.age:
+    displayName: Age
+  note.due:
+    displayName: Due
+  note.owner:
+    displayName: Owner
+  note.org:
+    displayName: Org
+  note.summary:
+    displayName: Summary
+  formula.flag_list:
+    displayName: Flags
+  note.open_items:
+    displayName: Open
+views:
+  - type: table
+    name: Active topics by verified
+    filters:
+      and:
+        - note.type == "topic"
+        - note.status == "active"
+    order:
+      - note.title
+      - note.verified
+      - formula.age
+      - note.due
+      - note.owner
+      - note.open_items
+      - note.summary
+    sort:
+      - property: note.verified
+        direction: DESC
+  - type: table
+    name: Stale
+    filters:
+      and:
+        - note.flags.contains("stale")
+    order:
+      - file.name
+      - note.type
+      - note.status
+      - note.verified
+      - formula.age
+      - note.summary
+    sort:
+      - property: note.verified
+        direction: ASC
+  - type: table
+    name: Review queue
+    filters:
+      and:
+        - "!note.flags.isEmpty()"
+    order:
+      - file.name
+      - note.type
+      - formula.flag_list
+      - note.status
+      - note.verified
+      - note.summary
+    sort:
+      - property: note.type
+        direction: ASC
+  - type: table
+    name: People by org
+    filters:
+      and:
+        - note.type == "person"
+    groupBy:
+      property: note.org
+      direction: ASC
+    order:
+      - file.name
+      - note.status
+      - note.verified
+      - note.summary
+    sort:
+      - property: file.name
+        direction: ASC
+  - type: table
+    name: All pages
+    order:
+      - file.name
+      - note.type
+      - note.status
+      - note.verified
+      - formula.flag_list
+      - note.summary
+    sort:
+      - property: note.type
+        direction: ASC
+      - property: note.verified
+        direction: DESC

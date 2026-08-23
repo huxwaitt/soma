@@ -114,6 +114,7 @@ def status() -> dict[str, Any]:
         "administrator_dir_exists": bool(admin and admin.is_dir()),
         "folders": {f: bool(admin and (admin / f).is_dir()) for f in notes.FOLDERS},
         "files": {f: bool(admin and (admin / f).is_file()) for f in notes.FILES},
+        "old_people_dir": bool(admin and (admin / "People").is_dir()),  # a 0.1.0 vault: offer vault_wiki_migrate
         "under_user_profile": bool(p and is_dir and under_user_profile(p)),
         "vault_name": vault_name(p) if p else "",
     }
@@ -217,6 +218,10 @@ def init(
         write_text(rules, rules_template(created_by))
         created.append(rel(root, rules))
 
+    from administrator_vault import wiki  # local import: wiki imports store
+
+    created.extend(wiki.init_files(root, created_by))
+
     if VIEWS_DIR.is_dir():
         for src in sorted(VIEWS_DIR.glob("*.base")):
             dst = admin / "_views" / src.name
@@ -318,6 +323,10 @@ def write(note_type: str, frontmatter: dict[str, Any], body: str, mode: str = "c
     if not any(ident.values()):
         raise NoteError(f"{note_type} note has no identity ({', '.join(ident)} all empty).")
 
+    if note_type == "person":
+        from administrator_vault import wiki  # local import: wiki imports store
+
+        return wiki.person_write(fm, body, mode)  # person notes are wiki pages; the wiki keeps their shape
     hit = find(note_type, ident)
     if hit["found"]:
         if mode == "create":

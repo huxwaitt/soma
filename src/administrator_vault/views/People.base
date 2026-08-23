@@ -1,6 +1,6 @@
 filters:
   and:
-    - file.inFolder("Administrator/People")
+    - file.inFolder("Administrator/Wiki/People")
     - note.type == "person"
 formulas:
   linked_notes: "file.links.length"
@@ -10,8 +10,8 @@ properties:
     displayName: Person
   note.email:
     displayName: Email
-  note.company:
-    displayName: Company
+  note.org:
+    displayName: Org
   note.last_contact:
     displayName: Last contact
   formula.since_contact:
@@ -24,7 +24,7 @@ views:
     order:
       - file.name
       - note.email
-      - note.company
+      - note.org
       - note.last_contact
       - formula.since_contact
       - formula.linked_notes
@@ -48,7 +48,7 @@ views:
   - type: table
     name: By company
     groupBy:
-      property: note.company
+      property: note.org
       direction: ASC
     order:
       - file.name

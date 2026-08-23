@@ -12,7 +12,10 @@ from typing import Any
 
 ADMIN_DIR = "Administrator"
 
-FOLDERS = ("Daily", "Emails", "Meetings", "People", "Attachments", "Weekly", "_views")
+FOLDERS = (
+    "Daily", "Emails", "Meetings", "Attachments", "Weekly", "_views",
+    "Wiki", "Wiki/People", "Wiki/Orgs", "Wiki/Topics", "Wiki/Howto",
+)
 FILES = ("Follow-ups.md", "Preferences.md", "Rules.md")
 
 # type -> (folder under Administrator/, required frontmatter keys, date key)
@@ -36,7 +39,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
         "date_key": "start",
     },
     "person": {
-        "folder": "People",
+        "folder": "Wiki/People",
         "required": ("type", "name", "email", "aliases", "last_contact", "created_by"),
         "date_key": "last_contact",
     },
@@ -56,7 +59,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
 }
 
 # Keys vault_write may replace on an existing note (everything else is frozen).
-REPLACEABLE_KEYS = ("status", "last_contact", "inbox_checked", "mails_seen")
+REPLACEABLE_KEYS = ("status", "last_contact", "inbox_checked", "mails_seen", "wiki")
 
 FOLLOWUPS_OPEN_HEADER = ["Since", "Who", "What", "Email", "Last checked"]
 FOLLOWUPS_DONE_HEADER = ["Since", "Who", "What", "Email", "Closed"]

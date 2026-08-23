@@ -9,7 +9,7 @@ from typing import Annotated, Any, Callable, Optional
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
-from administrator_vault import store, workflows
+from administrator_vault import store, wiki, wiki_lint, wiki_migrate, workflows
 from administrator_vault.frontmatter import FrontmatterError
 from administrator_vault.notes import NoteError, SCHEMAS
 
@@ -24,6 +24,15 @@ write to the same note appends a "## Update <timestamp>" section.
 Note types and identity: email (internet_message_id, else entry_id),
 meeting (occurrence_key, else global_id), person (email, also aliases),
 daily (date), weekly (week). Every tool returns a JSON string.
+
+The wiki (Administrator/Wiki/) holds pages the model keeps: person, org,
+topic, howto, me. vault_wiki_match finds pages, vault_wiki_read returns a
+page's lead and facts (with ids), vault_wiki_ingest / vault_wiki_apply take
+op lists (add, update, supersede, confirm, retire, contest, lead, summary,
+status, title, alias, related, role, open, steps, due, owner, org).
+vault_wiki_lint runs the fifteen checks, vault_wiki_merge folds one page
+into another (only on a yes), vault_wiki_migrate moves a 0.1.0 vault's
+People/ folder into the wiki (dry run first).
 """
 
 # Module-level aliases: with ``from __future__ import annotations`` every hint
@@ -103,6 +112,12 @@ Attendees = Annotated[
     Optional[list[Any]],
     Field(description="Attendees as SMTP strings or {name, address} objects (the user's own address left out)."),
 ]
+WikiPage = Annotated[str, Field(min_length=1, description="Wiki page as a path, stem or wikilink: Administrator/Wiki/Topics/q3-budget.md, Wiki/Topics/q3-budget or [[Wiki/Topics/q3-budget]].")]
+WikiOps = Annotated[
+    list[dict[str, Any]],
+    Field(description="Ops, each {op, ...}: add {text, since, src}; update {id, text, src}; supersede {id, text, since, src}; confirm {id, src}; retire {id, src, reason}; contest {id, text, src}; lead {text}; summary {text}; status {value}; title {text}; alias {text}; related {page}; role {page, role}; open {text, src}; steps {text}; due {value}; owner {value}; org {value}. Ids come from vault_wiki_read."),
+]
+WikiSrc = Annotated[str, Field(description="Source written on the facts: 'user' for things the user said, else a record id.")]
 
 
 def _json(data: Any) -> str:
@@ -150,7 +165,7 @@ def register(mcp: FastMCP) -> None:
         overwrite: Overwrite = False,
         created_by: CreatedBy = "administrator-vault",
     ) -> str:
-        """Create Administrator/ with its folders, Follow-ups.md, Preferences.md (from the given work hours) and the _views/*.base files. Existing files are kept unless overwrite=true (Follow-ups.md is always kept)."""
+        """Create Administrator/ with its folders (Wiki/ with People, Orgs, Topics, Howto and an empty Index.md / Log.md / Review.md), Follow-ups.md, Preferences.md (from the given work hours) and the _views/*.base files. Existing files are kept unless overwrite=true (Follow-ups.md and the Wiki files are always kept)."""
         return _json(store.init(work_start, work_end, buffer_minutes, overwrite, created_by))
 
     @mcp.tool(
@@ -283,7 +298,7 @@ def register(mcp: FastMCP) -> None:
         company: Annotated[Optional[str], Field(description="Company for a new person note, only from outlook_search_contacts.")] = None,
         created_by: CreatedBy = workflows.CREATED_BY,
     ) -> str:
-        """Build the email note from outlook_get_mail JSON (body_trimmed when present), write it (upsert: an existing note gets an Update with the new summary), create or update the sender's person note (last_contact, aliases, '## Emails' line), and add a Follow-ups row when status is waiting. Returns {path, action, status, person_path, person_action, followup_added}."""
+        """Build the email note from outlook_get_mail JSON (body_trimmed when present), write it (upsert: an existing note gets an Update with the new summary), create the sender's draft person page under Wiki/People or add a Records line to it (last_contact, aliases), and add a Follow-ups row when status is waiting. Returns {path, action, status, person_path, person_action, followup_added}."""
         return _json(workflows.save_email(mail, summary, action_items, attachments_saved, msg_file, status, self_addresses, company, created_by))
 
     @mcp.tool(
@@ -295,9 +310,10 @@ def register(mcp: FastMCP) -> None:
         occurrence_key: Annotated[str, Field(description="occurrence_key of the event (global_id|start).")],
         global_id: Annotated[str, Field(description="global_id of the event; taken from occurrence_key when empty.")] = "",
         attendees: Attendees = None,
+        subject: Annotated[str, Field(description="The event's subject; matched against wiki topic pages. Taken from the existing note when empty.")] = "",
     ) -> str:
-        """Everything the vault knows for a prep in one call: {existing_note, existing_status, previous_occurrence: {path, date, open_actions} or null, people: [{email, name, path, last_contact, company, last_emails (up to 3 '## Emails' lines)}], followups_open: [rows mentioning any attendee]}."""
-        return _json(workflows.prep_context(occurrence_key, global_id, attendees))
+        """Everything the vault knows for a prep in one call: {existing_note, existing_status, previous_occurrence: {path, date, open_actions} or null, people: [{email, name, path, last_contact, company, last_emails (up to 3 Records lines)}], followups_open: [rows mentioning any attendee], wiki: [{path, type, title, status, lead, open[], facts[] (up to 8)} for the attendees' person pages and up to 3 topic pages matched on the subject]}."""
+        return _json(workflows.prep_context(occurrence_key, global_id, attendees, subject))
 
     @mcp.tool(
         name="vault_weekly_facts",
@@ -308,7 +324,7 @@ def register(mcp: FastMCP) -> None:
         week: Annotated[str, Field(description="ISO week, e.g. 2026-W34.")],
         today: Annotated[Optional[str], Field(description="Local date YYYY-MM-DD; defaults to the machine date.")] = None,
     ) -> str:
-        """Computed from the vault only: {week, start, end, open_from_inbox: [{date, label, subject, from, entry_id, note, daily}] (act/reply rows of the week's daily notes not ticked and with no email note of status done), waiting: [Follow-ups Open rows with age_days], meetings_held: [{path, subject, date, unchecked_actions}], no_notes: [past meetings still 'upcoming'], quiet_people: [{name, email, path, last_contact, days}] over 30 days}."""
+        """Computed from the vault only: {week, start, end, open_from_inbox: [{date, label, subject, from, entry_id, note, daily}] (act/reply rows of the week's daily notes not ticked and with no email note of status done), waiting: [Follow-ups Open rows with age_days], meetings_held: [{path, subject, date, unchecked_actions}], no_notes: [past meetings still 'upcoming'], quiet_people: [{name, email, path, last_contact, days}] over 30 days, wiki: {review_open, stale, uningested, candidates} counts for the '## Wiki' section}."""
         return _json(workflows.weekly_facts(week, today))
 
     @mcp.tool(
@@ -323,6 +339,142 @@ def register(mcp: FastMCP) -> None:
     ) -> str:
         """Read a transcript file, drop the Copilot scaffolding, count turns and speakers, and append '### Transcript' (speakers linked to attendee person notes; a collapsed callout up to 400 lines, else a link to the file) under '## Update' on the meeting note. Returns {path, turns, speakers, speaker_links, lines, appended_lines, linked, update_heading}."""
         return _json(workflows.attach_transcript(meeting_path, transcript_path, created_by))
+
+    # ---------------------------------------------------------------- wiki (0.2.0)
+
+    @mcp.tool(
+        name="vault_wiki_match",
+        annotations={"title": "Find wiki pages for a text / people / domains", "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+    )
+    @_guard
+    def vault_wiki_match(
+        text: Annotated[str, Field(description="Free text: subject plus the first ~300 characters.")],
+        people: Annotated[Optional[list[str]], Field(description="Sender / attendee addresses.")] = None,
+        domains: Annotated[Optional[list[str]], Field(description="Sender domains.")] = None,
+        limit: Annotated[int, Field(ge=1, le=50)] = 8,
+    ) -> str:
+        """Index lines of the wiki pages whose title, aliases, email or domains match (alias hit > address > word overlap > domain), plus topic candidates over the 2-records-on-2-days threshold that have no page yet: {pages: [{path, line, score, why}], candidates: [{subject, records, days}]}."""
+        return _json(wiki.match(text, people, domains, limit))
+
+    @mcp.tool(
+        name="vault_wiki_read",
+        annotations={"title": "Read a wiki page", "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+    )
+    @_guard
+    def vault_wiki_read(
+        path: WikiPage,
+        sections: Annotated[Optional[list[str]], Field(description="Which parts: lead, facts, people, topics, contacts, open, records, related, history, steps, notes. Default lead + facts.")] = None,
+        max_chars: Annotated[int, Field(ge=0, le=20000, description="Trim the answer to about this many characters; 0 = no limit.")] = 2000,
+    ) -> str:
+        """Frontmatter plus the requested parts of one page; facts come as [{id, text, since, src}] so ops can name them by id."""
+        return _json(wiki.read(path, sections, max_chars))
+
+    @mcp.tool(
+        name="vault_wiki_ingest",
+        annotations={"title": "Apply ops from a record to wiki pages", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+    )
+    @_guard
+    def vault_wiki_ingest(
+        record_path: Annotated[str, Field(description="Vault-relative path of the email or meeting note the ops come from.")],
+        pages: Annotated[list[dict[str, Any]], Field(description="Per page: {path, ops} for an existing page or {new: {type, title, aliases, lead, summary}, ops} for a new one. An empty ops list still adds the Records line.")],
+        created_by: CreatedBy = wiki.CREATED_BY,
+    ) -> str:
+        """Apply op lists to wiki pages with the record as source (src and since default to the record's id and date). Per page: applied / refused ops with reasons, new ids, sizes; writes Records, History, the record's wiki: link, Log.md and Index.md; reports the topic candidate for the record's subject."""
+        return _json(wiki.ingest(record_path, pages, created_by))
+
+    @mcp.tool(
+        name="vault_wiki_create",
+        annotations={"title": "Create a wiki page", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+    )
+    @_guard
+    def vault_wiki_create(
+        type: Annotated[str, Field(description="person, org, topic, howto or me.")],
+        title: Annotated[str, Field(description="Noun phrase, 6 words or fewer, no dates.")],
+        aliases: Optional[list[str]] = None,
+        lead: Annotated[str, Field(description="2-4 sentences, 80 words or fewer.")] = "",
+        summary: Annotated[str, Field(description="One line, 160 characters or fewer; the Index.md line.")] = "",
+        facts: Annotated[Optional[list[dict[str, Any]]], Field(description="[{text, since, src}] written as add ops.")] = None,
+        src: WikiSrc = "user",
+        created_by: CreatedBy = wiki.CREATED_BY,
+        extra: Annotated[Optional[dict[str, Any]], Field(description="Type-specific keys: email (person), domains (org), owner / org / due (topic). Code-owned keys are refused.")] = None,
+    ) -> str:
+        """Create a page under Wiki/<Type>/ (slug filename). Refused with the matching index line when a page with this title, alias or address exists: {created: false, reason: 'exists', path, match}."""
+        return _json(wiki.create(type, title, aliases, lead, summary, facts, src, created_by, extra))
+
+    @mcp.tool(
+        name="vault_wiki_apply",
+        annotations={"title": "Apply ops to a wiki page without a record", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+    )
+    @_guard
+    def vault_wiki_apply(path: WikiPage, ops: WikiOps, created_by: CreatedBy = wiki.CREATED_BY, src: WikiSrc = "user") -> str:
+        """Apply ops the user asked for in chat (src defaults to 'user', since to today). Same answer shape as vault_wiki_ingest for one page."""
+        return _json(wiki.apply(path, ops, created_by, src))
+
+    @mcp.tool(
+        name="vault_wiki_log",
+        annotations={"title": "Read Wiki/Log.md", "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+    )
+    @_guard
+    def vault_wiki_log(
+        since: Annotated[Optional[str], Field(description="ISO date or datetime lower bound.")] = None,
+        page: Annotated[Optional[str], Field(description="Only lines of this page (stem or link).")] = None,
+        limit: Annotated[int, Field(ge=1, le=500)] = 50,
+    ) -> str:
+        """The newest matching lines of Wiki/Log.md: {path, total, lines}."""
+        return _json(wiki.log(since, page, limit))
+
+    @mcp.tool(
+        name="vault_wiki_review",
+        annotations={"title": "List or resolve Wiki/Review.md items", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+    )
+    @_guard
+    def vault_wiki_review(
+        action: Annotated[str, Field(description="'list' or 'resolve'.")] = "list",
+        item: Annotated[Optional[str], Field(description="resolve: the item's number in the Open list, or a part of its text.")] = None,
+        resolution_ops: Annotated[Optional[list[dict[str, Any]]], Field(description="resolve: ops applied to the page the item names (src user), e.g. a supersede the user decided on.")] = None,
+        created_by: CreatedBy = wiki.CREATED_BY,
+    ) -> str:
+        """list: {open: [{n, text}], done}. resolve: applies resolution_ops (if any) to the item's page, moves the item to Done with today's date, clears the page's contradiction flag when no other open item names it."""
+        if action not in ("list", "resolve"):
+            raise RuntimeError("action must be 'list' or 'resolve'.")
+        return _json(wiki.review(action, item, resolution_ops, created_by))
+
+    @mcp.tool(
+        name="vault_wiki_lint",
+        annotations={"title": "Run the wiki checks", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+    )
+    @_guard
+    def vault_wiki_lint(
+        fix: Annotated[bool, Field(description="Apply the safe fixes: regenerate the index, recompute code-owned keys, fix section order, turn dangling links in code-owned sections into plain text, tick open items whose record action is done, set stale topics to dormant, rotate History / Log.")] = False,
+        created_by: CreatedBy = wiki.CREATED_BY,
+    ) -> str:
+        """The fifteen wiki checks (index vs files, dangling links, orphans, frontmatter, sections, oversized, stale, due in the past, open items done, duplicate pages, records never ingested, topic candidates, History / Log rotation, pages to ask the model about, unconfirmed facts). Flags (orphan, stale, oversized, possible-duplicate) and Review lines are written in both modes; fix=true also applies the safe fixes. Returns {date, fix, pages, counts, checks: {1..15}, flagged, review_added, written, cache}. checks['14'].ask_model lists the pages touched since the last lint: read their facts and report pairs that cannot both be true with a contest op."""
+        return _json(wiki_lint.lint(fix, created_by))
+
+    @mcp.tool(
+        name="vault_wiki_merge",
+        annotations={"title": "Merge one wiki page into another", "readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False},
+    )
+    @_guard
+    def vault_wiki_merge(
+        keep: Annotated[str, Field(min_length=1, description="The page that stays (path, stem or wikilink).")],
+        drop: Annotated[str, Field(min_length=1, description="The page folded into keep; its file becomes a redirect.")],
+        created_by: CreatedBy = wiki.CREATED_BY,
+    ) -> str:
+        """Only after the user said the two pages are the same thing. Facts of drop are added to keep with their since / src (same text: confirm), aliases / records / links merged, drop becomes a 3-line redirect page (type redirect) so links keep resolving, other pages' links follow, keep's History records the merge. Returns {keep, drop, redirect, facts_added, facts_confirmed, facts_refused, relinked, review_closed, sizes}."""
+        return _json(wiki_lint.merge(keep, drop, created_by))
+
+    @mcp.tool(
+        name="vault_wiki_migrate",
+        annotations={"title": "Move a 0.1.0 People/ folder into the wiki", "readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False},
+    )
+    @_guard
+    def vault_wiki_migrate(
+        dry_run: Annotated[bool, Field(description="true returns the plan and writes nothing; false does it with a backup.")] = True,
+        created_by: CreatedBy = wiki.CREATED_BY,
+    ) -> str:
+        """Move Administrator/People/*.md to Wiki/People/ as person pages following the page contract (old Emails / Meetings lines become Records, a 'Voice with this person:' block and other user text go under Notes), rewrite [[People/...]] links to [[Wiki/People/...]] in every other note including frontmatter, update the .base views, generate the index, write one Log line, and remove the old folder when empty. A copy of People/ is kept under Administrator/_backup/<stamp>/People/. Returns the plan ({needed, people, links, views, left, backup}) plus, after a real run, {moved, skipped, links_rewritten, old_folder_removed, old_folder_left}."""
+        return _json(wiki_migrate.migrate(dry_run, created_by))
 
 
 __all__ = ["build_server", "register", "SCHEMAS"]

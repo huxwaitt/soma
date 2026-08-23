@@ -231,15 +231,15 @@ def test_save_email_creates_note_and_person(vault):
         attachments_saved=[str(att_dir / "Budget_Q3.xlsx")], msg_file=str(att_dir / "Budget Q3.msg"),
     )
     assert res["path"] == "Administrator/Emails/2026-08-22 Budget Q3.md" and res["action"] == "created"
-    assert res["status"] == "todo" and res["person_path"] == "Administrator/People/Jane Doe.md" and res["person_action"] == "created"
+    assert res["status"] == "todo" and res["person_path"] == "Administrator/Wiki/People/Jane Doe.md" and res["person_action"] == "created"
     assert res["followup_added"] is False
     text = (vault / res["path"]).read_text(encoding="utf-8")
     fm = fmt.split_note(text)[0]
-    assert fm["from_link"] == "[[People/Jane Doe]]" and fm["to"] == ["hux@example.com"] and fm["cc"] == ["carol@example.com"]
+    assert fm["from_link"] == "[[Wiki/People/Jane Doe]]" and fm["to"] == ["hux@example.com"] and fm["cc"] == ["carol@example.com"]
     assert fm["has_attachments"] is True
     assert fm["attachments"] == ["[[Administrator/Attachments/2026-08-22 Budget Q3/Budget_Q3.xlsx|Budget_Q3.xlsx]]"]
     assert fm["msg_file"] == "[[Administrator/Attachments/2026-08-22 Budget Q3/Budget Q3.msg|Budget Q3.msg]]"
-    assert "**From:** [[People/Jane Doe]] <jane.doe@example.com>" in text
+    assert "**From:** [[Wiki/People/Jane Doe]] <jane.doe@example.com>" in text
     assert "**To:** Hux Waitt <hux@example.com>" in text and "**Cc:** Carol Ng <carol@example.com>" in text
     assert "**Received:** 2026-08-22 09:14" in text
     assert "## Summary\n\nJane asks for the Q3 numbers by Friday.\n" in text
@@ -251,7 +251,10 @@ def test_save_email_creates_note_and_person(vault):
     ptext = (vault / res["person_path"]).read_text(encoding="utf-8")
     pfm = fmt.split_note(ptext)[0]
     assert pfm["last_contact"] == "2026-08-22T09:14:00+02:00" and pfm["aliases"] == []
-    assert "## Emails\n\n- 2026-08-22 — [[Emails/2026-08-22 Budget Q3]] (todo)" in ptext
+    assert pfm["type"] == "person" and pfm["status"] == "draft" and pfm["email"] == "jane.doe@example.com"
+    assert "# Jane Doe\n\nJane Doe (jane.doe@example.com).\n\n## Facts\n" in ptext
+    assert "## Records\n\n- 2026-08-22 — [[Emails/2026-08-22 Budget Q3]] — Jane asks for the Q3 numbers by Friday." in ptext
+    assert fmt.split_note((vault / res["path"]).read_text(encoding="utf-8"))[0]["wiki"] == ["[[Wiki/People/Jane Doe]]"]
 
     # same mail again: an Update on the note, a new line on the person, no second file
     res2 = workflows.save_email(mail_json(from_="x"), "Again.", [])
@@ -259,7 +262,9 @@ def test_save_email_creates_note_and_person(vault):
     text = (vault / res["path"]).read_text(encoding="utf-8")
     assert text.count("## Body") == 1 and "### Summary\n\nAgain." in text
     assert len(list((vault / "Administrator" / "Emails").glob("*.md"))) == 1
-    assert len(list((vault / "Administrator" / "People").glob("*.md"))) == 1
+    assert len(list((vault / "Administrator" / "Wiki" / "People").glob("*.md"))) == 1
+    ptext = (vault / res["person_path"]).read_text(encoding="utf-8")
+    assert ptext.count("[[Emails/2026-08-22 Budget Q3]]") == 1  # Records line not doubled
 
 
 def test_save_email_updates_person_and_follow_ups(vault):
@@ -269,7 +274,7 @@ def test_save_email_updates_person_and_follow_ups(vault):
     pfm = fmt.split_note((vault / res["person_path"]).read_text(encoding="utf-8"))[0]
     assert pfm["aliases"] == ["Doe, Jane"] and pfm["last_contact"] == "2026-08-22T09:14:00+02:00"
     fu = (vault / "Administrator" / "Follow-ups.md").read_text(encoding="utf-8")
-    assert "| 2026-08-22 | [[People/Jane Doe]] | Budget Q3 | [[Emails/2026-08-22 Budget Q3]] |" in fu and "<!-- entry_id: 00AA -->" in fu
+    assert "| 2026-08-22 | [[Wiki/People/Jane Doe]] | Budget Q3 | [[Emails/2026-08-22 Budget Q3]] |" in fu and "<!-- entry_id: 00AA -->" in fu
     # from the user: no person note for self, waiting row points at the recipient
     res2 = workflows.save_email(
         mail_json(entry_id="00AB", internet_message_id="<own@example.com>", from_address="hux@example.com", **{"from": "Hux Waitt"}),
@@ -290,8 +295,8 @@ def test_save_email_updates_person_and_follow_ups(vault):
 def meeting_fm(key="GID1|2026-08-25T13:00:00+02:00", start="2026-08-25T13:00:00+02:00", **over):
     fm = {"type": "meeting", "source": "outlook", "global_id": "GID1", "occurrence_key": key, "subject": "Supplier sync",
           "start": start, "end": start.replace("13:00", "14:00"), "location": "Room 4", "organizer": "jane.doe@example.com",
-          "organizer_link": "[[People/Jane Doe]]", "attendees": ["jane.doe@example.com", "tom.lee@example.com"],
-          "attendee_links": ["[[People/Jane Doe]]", "[[People/Tom Lee]]"], "is_recurring": True, "status": "upcoming", "created_by": CB}
+          "organizer_link": "[[Wiki/People/Jane Doe]]", "attendees": ["jane.doe@example.com", "tom.lee@example.com"],
+          "attendee_links": ["[[Wiki/People/Jane Doe]]", "[[Wiki/People/Tom Lee]]"], "is_recurring": True, "status": "upcoming", "created_by": CB}
     fm.update(over)
     return fm
 
@@ -301,7 +306,7 @@ def test_prep_context(vault):
     store.write("meeting", meeting_fm("GID1|2026-08-18T13:00:00+02:00", "2026-08-18T13:00:00+02:00", status="held"),
                 "# Supplier sync\n\n## Action items\n\n- [ ] Send forecast — owner: me\n- [x] done thing\n\n## Update x\n\n### Action items\n\n- [ ] Confirm address — owner: Tom Lee\n\n### Closed\n\n- [ ] not this one\n")
     store.write("meeting", meeting_fm("GID1|2026-08-11T13:00:00+02:00", "2026-08-11T13:00:00+02:00", status="held"), "older")
-    store.append_row("Administrator/Follow-ups.md", "Open", ["2026-08-21", "[[People/Jane Doe]]", "Contract draft", "", "2026-08-22"], "00AC")
+    store.append_row("Administrator/Follow-ups.md", "Open", ["2026-08-21", "[[Wiki/People/Jane Doe]]", "Contract draft", "", "2026-08-22"], "00AC")
     store.append_row("Administrator/Follow-ups.md", "Open", ["2026-08-21", "Tom Lee", "Schedule", "", "2026-08-22"], "00AD")
     store.append_row("Administrator/Follow-ups.md", "Open", ["2026-08-21", "Someone Else", "x", "", "2026-08-22"], "00AE")
 
@@ -310,10 +315,14 @@ def test_prep_context(vault):
     assert ctx["previous_occurrence"]["path"].startswith("Administrator/Meetings/2026-08-18 1300")
     assert ctx["previous_occurrence"]["open_actions"] == ["- [ ] Send forecast — owner: me", "- [ ] Confirm address — owner: Tom Lee"]
     jane, tom = ctx["people"]
-    assert jane["path"] == "Administrator/People/Jane Doe.md" and jane["last_contact"] == "2026-08-20T09:00:00+02:00"
-    assert jane["last_emails"] == ["- 2026-08-20 — [[Emails/2026-08-20 Old mail]] (done)", "- 2026-08-10 — [[Emails/2026-08-10 Older]] (fyi)"]
+    assert jane["path"] == "Administrator/Wiki/People/Jane Doe.md" and jane["last_contact"] == "2026-08-20T09:00:00+02:00"
+    # the old-style body became Records lines on the wiki page (status tails dropped)
+    assert jane["last_emails"] == ["- 2026-08-20 — [[Emails/2026-08-20 Old mail]]", "- 2026-08-10 — [[Emails/2026-08-10 Older]]"]
     assert tom["path"] is None and tom["name"] == "Tom Lee"
     assert len(ctx["followups_open"]) == 2 and all("Someone Else" not in r for r in ctx["followups_open"])
+    # wiki[]: the attendee's person page (draft, identity lead), no topic without a subject match
+    assert [w["path"] for w in ctx["wiki"]] == ["Administrator/Wiki/People/Jane Doe.md"]
+    assert ctx["wiki"][0]["type"] == "person" and ctx["wiki"][0]["lead"] == "Jane Doe (jane.doe@example.com)." and ctx["wiki"][0]["facts"] == []
 
     store.write("meeting", meeting_fm(), "this one")
     ctx2 = workflows.prep_context("GID1|2026-08-25T13:00:00+02:00")
@@ -341,7 +350,7 @@ def test_weekly_facts(vault):
            "from": "bob@example.com", "from_name": "Bob Lee", "from_link": "", "to": [], "cc": [], "received": "2026-08-19T08:40:00+02:00",
            "status": "done", "created_by": CB}
     store.write("email", efm, "x")
-    store.append_row("Administrator/Follow-ups.md", "Open", ["2026-08-16", "[[People/Tom Lee]]", "Delivery", "", "2026-08-22"], "00B1")
+    store.append_row("Administrator/Follow-ups.md", "Open", ["2026-08-16", "[[Wiki/People/Tom Lee]]", "Delivery", "", "2026-08-22"], "00B1")
     store.write("meeting", meeting_fm("GID1|2026-08-18T13:00:00+02:00", "2026-08-18T13:00:00+02:00", status="held"), "# m\n\n## Action items\n\n- [ ] Confirm address — owner: Tom Lee\n")
     store.write("meeting", meeting_fm("GID1|2026-08-20T13:00:00+02:00", "2026-08-20T13:00:00+02:00"), "upcoming in the past")
     person(vault, "Carol Ng", "carol@example.com", last_contact="2026-07-10T10:00:00+02:00")
@@ -352,7 +361,7 @@ def test_weekly_facts(vault):
     assert facts["start"] == "2026-08-17" and facts["end"] == "2026-08-23"
     assert [(r["subject"], r["label"]) for r in facts["open_from_inbox"]] == [("Budget Q3", "act")]
     assert facts["open_from_inbox"][0]["note"] == "[[Emails/2026-08-19 Budget Q3]]" and facts["open_from_inbox"][0]["entry_id"] == "00A1"
-    assert facts["waiting"] == [{"since": "2026-08-16", "who": "[[People/Tom Lee]]", "what": "Delivery", "email": "", "age_days": 6}]
+    assert facts["waiting"] == [{"since": "2026-08-16", "who": "[[Wiki/People/Tom Lee]]", "what": "Delivery", "email": "", "age_days": 6}]
     assert len(facts["meetings_held"]) == 1 and facts["meetings_held"][0]["unchecked_actions"] == ["- [ ] Confirm address — owner: Tom Lee"]
     assert [m["date"] for m in facts["no_notes"]] == ["2026-08-20"]
     assert [(q["name"], q["days"]) for q in facts["quiet_people"]] == [("Carol Ng", 44)]
@@ -386,10 +395,10 @@ def test_attach_transcript_callout_and_link(vault):
     (folder / "transcript.md").write_text(TRANSCRIPT, encoding="utf-8")
     res = workflows.attach_transcript(mpath, "Administrator/Attachments/2026-08-25 1300 Supplier sync/transcript.md")
     assert res["turns"] == 5 and res["speakers"] == ["Jane Doe", "Hux Waitt", "Tom Lee", "Priya"] and res["linked"] is False
-    assert res["speaker_links"] == ["[[People/Jane Doe]]", "Hux Waitt", "[[People/Tom Lee]]", "Priya"]
+    assert res["speaker_links"] == ["[[Wiki/People/Jane Doe]]", "Hux Waitt", "[[Wiki/People/Tom Lee]]", "Priya"]
     text = (vault / mpath).read_text(encoding="utf-8")
     assert "_(none yet)_\n\n## Update " in text
-    assert "### Transcript\n\n**Speakers:** [[People/Jane Doe]], Hux Waitt, [[People/Tom Lee]], Priya\n\n> [!note]- Transcript (5 turns, 4 speakers)\n> [13:02] Jane Doe:" in text
+    assert "### Transcript\n\n**Speakers:** [[Wiki/People/Jane Doe]], Hux Waitt, [[Wiki/People/Tom Lee]], Priya\n\n> [!note]- Transcript (5 turns, 4 speakers)\n> [13:02] Jane Doe:" in text
     assert "> wrapped line without a name\n" in text and "PART 1" not in text and "END OF TRANSCRIPT" not in text and "\nSpeakers:\n" not in text
 
     big = "\n".join(f"[13:{i % 60:02d}] Jane Doe: line {i}" for i in range(401))
@@ -413,7 +422,7 @@ def test_find_and_list_fields(vault):
     person(vault)
     hit = store.find("person", "jane.doe@example.com", fields=["name", "last_contact", "nope"])
     assert hit["frontmatter"] == {"name": "Jane Doe", "last_contact": "2026-08-20T09:00:00+02:00"}
-    assert store.list_notes("person", fields=["email"]) == [{"path": "Administrator/People/Jane Doe.md", "frontmatter": {"email": "jane.doe@example.com"}}]
+    assert store.list_notes("person", fields=["email"]) == [{"path": "Administrator/Wiki/People/Jane Doe.md", "frontmatter": {"email": "jane.doe@example.com"}}]
     assert "aliases" in store.find("person", "jane.doe@example.com")["frontmatter"]
 
 

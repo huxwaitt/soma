@@ -9,13 +9,15 @@ import pytest
 
 from administrator_vault import notes, store
 
-VIEW_NAMES = ("People", "Follow-ups", "Meetings", "Emails")
+VIEW_NAMES = ("People", "Follow-ups", "Meetings", "Emails", "Wiki")
 
 # Optional frontmatter keys vault.md / meeting-note.md allow on top of the required ones.
 OPTIONAL_KEYS = {
     "email": {"has_attachments", "attachments", "msg_file"},
     "meeting": {"entry_id", "all_day"},
-    "person": {"company", "source"},
+    "person": {"company", "source", "org", "title", "summary", "status", "verified", "flags"},
+    # wiki pages (wiki.md): the keys the code keeps in every page's frontmatter
+    "wiki": {"type", "title", "aliases", "summary", "status", "owner", "org", "due", "created", "updated", "verified", "sources", "open_items", "flags", "created_by", "domains", "last_done"},
 }
 
 # Which note types each view may reference (a view over several folders may use keys of each).
@@ -24,6 +26,7 @@ VIEW_TYPES = {
     "Follow-ups": ("email", "meeting"),
     "Meetings": ("meeting",),
     "Emails": ("email",),
+    "Wiki": ("person", "wiki"),
 }
 
 KNOWN_FILE_PROPS = {
@@ -39,7 +42,8 @@ def view_path(name: str):
 def allowed_note_keys(view: str) -> set[str]:
     keys: set[str] = set()
     for t in VIEW_TYPES[view]:
-        keys.update(notes.SCHEMAS[t]["required"])
+        if t in notes.SCHEMAS:
+            keys.update(notes.SCHEMAS[t]["required"])
         keys.update(OPTIONAL_KEYS.get(t, set()))
     return keys
 
@@ -107,7 +111,7 @@ def view(request):
     return name, text, parse_simple_yaml(text)
 
 
-def test_views_dir_has_exactly_the_four_files():
+def test_views_dir_has_exactly_the_shipped_files():
     names = sorted(p.stem for p in store.VIEWS_DIR.glob("*.base"))
     assert names == sorted(VIEW_NAMES)
 

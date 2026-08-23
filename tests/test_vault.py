@@ -34,7 +34,7 @@ def email_fm(**over):
         "subject": "Re: Budget Q3",
         "from": "jane.doe@example.com",
         "from_name": "Jane Doe",
-        "from_link": "[[People/Jane Doe]]",
+        "from_link": "[[Wiki/People/Jane Doe]]",
         "to": ["me@example.com"],
         "cc": [],
         "received": "2026-08-22T09:14:00+02:00",
@@ -56,9 +56,9 @@ def meeting_fm(**over):
         "end": "2026-08-25T14:00:00+02:00",
         "location": "Room 4",
         "organizer": "jane.doe@example.com",
-        "organizer_link": "[[People/Jane Doe]]",
+        "organizer_link": "[[Wiki/People/Jane Doe]]",
         "attendees": ["jane.doe@example.com"],
-        "attendee_links": ["[[People/Jane Doe]]"],
+        "attendee_links": ["[[Wiki/People/Jane Doe]]"],
         "is_recurring": True,
         "status": "upcoming",
         "created_by": CB,
@@ -98,7 +98,12 @@ def test_init_creates_everything(vault):
     assert all(s["files"].values()), s["files"]
     assert s["vault_name"] == "Vault"
     views = {p.name for p in (vault / "Administrator" / "_views").glob("*.base")}
-    assert views == {"People.base", "Follow-ups.base", "Meetings.base", "Emails.base"}
+    assert views == {"People.base", "Follow-ups.base", "Meetings.base", "Emails.base", "Wiki.base"}
+    wiki_dir = vault / "Administrator" / "Wiki"
+    assert {p.name for p in wiki_dir.glob("*.md")} == {"Index.md", "Log.md", "Review.md", "Wiki.md"}
+    schema_text = (wiki_dir / "Wiki.md").read_text(encoding="utf-8")
+    assert "type: wiki-schema" in schema_text and "# The wiki — how pages work" in schema_text and "## Your notes on this schema" in schema_text
+    assert all((wiki_dir / f).is_dir() for f in ("People", "Orgs", "Topics", "Howto"))
     fu = (vault / "Administrator" / "Follow-ups.md").read_text(encoding="utf-8")
     assert "type: followups" in fu
     assert "## Open" in fu and "## Done" in fu
@@ -174,7 +179,7 @@ def test_frontmatter_round_trip():
         "type": "email",
         "entry_id": "00AA",
         "internet_message_id": "<abc@example.com>",
-        "from_link": "[[People/Jane Doe]]",
+        "from_link": "[[Wiki/People/Jane Doe]]",
         "subject": 'He said "hi": ok #1',
         "to": ["a@example.com", "b@example.com"],
         "cc": [],
@@ -195,7 +200,7 @@ def test_frontmatter_round_trip():
     assert 'received: "2026-08-22T09:14:00+02:00"' in text
     assert 'entry_id: "00AA"' in text
     assert 'subject: "He said \\"hi\\": ok #1"' in text
-    assert 'from_link: "[[People/Jane Doe]]"' in text
+    assert 'from_link: "[[Wiki/People/Jane Doe]]"' in text
     assert 'numeric_string: "0123"' in text
     assert "is_recurring: false" in text
     assert "cc: []" in text
@@ -318,7 +323,7 @@ def test_find_meeting_by_occurrence_then_global_id(vault):
 
 def test_person_identity_and_alias(vault):
     res = store.write("person", person_fm(), "# Jane Doe")
-    assert res["path"] == "Administrator/People/Jane Doe.md"
+    assert res["path"] == "Administrator/Wiki/People/Jane Doe.md"
     assert store.find("person", "jane.doe@EXAMPLE.com")["found"]
     assert store.find("person", "JDOE@example.com")["found"]  # alias
     assert not store.find("person", "someone@example.com")["found"]
@@ -334,7 +339,14 @@ def test_person_identity_and_alias(vault):
     assert fm["aliases"] == ["jdoe@example.com", "Doe, Jane"]
     assert fm["last_contact"] == "2026-08-23T10:00:00+02:00"
     assert fm["name"] == "Jane Doe"
-    assert len(list((vault / "Administrator" / "People").glob("*.md"))) == 1
+    assert len(list((vault / "Administrator" / "Wiki" / "People").glob("*.md"))) == 1
+    # vault_write("person") goes through the wiki: a draft page following the contract, no "## Update" heading
+    text = (vault / res["path"]).read_text(encoding="utf-8")
+    assert fm["status"] == "draft" and "## Update" not in text and "seen again" not in text
+    assert f"# Jane Doe\n\nJane Doe ({person_fm()['email']}).\n\n## Facts\n\n## Topics\n\n## Open\n\n## Records\n\n## Related\n\n## History\n" in text
+    # an old-style body line becomes a Records line
+    store.write("person", person_fm(), "- 2026-08-25 — [[Meetings/2026-08-25 1300 Sync]] (held)", "append")
+    assert "## Records\n\n- 2026-08-25 — [[Meetings/2026-08-25 1300 Sync]]\n" in (vault / res["path"]).read_text(encoding="utf-8")
 
 
 def test_daily_and_weekly_identity(vault):
@@ -374,7 +386,7 @@ def test_accepts_backslashes(vault):
 
 def test_append_row_dedupe_and_move(vault):
     path = "Administrator/Follow-ups.md"
-    row = ["2026-08-21", "[[People/Carol Ng]]", "Contract draft", "[[Emails/2026-08-21 Contract draft]]", "2026-08-22"]
+    row = ["2026-08-21", "[[Wiki/People/Carol Ng]]", "Contract draft", "[[Emails/2026-08-21 Contract draft]]", "2026-08-22"]
     r1 = store.append_row(path, "Open", row, "00AC")
     assert r1["appended"] and r1["row"].endswith("2026-08-22 <!-- entry_id: 00AC --> |")
     r2 = store.append_row(path, "Open", row, "00AC")
@@ -415,7 +427,7 @@ def test_append_row_creates_section_and_header(vault):
 def test_meeting_row_with_pipe_in_occurrence_key_round_trips(vault):
     path = "Administrator/Follow-ups.md"
     key = "GID1|2026-08-25T13:00:00+02:00 # Confirm Leipzig address"
-    row = ["2026-08-25", "[[People/Tom Lee]]", "Confirm Leipzig address", "[[Meetings/2026-08-25 1300 Supplier sync]]", "2026-08-25"]
+    row = ["2026-08-25", "[[Wiki/People/Tom Lee]]", "Confirm Leipzig address", "[[Meetings/2026-08-25 1300 Supplier sync]]", "2026-08-25"]
     r1 = store.append_row(path, "Open", row, key, key_label="occurrence_key")
     assert r1["appended"]
     text = (vault / path).read_text(encoding="utf-8")
@@ -429,7 +441,7 @@ def test_meeting_row_with_pipe_in_occurrence_key_round_trips(vault):
     assert store.append_row(path, "Open", row, key, key_label="occurrence_key")["appended"] is False
     # move finds it by the unescaped key and keeps the cells intact
     m = store.move_row(path, "Open", "Done", key, set_last_cell="2026-08-26")
-    assert m["moved"] and m["row"] == "| 2026-08-25 | [[People/Tom Lee]] | Confirm Leipzig address | [[Meetings/2026-08-25 1300 Supplier sync]] | 2026-08-26 <!-- occurrence_key: GID1\\|2026-08-25T13:00:00+02:00 # Confirm Leipzig address --> |"
+    assert m["moved"] and m["row"] == "| 2026-08-25 | [[Wiki/People/Tom Lee]] | Confirm Leipzig address | [[Meetings/2026-08-25 1300 Supplier sync]] | 2026-08-26 <!-- occurrence_key: GID1\\|2026-08-25T13:00:00+02:00 # Confirm Leipzig address --> |"
     open_part, done_part = (vault / path).read_text(encoding="utf-8").split("## Open")[1].split("## Done")
     assert "Leipzig" not in open_part and done_part.count("<!-- occurrence_key:") == 1
     assert store.move_row(path, "Open", "Done", key)["moved"] is False
@@ -495,8 +507,11 @@ def test_server_tools():
         "vault_append_row", "vault_move_row", "vault_read", "vault_list",
         "vault_rules", "vault_inbox_prepare", "vault_write_daily", "vault_save_email",
         "vault_prep_context", "vault_weekly_facts", "vault_attach_transcript",
+        "vault_wiki_match", "vault_wiki_read", "vault_wiki_ingest", "vault_wiki_create",
+        "vault_wiki_apply", "vault_wiki_log", "vault_wiki_review",
+        "vault_wiki_lint", "vault_wiki_merge", "vault_wiki_migrate",
     }
-    assert len(tools) == 15
+    assert len(tools) == 25
 
 
 def test_server_call_round_trip(vault):
