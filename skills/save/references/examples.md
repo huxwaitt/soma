@@ -58,7 +58,7 @@ vault_save_email(
   company="ACME Parts GmbH")
 ```
 
-→ `{"path": "Administrator/Emails/2026-08-21 Q3 supplier contract – signature needed.md", "action": "created", "status": "todo", "person_path": "Administrator/People/Jane Doe.md", "person_action": "created", "followup_added": false}`
+→ `{"path": "Administrator/Emails/2026-08-21 Q3 supplier contract – signature needed.md", "action": "created", "status": "todo", "person_path": "Administrator/Wiki/People/Jane Doe.md", "person_action": "created", "followup_added": false}`
 
 The note the helper wrote (for reference — the model never sees or types it):
 
@@ -72,7 +72,7 @@ conversation_id: "CAFEBABE1234567890ABCDEF"
 subject: "RE: Q3 supplier contract – signature needed"
 from: jane.doe@acme-parts.com
 from_name: Jane Doe
-from_link: "[[People/Jane Doe]]"
+from_link: "[[Wiki/People/Jane Doe]]"
 to:
   - hux@example.com
 cc:
@@ -83,12 +83,12 @@ has_attachments: true
 attachments:
   - "[[Administrator/Attachments/2026-08-21 Q3 supplier contract – signature needed/Q3-supplier-contract-v3.pdf|Q3-supplier-contract-v3.pdf]]"
 msg_file: "[[Administrator/Attachments/2026-08-21 Q3 supplier contract – signature needed/2026-08-21 Q3 supplier contract – signature needed.msg|2026-08-21 Q3 supplier contract – signature needed.msg]]"
-created_by: administrator/0.1.0
+created_by: administrator/0.2.0
 ---
 
 # RE: Q3 supplier contract – signature needed
 
-**From:** [[People/Jane Doe]] <jane.doe@acme-parts.com>
+**From:** [[Wiki/People/Jane Doe]] <jane.doe@acme-parts.com>
 **To:** Hux Waitt <hux@example.com>
 **Cc:** Tom Lee <tom.lee@acme-parts.com>
 **Received:** 2026-08-21 16:42
@@ -117,18 +117,18 @@ One more thing: please confirm the delivery address is still the Leipzig warehou
 - image001.png (4 KB, not exported)
 ```
 
-`People/Jane Doe.md` was created with `company: ACME Parts GmbH`, `last_contact: 2026-08-21T16:42:10+02:00` and the line `- 2026-08-21 — [[Emails/2026-08-21 Q3 supplier contract – signature needed]] (todo)`. `Follow-ups.md` untouched (status `todo`).
+`Wiki/People/Jane Doe.md` was created with `company: ACME Parts GmbH`, `last_contact: 2026-08-21T16:42:10+02:00` and the line `- 2026-08-21 — [[Emails/2026-08-21 Q3 supplier contract – signature needed]] (todo)`. `Follow-ups.md` untouched (status `todo`).
 
 6. Report:
 
-> Saved `Emails/2026-08-21 Q3 supplier contract – signature needed.md` (todo, 2 action items). New person note `People/Jane Doe.md`. Exported the .msg and `Q3-supplier-contract-v3.pdf` to `Administrator/Attachments/2026-08-21 Q3 supplier contract – signature needed/`.
+> Saved `Emails/2026-08-21 Q3 supplier contract – signature needed.md` (todo, 2 action items). New person note `Wiki/People/Jane Doe.md`. Exported the .msg and `Q3-supplier-contract-v3.pdf` to `Administrator/Attachments/2026-08-21 Q3 supplier contract – signature needed/`.
 > obsidian://open?vault=Vault&file=Administrator%2FEmails%2F2026-08-21%20Q3%20supplier%20contract%20%E2%80%93%20signature%20needed.md
 
 ## Example 2 — the same command again
 
 Steps 1–2 as above. Step 3: `vault_find("email", …, fields=["status","msg_file","attachments"])` → `found: true`, frontmatter shows `msg_file` and `attachments` already set → no export question. `vault_find("person", …)` → `found: true`, so no `outlook_search_contacts`.
 
-`vault_save_email(mail, summary=<same two sentences>, action_items=<same>, self_addresses=[...])` → `action: "appended"`. The helper put `Saved again via /administrator:save.` plus `### Summary` / `### Action items` under a `## Update 2026-08-22T…` heading; the `## Body` and frontmatter stay as they were. The person note got one new `## Emails` line under its own `## Update` heading only because `last_contact` did not change — the helper decides.
+`vault_save_email(mail, summary=<same two sentences>, action_items=<same>, self_addresses=[...])` → `action: "appended"`. The helper put `Saved again via /administrator:save.` plus `### Summary` / `### Action items` under a `## Update 2026-08-22T…` heading; the `## Body` and frontmatter stay as they were. The person page is unchanged apart from `last_contact`; its `## Records` line was already there, so it is not doubled — the helper decides.
 
 > Already saved at `Emails/2026-08-21 Q3 supplier contract – signature needed.md`; appended an update. Nothing exported again.
 > obsidian://open?vault=Vault&file=…

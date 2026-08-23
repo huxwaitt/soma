@@ -89,7 +89,7 @@ Signals:
 - Calendar changes that are already on the calendar (accepted, updated time, cancelled) and need no response.
 - Thread closers: "thanks", "done", "sorted", "great, see you then".
 - Receipts and confirmations of things the user did (order placed, payment made, booking confirmed).
-- Mail from a known sender (a `People/` note exists) that asks for nothing.
+- Mail from a known sender (a `Wiki/People/` page exists) that asks for nothing.
 
 Not `fyi`:
 - It is bulk, promotional, or from a sender the user has never written to and never would → `noise`.
@@ -112,7 +112,7 @@ Signals:
 Not `noise`:
 - The same kind of mail from a system the user is known to watch (see `fyi`).
 - Anything with an invoice, a security alert, a password reset, an account lockout or a legal notice — those are `act`, even if the sender looks automated.
-- Anything from a sender with a `People/` note → at least `fyi`.
+- Anything from a sender with a `Wiki/People/` page → at least `fyi`.
 
 Reason is one or two words: "Newsletter", "Marketing", "Social notification".
 

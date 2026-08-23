@@ -5,10 +5,10 @@ Everything the plugin writes goes under `<vault>/Administrator/` where `<vault>`
 Conventions the server applies:
 
 - Dates in frontmatter are ISO-8601 with the offset Outlook returned (`2026-08-22T09:14:00+02:00`). Never convert time zones.
-- Quoting is the server's job: `entry_id`, `internet_message_id`, `conversation_id`, `global_id`, `occurrence_key`, `subject`, `location`, `msg_file` are always quoted; plain SMTP addresses and `administrator/0.1.0` stay unquoted. Pass raw values.
+- Quoting is the server's job: `entry_id`, `internet_message_id`, `conversation_id`, `global_id`, `occurrence_key`, `subject`, `location`, `msg_file` are always quoted; plain SMTP addresses and `administrator/0.2.0` stay unquoted. Pass raw values.
 - Lists are YAML block lists; pass arrays (`[]` when empty).
-- Wikilinks in frontmatter are quoted: `from_link: "[[People/Jane Doe]]"`.
-- `created_by: administrator/0.1.0` on every note (pass it; the server fills in only `type`).
+- Wikilinks in frontmatter are quoted: `from_link: "[[Wiki/People/Jane Doe]]"`.
+- `created_by: administrator/0.2.0` on every note (pass it; the server fills in only `type`).
 
 ## Writing notes: the `vault_*` tools
 
@@ -23,8 +23,9 @@ The rules on this page are enforced by the `vault` MCP server (`administrator-va
 | Read a note, list notes | `vault_read(path)`, `vault_list(type, since)` |
 | Which daily note was last written? | `vault_list("daily", limit=1, fields=["date", "inbox_checked"])` |
 | Do the mechanical part of a workflow in code | `vault_rules`, `vault_inbox_prepare`, `vault_write_daily`, `vault_save_email`, `vault_prep_context`, `vault_weekly_facts`, `vault_attach_transcript` — see "Workflow helpers" below |
+| Read or change a wiki page | `vault_wiki_match`, `vault_wiki_read`, `vault_wiki_ingest`, `vault_wiki_apply` … — see "Wiki" below and `skills/wiki/SKILL.md` |
 
-On `append` the server only changes `status`, `last_contact`, `inbox_checked`, `mails_seen` and adds new `aliases`; every other frontmatter key and all existing body text stay as they are. `append` still checks the required keys, so pass the frontmatter `vault_find` returned with just the intended key changed. Use `created_by: administrator/0.1.0` in every frontmatter you pass.
+On `append` the server only changes `status`, `last_contact`, `inbox_checked`, `mails_seen` and adds new `aliases` (and `vault_wiki_ingest` replaces `wiki`); every other frontmatter key and all existing body text stay as they are. `append` still checks the required keys, so pass the frontmatter `vault_find` returned with just the intended key changed. Use `created_by: administrator/0.2.0` in every frontmatter you pass.
 
 `dedupe_key` for meeting rows is `<occurrence_key> # <What>` (one meeting can create several rows); for proposed-times rows it is `<address> # pick a time — <subject>` with `key_label="proposal"`; for rows `followups` writes from the user's own sent mail it is the `internet_message_id` of that mail with `key_label="internet_message_id"` (`entry_id` when it is empty). The server treats a row as a duplicate when the key value appears in any hidden comment anywhere in the file, whatever the label.
 
@@ -32,11 +33,11 @@ A key or a cell may contain `|` (an `occurrence_key` always does); the server st
 
 ## Workflow helpers
 
-These tools do the moving, comparing and formatting so the model only decides. They take the JSON the outlook tools returned and write through the same code as `vault_write` / `vault_append_row`, so every rule on this page still holds. Pass `created_by="administrator/0.1.0"` to the ones that write.
+These tools do the moving, comparing and formatting so the model only decides. They take the JSON the outlook tools returned and write through the same code as `vault_write` / `vault_append_row`, so every rule on this page still holds. Pass `created_by="administrator/0.2.0"` to the ones that write.
 
 - `vault_inbox_prepare(items, date)` — pass the `items[]` from `outlook_list_mails`. Back come only the mails not yet in any daily note of that ISO week and not matched by a never-save rule; each has `label` / `rule` filled when a rule decided. Read the `preview` only of the ones with `label: null`, then call `vault_write_daily(date, labels=[{entry_id, label, reason}], since, inbox_checked, events)` with your labels — items come from the cached list (`Attachments/_cache/inbox-<date>.json`), so do not pass them back. Pass `events` from `outlook_list_events` in `daily`; clashes and missing prep notes are worked out in code, `watch_out` is for anything else. A second run on the same day appends only new rows; `action: unchanged` means nothing was written. Items with no label from the model or a rule come back in `unlabelled` and are left out of the note.
 - `vault_save_email(mail, summary, action_items, attachments_saved, msg_file, self_addresses, company)` — `mail` is the `outlook_get_mail(trim_quoted=true)` JSON. The note, the person note and the Follow-ups row (for `waiting`) are written in one call; `status` defaults to `todo` with action items, `fyi` without, `waiting` when the mail is from one of `self_addresses` and has action items.
-- `vault_prep_context(occurrence_key, global_id, attendees)` replaces the `vault_find` / `vault_read` round trips of `prep` and `notes`; `vault_weekly_facts(week)` replaces those of `weekly`. Both are read-only.
+- `vault_prep_context(occurrence_key, global_id, attendees, subject)` replaces the `vault_find` / `vault_read` round trips of `prep` and `notes` and returns `wiki[]` (`path, type, title, status, lead, open[], facts[]`, at most 8 facts) for the attendees' pages and up to 3 topic pages matched on `subject` (taken from the existing note when empty); `vault_weekly_facts(week)` replaces those of `weekly`. Both are read-only.
 - `vault_attach_transcript(meeting_path, transcript_path)` — write the transcript under `Attachments/<meeting>/` with the host's Write tool once, then call this; never paste the text back through `vault_write`.
 - `Administrator/Rules.md` (`type: rules`, created by `vault_init`, never overwritten) holds the user's rules: `## Labels` table `| Match | Field | Label |`, `## Never save` table `| Match | Field |`, `## Fyi senders` list. `Field` is `from`, `domain`, `name` or `subject`; `Match` is a case-insensitive part of the value or a `*` / `?` pattern. Built-in rules (List-Unsubscribe, auto-replies, meeting responses, no-reply senders, people with `status: fyi`) run first. `vault_rules(action="get")` shows them; the plugin writes a line only through `vault_append_row("Administrator/Rules.md", "Labels", [match, field, label])` after the user said yes to a proposal.
 - `fields=[...]` on `vault_find` and `vault_list` returns only those frontmatter keys.
@@ -52,7 +53,7 @@ The server builds these; listed so you can predict the path and the `Attachments
 | Preferences | `Preferences.md` | Fixed. |
 | Daily | `Daily/YYYY-MM-DD.md` | Local date of the run. |
 | Weekly | `Weekly/YYYY-Www.md` | ISO week (Monday–Sunday) of the review. Written by `/administrator:weekly`. |
-| Person | `People/<Display Name>.md` | Display name as Outlook gives it (`from` / `recipients[].name`), illegal characters replaced by `_`, trimmed. If no display name, the part of the SMTP address before `@`. |
+| Person | `Wiki/People/<Display Name>.md` | Display name as Outlook gives it (`from` / `recipients[].name`), illegal characters replaced by `_`, trimmed. If no display name, the part of the SMTP address before `@`. |
 | Attachments | `Attachments/<YYYY-MM-DD slug>/<filename>` | One subfolder per email note, same name as the note minus `.md`. |
 | Follow-ups | `Follow-ups.md` | Fixed. |
 
@@ -83,7 +84,7 @@ conversation_id: "<conversation_id from outlook_get_mail>"
 subject: "<subject as received>"
 from: jane.doe@example.com
 from_name: Jane Doe
-from_link: "[[People/Jane Doe]]"
+from_link: "[[Wiki/People/Jane Doe]]"
 to:
   - me@example.com
   - bob@example.com
@@ -95,12 +96,12 @@ has_attachments: true
 attachments:
   - "[[Administrator/Attachments/2026-08-22 Budget Q3/Budget_Q3.xlsx|Budget_Q3.xlsx]]"
 msg_file: "[[Administrator/Attachments/2026-08-22 Budget Q3/Budget Q3.msg|Budget Q3.msg]]"
-created_by: administrator/0.1.0
+created_by: administrator/0.2.0
 ---
 
 # <Subject as received, untouched>
 
-**From:** [[People/Jane Doe]] <jane.doe@example.com>
+**From:** [[Wiki/People/Jane Doe]] <jane.doe@example.com>
 **To:** Hux Waitt <me@example.com>, Bob Lee <bob@example.com>
 **Cc:** Carol Ng <carol@example.com>
 **Received:** 2026-08-22 09:14
@@ -131,6 +132,7 @@ Rules:
 
 - Required keys (the server refuses the write without them): `type`, `source`, `internet_message_id`, `entry_id`, `conversation_id`, `subject`, `from`, `from_name`, `from_link`, `to`, `cc`, `received`, `status`, `created_by`. Pass `cc: []` when there is no Cc.
 - `status`: `todo` = user must do something; `waiting` = user is waiting on someone; `done` = nothing left; `fyi` = read only. Default for a freshly saved mail with an action item is `todo`, without one `fyi`; `waiting` when the mail is from the user's own address (`outlook_whoami`) and asks someone else for something.
+- `wiki` (list of page links) is added by `vault_wiki_ingest` after the note exists; never pass it.
 - `has_attachments`, `attachments`, `msg_file` are optional — omit the key when empty. `has_attachments: true` whenever `get_mail` lists attachments, exported or not. `attachments` and `msg_file` are present only when the export happened before the note was written (the save skill asks first); exports done later are linked in an `## Update` section.
 - `to` / `cc` list SMTP addresses from `recipients[]` where `type == "to"` / `"cc"`. Use the raw `to` / `cc` strings only when `recipients` is empty.
 - The `**Cc:**` line and the `## Attachments` section are only present when there is something to list. Attachments that were not exported appear as plain text with "(not exported)".
@@ -149,7 +151,7 @@ since: 2026-08-21T18:02:00+02:00
 inbox_checked: 2026-08-22T08:31:10+02:00
 mails_seen: 23
 status: todo
-created_by: administrator/0.1.0
+created_by: administrator/0.2.0
 ---
 
 # 2026-08-22
@@ -203,44 +205,21 @@ Rules:
 - Batch actions are offered in the chat, not written to the note. When the user says yes and the action runs, a one-line `vault_write(mode="append")` records it: `Done <ISO timestamp>: marked 2 as read`.
 - When the folder is not the inbox, the heading reads `## Inbox (Inbox/Invoices, since …)`.
 
-## Person note template
+## Person note (a wiki page)
 
-```markdown
----
-type: person
-source: outlook
-name: Jane Doe
-email: jane.doe@example.com
-company: Example GmbH
-last_contact: 2026-08-22T09:14:00+02:00
-aliases:
-  - Doe, Jane
-  - jdoe@example.com
-created_by: administrator/0.1.0
----
+People live in the wiki: `Wiki/People/<Display Name>.md`, `type: person`, following the page contract in `skills/wiki/references/wiki.md` (lead, `## Facts`, `## Topics`, `## Open`, `## Records`, `## Related`, `## History`, `## Notes`). Identity = `email`; `vault_find("person", <address>)` matches `email` and `aliases`, so one person never gets two pages. Extra frontmatter for this type: `name`, `email`, `org` (text; from `outlook_search_contacts` when the address matches a directory entry, never guessed from the domain), `last_contact` (code: newest `received` among linked emails or `start` of the newest held meeting; `""` on a stub from `prep` / `schedule`), `aliases` (other display names and addresses, merged by code, never removed).
 
-# Jane Doe
+- `vault_save_email`, `prep` and `schedule` create the page as `status: draft` with a one-line lead `<name> (<email>) — <org>.` and the record's `## Records` line; the ingest step of `save` / `notes` writes the real lead and the role facts through `vault_wiki_ingest`. `vault_write("person", frontmatter, body, mode)` is handled by the wiki: `create` writes that draft page, `append` merges `aliases`, moves `last_contact` forward and replaces `status` when given; in both modes the body's `- <date> — [[record]]` lines become `## Records` lines (a trailing `(held)` / `(done)` status is dropped) and any other body text is dropped. No `## Update` heading is ever added to a person page.
+- Everything under `## Notes` belongs to the user. A `Voice with this person:` block written by the user (or kept there by migration) is honoured by `draft`; the plugin never writes it. `draft` never creates a person page.
+- A vault from 0.1.0 keeps its notes in `Administrator/People/` until `/administrator:setup` runs `vault_wiki_migrate` (dry run first, then on a yes): the files move, old `People/…` links in every record become `[[Wiki/People/…]]`, and the old `## Emails` / `## Meetings` lines become `## Records`.
 
-jane.doe@example.com · Example GmbH
+## The `wiki` key on records
 
-## Emails
+`vault_wiki_ingest` adds one replaceable list key to the email or meeting note it ingested: `wiki: ["[[Wiki/Topics/q3-budget]]", "[[Wiki/People/Jane Doe]]"]`. It is the only frontmatter key on a record the wiki writes, it is rewritten (not appended) on a second ingest, and it is what `prep`, `find`, the Bases views and lint check 11 ("records never ingested") read. Ask for it with `fields=["wiki"]` on `vault_find` / `vault_list`; never set it through `vault_write`.
 
-- 2026-08-22 — [[Emails/2026-08-22 Budget Q3]] (todo)
+## Wiki
 
-## Meetings
-
-- 2026-08-25 — [[Meetings/2026-08-25 1300 Supplier sync]] (upcoming)
-```
-
-Rules:
-
-- Required keys: `type`, `name`, `email`, `aliases`, `last_contact`, `created_by`.
-- `company` is optional: take it from `outlook_search_contacts` when the address matches a directory entry, otherwise omit the key. Do not guess it from the domain.
-- `aliases` holds other display names and other SMTP addresses seen for the same person. Start with an empty list `aliases: []` when there are none. `vault_find("person", <address>)` matches `email` and `aliases`, so one person never gets two notes.
-- `last_contact` = the newest `received` among linked emails or the `start` of the newest held meeting, whichever is later. A stub created by `prep` or `schedule` with no email yet has `last_contact: ""`.
-- `## Emails` and `## Meetings` are written at creation. Later email and meeting lines land under the `## Update <ISO>` headings the server adds (one line per append), because the server never edits existing text. `last_contact` is replaced and `aliases` merged on append; nothing else changes.
-- Anything the user writes below these lists (a `## Notes` section, for instance) is left alone.
-- A `Voice with this person:` block (six bullets, `skills/draft/references/voice.md`) written by the user, or by an earlier plugin version, is honoured by `draft`; the plugin no longer writes it. `draft` never creates a person note.
+`Administrator/Wiki/` is the one place the plugin keeps *current* facts instead of records: `Index.md`, `Log.md`, `Review.md` (all generated), `Wiki.md` (the contract), and pages under `People/`, `Orgs/`, `Topics/`, `Howto/`. Pages are written only through `vault_wiki_match`, `vault_wiki_read`, `vault_wiki_ingest`, `vault_wiki_create`, `vault_wiki_apply`, `vault_wiki_lint`, `vault_wiki_log`, `vault_wiki_review`, `vault_wiki_merge`, `vault_wiki_migrate` — never through `vault_write`, which refuses a `Wiki/` path. The page contract, the op list, refusal meanings, size caps, the index, log and review files, and the lint checklist are in `skills/wiki/references/wiki.md` (the same text the vault holds as `Wiki/Wiki.md`); the workflow is `skills/wiki/SKILL.md`.
 
 ## Meeting note
 
@@ -258,7 +237,7 @@ week: 2026-W34
 start: 2026-08-17
 end: 2026-08-23
 generated: 2026-08-22T10:20:00+02:00
-created_by: administrator/0.1.0
+created_by: administrator/0.2.0
 ---
 ```
 
@@ -270,7 +249,7 @@ Required keys: `type`, `week`, `start`, `end`, `created_by`. Body sections in fi
 ---
 type: followups
 source: outlook
-created_by: administrator/0.1.0
+created_by: administrator/0.2.0
 ---
 
 # Follow-ups
@@ -281,7 +260,7 @@ Things I am waiting on. One row per thread. Move a row to Done when it is closed
 
 | Since | Who | What | Email | Last checked |
 | --- | --- | --- | --- | --- |
-| 2026-08-21 | [[People/Carol Ng]] | Contract draft | [[Emails/2026-08-21 Contract draft]] | 2026-08-22 <!-- entry_id: 00000000AC… --> |
+| 2026-08-21 | [[Wiki/People/Carol Ng]] | Contract draft | [[Emails/2026-08-21 Contract draft]] | 2026-08-22 <!-- entry_id: 00000000AC… --> |
 
 ## Done
 
@@ -316,7 +295,7 @@ User: `/administrator:save budget q3 jane`
 2. `outlook_get_mail(entry_id="00000000AA…", trim_quoted=true, fields=["entry_id","internet_message_id","conversation_id","subject","from","from_address","to","cc","recipients","received","attachments","body_trimmed","body_truncated"], response_format="json")` → `subject: "Re: Budget Q3"`, `from: "Jane Doe"`, `from_address: "jane.doe@example.com"`, `internet_message_id: "<7f3a9c@example.com>"`, `conversation_id: "CAE…"`, `received: "2026-08-22T09:14:00+02:00"`, `recipients: [{name:"Hux Waitt", address:"me@example.com", type:"to"}]`, one attachment `Budget_Q3.xlsx`, `body_trimmed` without the quoted earlier mail.
 3. `vault_find("email", {"internet_message_id": "<7f3a9c@example.com>", "entry_id": "00000000AA…"}, fields=["status","msg_file","attachments"])` → `found: false`; `vault_find("person", {"email": "jane.doe@example.com"}, fields=["name"])` → `found: false`.
 4. Ask: "Export the original .msg and Budget_Q3.xlsx to Administrator/Attachments/2026-08-22 Budget Q3/?" Only on yes: `outlook_save_mail_as` and `outlook_save_attachments`.
-5. `vault_save_email(mail=<the get_mail JSON>, summary="Jane asks for the final Q3 numbers by Friday so she can close the forecast.", action_items=["Send Q3 numbers to Jane by 2026-08-29 — owner: me"], attachments_saved=[…], msg_file=…, self_addresses=["me@example.com"], created_by="administrator/0.1.0")` → `{"path": "Administrator/Emails/2026-08-22 Budget Q3.md", "action": "created", "status": "todo", "person_path": "Administrator/People/Jane Doe.md", "person_action": "created", "followup_added": false}`. The note and person note it wrote look like this (the model never types them):
+5. `vault_save_email(mail=<the get_mail JSON>, summary="Jane asks for the final Q3 numbers by Friday so she can close the forecast.", action_items=["Send Q3 numbers to Jane by 2026-08-29 — owner: me"], attachments_saved=[…], msg_file=…, self_addresses=["me@example.com"], created_by="administrator/0.2.0")` → `{"path": "Administrator/Emails/2026-08-22 Budget Q3.md", "action": "created", "status": "todo", "person_path": "Administrator/Wiki/People/Jane Doe.md", "person_action": "created", "followup_added": false}`. The note and person note it wrote look like this (the model never types them):
 
 ```yaml
 type: email
@@ -327,20 +306,20 @@ conversation_id: CAE…
 subject: Re: Budget Q3
 from: jane.doe@example.com
 from_name: Jane Doe
-from_link: "[[People/Jane Doe]]"
+from_link: "[[Wiki/People/Jane Doe]]"
 to:
   - me@example.com
 cc: []
 received: 2026-08-22T09:14:00+02:00
 status: todo
 has_attachments: true
-created_by: administrator/0.1.0
+created_by: administrator/0.2.0
 ```
 
 ```markdown
 # Re: Budget Q3
 
-**From:** [[People/Jane Doe]] <jane.doe@example.com>
+**From:** [[Wiki/People/Jane Doe]] <jane.doe@example.com>
 **To:** Hux Waitt <me@example.com>
 **Received:** 2026-08-22 09:14
 
@@ -362,7 +341,7 @@ Thanks
 Jane
 ```
 
-   The person note is the template above with `last_contact: 2026-08-22T09:14:00+02:00`, `aliases: []` and one `## Emails` line.
+   The person page is a `draft` wiki page with `last_contact: 2026-08-22T09:14:00+02:00`, `aliases: []` and one `## Records` line.
 
 6. Report: "Saved Emails/2026-08-22 Budget Q3.md (todo) and created People/Jane Doe.md." plus the `obsidian://open` link.
 

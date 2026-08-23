@@ -39,18 +39,18 @@ Two `Accepted:` responses in Sent were skipped by the server; nothing was read b
 
 ### Step 3
 
-`vault_read("Administrator/Follow-ups.md")` → `## Open` has two rows: Carol Ng / Contract draft (`<!-- entry_id: 00000000AC… -->`, written by `inbox`) and `[[People/Tom Lee]]` / Delivery schedule September (`<!-- entry_id: 00000000AB… -->`, written by `prep` from Tom's 19 Aug mail).
+`vault_read("Administrator/Follow-ups.md")` → `## Open` has two rows: Carol Ng / Contract draft (`<!-- entry_id: 00000000AC… -->`, written by `inbox`) and `[[Wiki/People/Tom Lee]]` / Delivery schedule September (`<!-- entry_id: 00000000AB… -->`, written by `prep` from Tom's 19 Aug mail).
 
 - Item 1: no key match, but the row has the same `Who` (Tom Lee) and the same `What` → already listed.
 - Item 2: `vault_find("person", "priya.nair@northwind.example", fields=["name"])` → not found; `vault_find("email", {"internet_message_id": "<DB7PR05MB1234A9@…>", "entry_id": "00000000B5…"}, fields=[])` → not found.
-- Item 3: `vault_find("person", "bob.lee@example.com", fields=["name"])` → `Administrator/People/Bob Lee.md`; email note not found.
+- Item 3: `vault_find("person", "bob.lee@example.com", fields=["name"])` → `Administrator/Wiki/People/Bob Lee.md`; email note not found.
 
 ```
 vault_append_row("Administrator/Follow-ups.md", "Open",
     ["2026-08-18", "Priya Nair", "Offsite venue options", "", "2026-08-22"],
     dedupe_key="<DB7PR05MB1234A9@…>", key_label="internet_message_id")
 vault_append_row("Administrator/Follow-ups.md", "Open",
-    ["2026-08-19", "[[People/Bob Lee]]", "offsite dates", "", "2026-08-22"],
+    ["2026-08-19", "[[Wiki/People/Bob Lee]]", "offsite dates", "", "2026-08-22"],
     dedupe_key="<DB7PR05MB1234B1@…>", key_label="internet_message_id")
 ```
 
@@ -61,9 +61,9 @@ Closing: the Carol Ng row matched no item and has an `entry_id` key → `outlook
 ```markdown
 | Since | Who | What | Email | Last checked |
 | --- | --- | --- | --- | --- |
-| 2026-08-19 | [[People/Tom Lee]] | Delivery schedule September | [[Meetings/2026-08-25 1300 Weekly supplier sync]] | 2026-08-21 <!-- entry_id: 00000000AB… --> |
+| 2026-08-19 | [[Wiki/People/Tom Lee]] | Delivery schedule September | [[Meetings/2026-08-25 1300 Weekly supplier sync]] | 2026-08-21 <!-- entry_id: 00000000AB… --> |
 | 2026-08-18 | Priya Nair | Offsite venue options |  | 2026-08-22 <!-- internet_message_id: <DB7PR05MB1234A9@…> --> |
-| 2026-08-19 | [[People/Bob Lee]] | offsite dates |  | 2026-08-22 <!-- internet_message_id: <DB7PR05MB1234B1@…> --> |
+| 2026-08-19 | [[Wiki/People/Bob Lee]] | offsite dates |  | 2026-08-22 <!-- internet_message_id: <DB7PR05MB1234B1@…> --> |
 ```
 
 ### Step 4
@@ -110,8 +110,8 @@ waiting: 3 rows, age_days 5 / 4 / 4
 meetings_held: [{path: "Administrator/Meetings/2026-08-18 1300 Weekly supplier sync.md", date: "2026-08-18",
                  unchecked_actions: ["- [ ] Send revised forecast to Jane — owner: me", "- [ ] Confirm Leipzig delivery address — owner: Tom Lee"]}]
 no_notes: [{path: "Administrator/Meetings/2026-08-20 1000 Budget review with Jane.md", subject: "Budget review with Jane", date: "2026-08-20"}]
-quiet_people: [{name: "Carol Ng", path: "Administrator/People/Carol Ng.md", last_contact: "2026-07-10", days: 44},
-               {name: "Sam Ortiz", path: "Administrator/People/Sam Ortiz.md", last_contact: "2026-07-18", days: 36}]
+quiet_people: [{name: "Carol Ng", path: "Administrator/Wiki/People/Carol Ng.md", last_contact: "2026-07-10", days: 44},
+               {name: "Sam Ortiz", path: "Administrator/Wiki/People/Sam Ortiz.md", last_contact: "2026-07-18", days: 36}]
 ```
 
 `outlook_list_events(start="2026-08-24T00:00:00", end="2026-08-28T23:59:59", include_recurrences=true, limit=200, fields=["subject","start","end","location","organizer","attendees","all_day","occurrence_key","global_id"], response_format="json")` → 9 events. Nine `vault_find("meeting", {...}, fields=[])` calls → 2 found, 7 without a prep note. Tuesday 13:00–14:00 and 13:30–14:30 overlap.
@@ -128,7 +128,7 @@ week: 2026-W34
 start: 2026-08-17
 end: 2026-08-23
 generated: 2026-08-22T10:20:00+02:00
-created_by: administrator/0.1.0
+created_by: administrator/0.2.0
 ---
 
 # Week 2026-W34 (2026-08-17 – 2026-08-23)
@@ -145,8 +145,8 @@ created_by: administrator/0.1.0
 | Since | Who | What | Days |
 | --- | --- | --- | --- |
 | 2026-08-18 | Priya Nair | Offsite venue options | 5 |
-| 2026-08-19 | [[People/Tom Lee]] | Delivery schedule September | 4 |
-| 2026-08-19 | [[People/Bob Lee]] | offsite dates | 4 |
+| 2026-08-19 | [[Wiki/People/Tom Lee]] | Delivery schedule September | 4 |
+| 2026-08-19 | [[Wiki/People/Bob Lee]] | offsite dates | 4 |
 
 ## Meetings held
 
@@ -182,8 +182,8 @@ No notes taken (run /administrator:notes):
 
 ## People going quiet
 
-- [[People/Carol Ng]] — last contact 2026-07-10 (44 days)
-- [[People/Sam Ortiz]] — last contact 2026-07-18 (36 days)
+- [[Wiki/People/Carol Ng]] — last contact 2026-07-10 (44 days)
+- [[Wiki/People/Sam Ortiz]] — last contact 2026-07-18 (36 days)
 
 ## Notes
 

@@ -31,24 +31,24 @@ start: 2026-08-25T13:00:00+02:00
 end: 2026-08-25T14:00:00+02:00
 location: "Room 4"
 organizer: jane.doe@acme-parts.com
-organizer_link: "[[People/Jane Doe]]"
+organizer_link: "[[Wiki/People/Jane Doe]]"
 attendees:
   - jane.doe@acme-parts.com
   - tom.lee@acme-parts.com
 attendee_links:
-  - "[[People/Jane Doe]]"
-  - "[[People/Tom Lee]]"
+  - "[[Wiki/People/Jane Doe]]"
+  - "[[Wiki/People/Tom Lee]]"
 is_recurring: false
 status: upcoming
-created_by: administrator/0.1.0
+created_by: administrator/0.2.0
 ---
 
 # <Subject as Outlook returned it>
 
 **When:** 2026-08-25 13:00–14:00
 **Where:** Room 4
-**Organizer:** [[People/Jane Doe]] <jane.doe@acme-parts.com>
-**Attendees:** [[People/Jane Doe]] (required, accepted), [[People/Tom Lee]] (optional, no reply)
+**Organizer:** [[Wiki/People/Jane Doe]] <jane.doe@acme-parts.com>
+**Attendees:** [[Wiki/People/Jane Doe]] (required, accepted), [[Wiki/People/Tom Lee]] (optional, no reply)
 
 ## Prep
 
@@ -64,7 +64,7 @@ created_by: administrator/0.1.0
 
 ## Waiting on
 
-- [[People/Tom Lee]] — <what, ten words or fewer> (since 2026-08-25) → also in [[Follow-ups]]
+- [[Wiki/People/Tom Lee]] — <what, ten words or fewer> (since 2026-08-25) → also in [[Follow-ups]]
 
 ## Related emails
 
@@ -88,12 +88,12 @@ A transcript never sits in the body `notes` creates: `vault_attach_transcript` a
 | `start`, `end` | ISO with offset, verbatim. All-day events: `start` at 00:00 and `end` the next day 00:00 as Outlook returns them, plus `all_day: true`. |
 | `location` | Quoted; `""` when empty. Teams links go here unchanged. |
 | `organizer` | `organizer_address` (SMTP). If it still starts with `/O=`, store it as is and say so in `## Prep`. |
-| `organizer_link` | `"[[People/<Display Name>]]"` — the organizer's name from `attendees[]` (the entry whose `address` equals `organizer_address`), else from `outlook_search_contacts`, else the local part of the address. `""` when the organizer is the user (no person note for yourself). |
+| `organizer_link` | `"[[Wiki/People/<Display Name>]]"` — the organizer's name from `attendees[]` (the entry whose `address` equals `organizer_address`), else from `outlook_search_contacts`, else the local part of the address. `""` when the organizer is the user (no person note for yourself). |
 | `attendees` | SMTP addresses from `attendees[].address`, in the order Outlook gives them, the user's own address (from `outlook_whoami`) left out. Empty list `[]` for a private appointment with no one invited. |
-| `attendee_links` | One `"[[People/<Display Name>]]"` per entry in `attendees`, same order. |
+| `attendee_links` | One `"[[Wiki/People/<Display Name>]]"` per entry in `attendees`, same order. |
 | `is_recurring` | `true` / `false` from the event. |
 | `status` | `upcoming` on creation by `prep` or `schedule`; `held` set by `notes`; `cancelled` set by `prep` when `outlook_get_event_by_key` no longer finds the occurrence or the subject starts with `Canceled:` / `Abgesagt:`. This is the only frontmatter key edited in place. |
-| `created_by` | `administrator/0.1.0`. |
+| `created_by` | `administrator/0.2.0`. |
 
 Header lines under the `# Subject`: `**When:**` is `YYYY-MM-DD HH:MM–HH:MM` (one date; if `end` is on another day write both dates). `**Organizer:**` is `me <address>` when the user organised it. `**Attendees:**` lists every attendee as a wikilink with `(required|optional|resource, <response>)` where `<response>` is the event's `attendees[].response` in plain words: `accepted`, `tentative`, `declined`, `no reply` (for `none` and `notresponded`), `organizer`.
 
@@ -127,14 +127,14 @@ Written once by `/administrator:prep`, in this order; leave out a sub-heading on
 
 ### People
 
-- [[People/Jane Doe]] — ACME Parts GmbH — last contact 2026-08-21
-- [[People/Tom Lee]] — ACME Parts GmbH — last contact 2026-08-19
+- [[Wiki/People/Jane Doe]] — ACME Parts GmbH — last contact 2026-08-21
+- [[Wiki/People/Tom Lee]] — ACME Parts GmbH — last contact 2026-08-19
 
 ### Open follow-ups with them
 
 | Since | Who | What | Email | Last checked |
 | --- | --- | --- | --- | --- |
-| 2026-08-21 | [[People/Jane Doe]] | Contract draft | [[Emails/2026-08-21 Contract draft]] | 2026-08-22 <!-- entry_id: 00000000AC… --> |
+| 2026-08-21 | [[Wiki/People/Jane Doe]] | Contract draft | [[Emails/2026-08-21 Contract draft]] | 2026-08-22 <!-- entry_id: 00000000AC… --> |
 
 ### Recent threads
 
@@ -190,7 +190,7 @@ Notes added via /administrator:notes.
 
 ### Waiting on
 
-- [[People/<Name>]] — <what> (since <meeting date>) → also in [[Follow-ups]]
+- [[Wiki/People/<Name>]] — <what> (since <meeting date>) → also in [[Follow-ups]]
 
 ### Closed
 
@@ -199,24 +199,24 @@ Notes added via /administrator:notes.
 
 `### Waiting on` / `### Closed` are left out when empty. The `## Notes` placeholder, `- none` lines and existing boxes stay as they are; readers, `prep` (carried-over items) and `/administrator:weekly` collect the `- [ ]` lines from the whole note.
 
-## Person note: meetings list
+## Person page: the meeting's Records line
 
-Attendee person notes (created or updated by `prep` and `notes`) get a `## Meetings` section after `## Emails`:
+Attendee person pages (wiki pages under `Wiki/People/`, created or updated by `prep` and `notes`) get one line under `## Records`:
 
 ```markdown
-## Meetings
+## Records
 
-- 2026-08-25 — [[Meetings/2026-08-25 1300 Supplier sync]] (upcoming)
+- 2026-08-25 — [[Meetings/2026-08-25 1300 Supplier sync]]
 ```
 
-One line per meeting note, written by `prep` when it creates the person note. On an existing person note the line is the body of a `vault_write("person", …, mode="append")` and lands under the `## Update <ISO>` heading the server adds; the `## Meetings` list itself is never edited. `notes` does not rewrite the line when the status changes to `held`; the meeting note's frontmatter is the source of truth. A person stub created by `prep` has `last_contact: ""` (no email on record yet) and `aliases: []`; `notes` sets `last_contact` to the meeting `start` if that is later than the stored value (the server replaces that key on append), because a held meeting counts as contact.
+The line is the body of the `vault_write("person", …)` call (`mode="create"` for a stub, `mode="append"` for an existing page); the server puts it under `## Records` (newest first, capped at 15) and never adds an `## Update` heading to a person page. The meeting note's frontmatter is the source of truth for the status; the line carries none. A person stub created by `prep` has `last_contact: ""` (no email on record yet), `aliases: []` and `status: draft`; `notes` sets `last_contact` to the meeting `start` if that is later than the stored value (the server replaces that key on append), because a held meeting counts as contact.
 
 ## Follow-ups rows from a meeting
 
 Same table and same `Who`/`What` rules as `vault.md`. Differences for rows that come from a meeting:
 
 ```markdown
-| 2026-08-25 | [[People/Tom Lee]] | Confirm Leipzig delivery address | [[Meetings/2026-08-25 1300 Supplier sync]] | 2026-08-25 <!-- occurrence_key: 0400…|2026-08-25T13:00:00+02:00 # Confirm Leipzig delivery address --> |
+| 2026-08-25 | [[Wiki/People/Tom Lee]] | Confirm Leipzig delivery address | [[Meetings/2026-08-25 1300 Supplier sync]] | 2026-08-25 <!-- occurrence_key: 0400…|2026-08-25T13:00:00+02:00 # Confirm Leipzig delivery address --> |
 ```
 
 - `Since` = the meeting date. `Email` column holds the meeting note link. The trailing comment is `<!-- occurrence_key: <key> # <What> -->`, written by `vault_append_row(..., dedupe_key="<occurrence_key> # <What>", key_label="occurrence_key")`.
@@ -227,6 +227,6 @@ Same table and same `Who`/`What` rules as `vault.md`. Differences for rows that 
 When `/administrator:schedule` books a meeting it writes the same note from the same template, so `prep` and `notes` find it later by `occurrence_key`. Differences from a note written by `prep`:
 
 - `entry_id` is always present (from `outlook_create_event`); `global_id` and `occurrence_key` come from `outlook_get_event(entry_id=…, response_format="json")`, called once right after the create. `organizer` is the user's own address, `organizer_link: ""`, `is_recurring: false`, `status: upcoming`.
-- `attendees` / `attendee_links`: same rule as `prep` — one person note per attendee, found or created exactly as `prep` step 3 does (`vault_find("person", {"email": …})` first, which also matches `aliases`; stub with `last_contact: ""`, `aliases: []`; a `## Meetings` line on each).
+- `attendees` / `attendee_links`: same rule as `prep` — one person note per attendee, found or created exactly as `prep` step 3 does (`vault_find("person", {"email": …})` first, which also matches `aliases`; stub with `last_contact: ""`, `aliases: []`; a `## Records` line on each).
 - `## Prep` holds the single line `_(booked by /administrator:schedule on <YYYY-MM-DD>; no prep was run)_` followed by the user's agenda text as bullets if they gave any. `## Notes` holds `_(none yet)_`, `## Action items` and `## Waiting on` hold `- none`, `## Related emails` holds `- none`.
 - A move (`outlook_update_event`) never renames the file or edits `start` / `end`; it appends `## Update <ISO>` with the old and new time. The `occurrence_key` keeps the original start, so `prep` run after a move will not find the note by the event's new key; it then falls back to `vault_find("meeting", {"global_id": <id>})` (same id after a move) and treats that note as the existing one.

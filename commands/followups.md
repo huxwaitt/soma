@@ -12,7 +12,7 @@ Argument given: `$ARGUMENTS`
 ## Steps
 
 1. Load the `administrator` skill, then the `review` skill and its `references/examples.md`. Load the `outlook` skill if it is not already loaded.
-2. Call `vault_status` (run `vault_init(created_by="administrator/0.1.0")` if anything is missing) and `outlook_whoami(response_format="json")` for the user's own address(es) and local time.
+2. Call `vault_status` (run `vault_init(created_by="administrator/0.2.0")` if anything is missing) and `outlook_whoami(response_format="json")` for the user's own address(es) and local time.
 3. `outlook_awaiting_reply(days=<days>, since_days=30, limit=50)` — one call; the server finds the threads where the user wrote last, nobody answered for `days`, and returns who, subject, days waiting and the last line the user wrote. Say so when `capped` is true.
 4. Show the table: who, subject, days waiting, last line written — longest wait first, values as returned.
 5. `vault_read("Administrator/Follow-ups.md")` once. New waiting thread (no row with the same key or the same Who + What) → `vault_find` person and email notes with `fields=[...]`, then `vault_append_row(..., "Open", [since, who, what, email link or empty, today], dedupe_key=<internet_message_id of the user's last mail, else entry_id>, key_label=...)`. Open rows that matched nothing: `entry_id` keys are checked with one `outlook_get_conversation(include_body=false, fields=["entry_id","from_address","received"])` (at most 10) and moved to Done when someone else wrote last; `internet_message_id` keys within the 30-day scan are moved to Done as "no longer waiting"; everything else stays.

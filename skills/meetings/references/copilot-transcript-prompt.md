@@ -32,7 +32,7 @@ Begin with PART 1.
 ## After you have all parts
 
 1. Copy every part into one text block. You can leave the `PART x of N`, `continue`, `END OF TRANSCRIPT` and `Speakers:` lines in; `/administrator:notes` removes the scaffolding and uses the speaker list.
-2. Run `/administrator:notes <meeting>` and paste the block (or give the path of a text file holding it). The command stores the text under `## Transcript` inside a collapsed callout (over 400 lines: in `Attachments/<meeting>/transcript.md`, linked from the note), maps each speaker to a `People/` note where one exists, lists the decisions, pulls out action items and waiting-on items, and leaves `## Notes` for your own summary. Add "summarise" to the message if you want the command to write 3–6 bullets there instead. Details: `references/transcript.md`.
+2. Run `/administrator:notes <meeting>` and paste the block (or give the path of a text file holding it). The command stores the text under `## Transcript` inside a collapsed callout (over 400 lines: in `Attachments/<meeting>/transcript.md`, linked from the note), maps each speaker to a `Wiki/People/` page where one exists, lists the decisions, pulls out action items and waiting-on items, and leaves `## Notes` for your own summary. Add "summarise" to the message if you want the command to write 3–6 bullets there instead. Details: `references/transcript.md`.
 
 ## If Copilot refuses or summarises anyway
 

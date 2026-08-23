@@ -6,10 +6,10 @@ The vault is an ordinary Obsidian vault. The plugin writes plain markdown under 
 
 - `<vault>/.obsidian/` — Obsidian's own settings, workspace, themes, plugin list. Never read, never written. Do not "fix" a vault by editing anything in there.
 - Anything outside `<vault>/Administrator/`. The `vault_*` tools refuse every path that does not start with `Administrator/`, reads included. If the user keeps other notes in the vault, they are invisible to the plugin.
-- Existing text in a note. Appends only; see "Append on existing" in `references/vault.md`.
+- Existing text in a record. Appends only; see "Append on existing" in `references/vault.md`. Wiki pages are the exception by design: their lead and Facts are kept current by the `vault_wiki_*` tools, with every replaced fact kept in `## History`; anything under `## Notes` is never touched (`skills/wiki/references/wiki.md`).
 - `Preferences.md` after it was created, and `Follow-ups.md` except for adding or moving rows.
 
-The only exception to "plain markdown" is `Administrator/_views/*.base`, the four Bases files below. `vault_init` writes them from the server package; `vault_init(overwrite=true)` rewrites them (and `Preferences.md`) and nothing else.
+The only exception to "plain markdown" is `Administrator/_views/*.base`, the five Bases files below. `vault_init` writes them from the server package; `vault_init(overwrite=true)` rewrites them (and `Preferences.md`) and nothing else.
 
 ## `obsidian://open` links
 
@@ -37,16 +37,17 @@ Open: obsidian://open?vault=MyVault&file=Administrator/Preferences
 
 `Follow-ups.md` gets a link only when a row was added or moved. The `.base` files can be linked too (`file=Administrator/_views/People.base` — keep the extension for non-markdown files); `setup` prints those four once.
 
-## The four Bases views
+## The five Bases views
 
 `Administrator/_views/` holds one `.base` file per list. Each is a table over the notes' frontmatter; open it like a note, or embed it in any note with `![[Administrator/_views/People.base]]`. The user can add views, columns and filters in the Obsidian UI; `vault_init` without `overwrite` leaves edited files alone.
 
 | File | Over | Views | Columns |
 | --- | --- | --- | --- |
-| `People.base` | `People/`, `type: person` | **People** (newest contact first), **Quiet for 30 days** (`last_contact` older than 30 days, oldest first; stubs with `last_contact: ""` left out), **By company** | name, email, company, `last_contact`, "Since" (relative), "Emails + meetings" = number of links in the note (`file.links.length`, which is the `## Emails` + `## Meetings` lists) |
+| `People.base` | `Wiki/People/`, `type: person` | **People** (newest contact first), **Quiet for 30 days** (`last_contact` older than 30 days, oldest first; stubs with `last_contact: ""` left out), **By company** | name, email, company, `last_contact`, "Since" (relative), "Emails + meetings" = number of links in the page (`file.links.length`: the `## Records` list plus any wiki links) |
 | `Follow-ups.base` | `Emails/` + `Meetings/` | **Waiting on** (email notes with `status: waiting`, oldest first), **Held meetings** (`status: held`, newest first — these are the notes whose `## Waiting on` and `## Action items` may still be open), **Everything open** (every email/meeting note not `done` / `fyi` / `cancelled`, grouped by status) | note, who (`from_link` or `organizer_link`), since (`received` or `start`), "Waiting for" (relative) |
 | `Meetings.base` | `Meetings/`, `type: meeting` | **By week** (grouped by ISO week `YYYY-Www` from `start`, newest week first), **Upcoming**, **Held**, **Cancelled** | meeting, when, where, organizer, attendee count (`attendee_links.length`), status |
 | `Emails.base` | `Emails/`, `type: email` | **By status**, **By sender** (grouped by `from_link`), **To do**, **Last 7 days** | email, from, received, age, status, has attachments |
+| `Wiki.base` | `Wiki/**`, wiki page types | **Active topics by verified**, **Stale** (`flags` contains `stale`), **Review queue** (non-empty `flags`), **People by org** | title, type, status, `verified`, `sources`, `open_items`, `flags` |
 
 Two limits worth knowing:
 

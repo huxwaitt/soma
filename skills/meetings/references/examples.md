@@ -18,19 +18,19 @@ User: `/administrator:prep supplier sync` on 2026-08-25 08:40.
     "is_recurring": true, "all_day": false}
    ```
 
-2. `vault_prep_context(occurrence_key="0400…|2026-08-25T13:00:00+02:00", global_id="0400…", attendees=[{"name": "Jane Doe", "address": "jane.doe@acme-parts.com"}, {"name": "Tom Lee", "address": "tom.lee@acme-parts.com"}])` →
+2. `vault_prep_context(occurrence_key="0400…|2026-08-25T13:00:00+02:00", global_id="0400…", attendees=[{"name": "Jane Doe", "address": "jane.doe@acme-parts.com"}, {"name": "Tom Lee", "address": "tom.lee@acme-parts.com"}], subject="Weekly supplier sync")` →
 
    ```json
    {"existing_note": null, "existing_status": null,
     "previous_occurrence": {"path": "Administrator/Meetings/2026-08-18 1300 Weekly supplier sync.md", "date": "2026-08-18",
                             "open_actions": ["- [ ] Send revised forecast to Jane — owner: me", "- [ ] Confirm Leipzig delivery address — owner: Tom Lee"]},
-    "people": [{"email": "jane.doe@acme-parts.com", "name": "Jane Doe", "path": "Administrator/People/Jane Doe.md", "last_contact": "2026-08-21T16:42:10+02:00", "company": "ACME Parts GmbH", "last_emails": ["- 2026-08-21 — [[Emails/2026-08-21 Q3 supplier contract – signature needed]] (todo)"]},
+    "people": [{"email": "jane.doe@acme-parts.com", "name": "Jane Doe", "path": "Administrator/Wiki/People/Jane Doe.md", "last_contact": "2026-08-21T16:42:10+02:00", "company": "ACME Parts GmbH", "last_emails": ["- 2026-08-21 — [[Emails/2026-08-21 Q3 supplier contract – signature needed]] (todo)"]},
                {"email": "tom.lee@acme-parts.com", "name": "Tom Lee", "path": null, "last_contact": "", "company": "", "last_emails": []}],
-    "followups_open": ["| 2026-08-21 | [[People/Jane Doe]] | Contract draft | [[Emails/2026-08-21 Contract draft]] | 2026-08-22 <!-- entry_id: 00000000AC… --> |"]}
+    "followups_open": ["| 2026-08-21 | [[Wiki/People/Jane Doe]] | Contract draft | [[Emails/2026-08-21 Contract draft]] | 2026-08-22 <!-- entry_id: 00000000AC… --> |"]}
    ```
 
 3. `outlook_find(people=["jane.doe@acme-parts.com", "tom.lee@acme-parts.com"], since="2026-07-26T00:00:00", limit=5)` → 3 items, best first, each with `entry_id, subject, from_address, received, score, snippet, folder`. No `get_conversation`.
-4. Tom has no note: `outlook_search_contacts(query="tom.lee@acme-parts.com", include_directory=true, limit=5)` → `company: "ACME Parts GmbH"` → `vault_write("person", {type: person, source: outlook, name: "Tom Lee", email: "tom.lee@acme-parts.com", company: "ACME Parts GmbH", last_contact: "", aliases: [], created_by: "administrator/0.1.0"}, "# Tom Lee\n\ntom.lee@acme-parts.com · ACME Parts GmbH\n\n## Emails\n\n- none yet\n\n## Meetings\n\n- 2026-08-25 — [[Meetings/2026-08-25 1300 Weekly supplier sync]] (upcoming)", mode="create")`. Jane's note exists and the meeting note is new → one `vault_write("person", <her frontmatter>, "- 2026-08-25 — [[Meetings/2026-08-25 1300 Weekly supplier sync]] (upcoming)", mode="append")`.
+4. Tom has no note: `outlook_search_contacts(query="tom.lee@acme-parts.com", include_directory=true, limit=5)` → `company: "ACME Parts GmbH"` → `vault_write("person", {type: person, name: "Tom Lee", email: "tom.lee@acme-parts.com", org: "ACME Parts GmbH", last_contact: "", aliases: [], created_by: "administrator/0.2.0"}, "- 2026-08-25 — [[Meetings/2026-08-25 1300 Weekly supplier sync]]", mode="create")` — the server writes the `draft` wiki page `Wiki/People/Tom Lee.md` with that line under `## Records`. Jane's page exists and the meeting note is new → one `vault_write("person", <her frontmatter>, "- 2026-08-25 — [[Meetings/2026-08-25 1300 Weekly supplier sync]]", mode="append")`.
 5. `vault_write("meeting", frontmatter, body, mode="upsert")` → `{"path": "Administrator/Meetings/2026-08-25 1300 Weekly supplier sync.md", "action": "created"}`. Frontmatter:
 
    ```yaml
@@ -44,16 +44,16 @@ User: `/administrator:prep supplier sync` on 2026-08-25 08:40.
    end: 2026-08-25T14:00:00+02:00
    location: Room 4
    organizer: jane.doe@acme-parts.com
-   organizer_link: "[[People/Jane Doe]]"
+   organizer_link: "[[Wiki/People/Jane Doe]]"
    attendees:
      - jane.doe@acme-parts.com
      - tom.lee@acme-parts.com
    attendee_links:
-     - "[[People/Jane Doe]]"
-     - "[[People/Tom Lee]]"
+     - "[[Wiki/People/Jane Doe]]"
+     - "[[Wiki/People/Tom Lee]]"
    is_recurring: true
    status: upcoming
-   created_by: administrator/0.1.0
+   created_by: administrator/0.2.0
    ```
 
    Body:
@@ -63,8 +63,8 @@ User: `/administrator:prep supplier sync` on 2026-08-25 08:40.
 
    **When:** 2026-08-25 13:00–14:00
    **Where:** Room 4
-   **Organizer:** [[People/Jane Doe]] <jane.doe@acme-parts.com>
-   **Attendees:** [[People/Jane Doe]] (required, organizer), [[People/Tom Lee]] (optional, no reply)
+   **Organizer:** [[Wiki/People/Jane Doe]] <jane.doe@acme-parts.com>
+   **Attendees:** [[Wiki/People/Jane Doe]] (required, organizer), [[Wiki/People/Tom Lee]] (optional, no reply)
 
    ## Prep
 
@@ -77,14 +77,14 @@ User: `/administrator:prep supplier sync` on 2026-08-25 08:40.
 
    ### People
 
-   - [[People/Jane Doe]] — ACME Parts GmbH — last contact 2026-08-21
-   - [[People/Tom Lee]] — ACME Parts GmbH — no email on record
+   - [[Wiki/People/Jane Doe]] — ACME Parts GmbH — last contact 2026-08-21
+   - [[Wiki/People/Tom Lee]] — ACME Parts GmbH — no email on record
 
    ### Open follow-ups with them
 
    | Since | Who | What | Email | Last checked |
    | --- | --- | --- | --- | --- |
-   | 2026-08-21 | [[People/Jane Doe]] | Contract draft | [[Emails/2026-08-21 Contract draft]] | 2026-08-22 <!-- entry_id: 00000000AC… --> |
+   | 2026-08-21 | [[Wiki/People/Jane Doe]] | Contract draft | [[Emails/2026-08-21 Contract draft]] | 2026-08-22 <!-- entry_id: 00000000AC… --> |
 
    ### Recent threads
 
@@ -120,7 +120,7 @@ User: `/administrator:prep supplier sync` on 2026-08-25 08:40.
 
 Report:
 
-> Prep written: `Meetings/2026-08-25 1300 Weekly supplier sync.md` (previous: 2026-08-18, 2 items carried over, 3 threads, 1 open follow-up). New person note `People/Tom Lee.md`.
+> Prep written: `Meetings/2026-08-25 1300 Weekly supplier sync.md` (previous: 2026-08-18, 2 items carried over, 3 threads, 1 open follow-up). New person note `Wiki/People/Tom Lee.md`.
 > obsidian://open?vault=Vault&file=Administrator%2FMeetings%2F2026-08-25%201300%20Weekly%20supplier%20sync.md
 > Points: sign the contract or say what blocks it; answer Tom on the 8 Sep delivery; packaging spec; Leipzig address.
 
@@ -138,7 +138,7 @@ User, 2026-08-25 14:18: `/administrator:notes supplier sync` followed by:
 - forecast still owed by me
 ```
 
-1. `outlook_list_events` for today (same `fields`) → the 13:00 "Weekly supplier sync", ended. `vault_prep_context(occurrence_key, global_id, attendees=[…])` → `existing_note` = the note from example 1, `existing_status: "upcoming"`, `people[]` now both with a `path` (Tom `last_contact: ""`), `followups_open` as before. Five lines, no turn pattern → plain notes.
+1. `outlook_list_events` for today (same `fields`) → the 13:00 "Weekly supplier sync", ended. `vault_prep_context(occurrence_key, global_id, attendees=[…], subject=…)` → `existing_note` = the note from example 1, `existing_status: "upcoming"`, `people[]` now both with a `path` (Tom `last_contact: ""`), `followups_open` as before. Five lines, no turn pattern → plain notes.
 2. Pulled out: four action items (two owned by Tom Lee and Jane Doe → waiting), one closed item ("Tom confirmed Leipzig" matches the carried-over line; no Follow-ups row exists for it, so nothing moves). `vault_write("meeting", <frontmatter as found, status: held>, body, mode="append")` → `{"action": "appended", "update_heading": "Update 2026-08-25T14:18:02+02:00", "frontmatter_changed": ["status"]}`, body:
 
    ```markdown
@@ -161,15 +161,15 @@ User, 2026-08-25 14:18: `/administrator:notes supplier sync` followed by:
 
    ### Waiting on
 
-   - [[People/Tom Lee]] — Updated September delivery schedule (since 2026-08-25) → also in [[Follow-ups]]
-   - [[People/Jane Doe]] — Packaging spec draft (since 2026-08-25) → also in [[Follow-ups]]
+   - [[Wiki/People/Tom Lee]] — Updated September delivery schedule (since 2026-08-25) → also in [[Follow-ups]]
+   - [[Wiki/People/Jane Doe]] — Packaging spec draft (since 2026-08-25) → also in [[Follow-ups]]
 
    ### Closed
 
    - Confirm Leipzig delivery address (carried over from 2026-08-18) — Tom confirmed it in this meeting
    ```
 
-3. Two rows: `vault_append_row("Administrator/Follow-ups.md", "Open", ["2026-08-25", "[[People/Tom Lee]]", "Updated September delivery schedule", "[[Meetings/2026-08-25 1300 Weekly supplier sync]]", "2026-08-25"], dedupe_key="0400…|2026-08-25T13:00:00+02:00 # Updated September delivery schedule", key_label="occurrence_key")` and the same for "Packaging spec draft" → both `appended: true`.
+3. Two rows: `vault_append_row("Administrator/Follow-ups.md", "Open", ["2026-08-25", "[[Wiki/People/Tom Lee]]", "Updated September delivery schedule", "[[Meetings/2026-08-25 1300 Weekly supplier sync]]", "2026-08-25"], dedupe_key="0400…|2026-08-25T13:00:00+02:00 # Updated September delivery schedule", key_label="occurrence_key")` and the same for "Packaging spec draft" → both `appended: true`.
 4. `last_contact`: Tom `""` and Jane `2026-08-21T…` are both earlier than `start` → one `vault_write("person", <frontmatter, last_contact: "2026-08-25T13:00:00+02:00">, "- 2026-08-25 — [[Meetings/2026-08-25 1300 Weekly supplier sync]] (held)", mode="append")` each.
 5. `outlook_voice_sample(address="jane.doe@acme-parts.com", n=10, max_chars=300)` once (greeting "Hi", sign-off "Thanks" + first name). Draft shown, then: "Save this as a draft email to Jane Doe, Tom Lee? (goes to Drafts, nothing is sent)"
 
@@ -234,7 +234,7 @@ Priya
    ```json
    {"path": "Administrator/Meetings/2026-08-25 1300 Weekly supplier sync.md", "turns": 9,
     "speakers": ["Jane Doe", "Hux Waitt", "Tom Lee", "Priya"],
-    "speaker_links": ["[[People/Jane Doe]]", "Hux Waitt", "[[People/Tom Lee]]", "Priya"],
+    "speaker_links": ["[[Wiki/People/Jane Doe]]", "Hux Waitt", "[[Wiki/People/Tom Lee]]", "Priya"],
     "lines": 9, "appended_lines": 17, "linked": false, "update_heading": "Update 2026-08-25T14:18:02+02:00"}
    ```
 
@@ -257,7 +257,7 @@ Priya
 
    ### Waiting on
 
-   - [[People/Tom Lee]] — updated September delivery schedule (since 2026-08-25) → also in [[Follow-ups]]
+   - [[Wiki/People/Tom Lee]] — updated September delivery schedule (since 2026-08-25) → also in [[Follow-ups]]
    - Priya — packaging spec draft (since 2026-08-25) → also in [[Follow-ups]]
 
    ### Closed

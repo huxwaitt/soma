@@ -6,7 +6,7 @@ It reads Outlook through the bundled `outlook-classic-mcp` server, decides what 
 
 ## What you get
 
-- **`/administrator:setup`** — checks that both MCP servers, classic Outlook and the vault are reachable, creates the `Administrator\` folder, `Follow-ups.md`, `Preferences.md`, `Rules.md` and the Bases views if missing (asking your work hours once), and warns when exports cannot work. Run it first.
+- **`/administrator:setup`** — checks that both MCP servers, classic Outlook and the vault are reachable, creates the `Administrator\` folder, the `Wiki\` folder, `Follow-ups.md`, `Preferences.md`, `Rules.md` and the Bases views if missing (asking your work hours once), offers to move an older vault's `People\` into the wiki (dry run first), and warns when exports cannot work. Run it first.
 - **`/administrator:inbox`** — goes through unread mail, sorts each item into act / reply / waiting / fyi / noise, writes today's daily note, and offers batch clean-up you can accept or decline.
 - **`/administrator:save`** — saves one email (or, on request, its whole thread via `outlook_get_conversation`) as a note with stable identity, the body without quoted history or signature (`trim_quoted`), action items, a link to a person note, and optional `.msg` and attachment exports.
 - **`/administrator:daily`** — inbox plus today's calendar in one daily note, with clashes and meetings that have no prep note called out.
@@ -15,16 +15,22 @@ It reads Outlook through the bundled `outlook-classic-mcp` server, decides what 
 - **`/administrator:free`** — tells you when the named people and you are all free, using `outlook_find_meeting_times` and your own preferences (working hours, buffers, no-meeting blocks, daily limit). Read-only.
 - **`/administrator:schedule`** — the same, then books the slot you pick after you say yes (the invite goes out at once), writes the `Meetings\` note, and adds the meeting to the daily note. Moves one meeting on request, and drafts a "proposed times" email when someone's calendar is not visible.
 - **`/administrator:followups`** — threads where you wrote last and nobody answered for N days (default 3): who, subject, days waiting, the last line you wrote. Updates `Follow-ups.md` (new rows, closes rows that got a reply) and offers a short nudge email per thread that goes to your Drafts folder only after you say yes.
-- **`/administrator:weekly`** — one review note per week in `Weekly\`: inbox items still open, what you are waiting on and for how long, meetings held with their unchecked action items, next week's calendar with clashes, and people you have not heard from in 30+ days. Read-only in Outlook.
+- **`/administrator:weekly`** — one review note per week in `Weekly\`: inbox items still open, what you are waiting on and for how long, meetings held with their unchecked action items, next week's calendar with clashes, people you have not heard from in 30+ days, and the wiki's lint result and review queue. Read-only in Outlook.
 - **`/administrator:find`** — describe an email the way you remember it ("the email where we agreed on the Q3 budget with Sam", "the spreadsheet Maria sent with vendor pricing last month") and get up to three candidates with the exact line that answers you, attachment names, and a link if the note already exists. One `outlook_find` call searches Inbox and Sent and ranks; attachment names and indexed text are checked when you mention a file. Read-only; offers to save the winner.
-- **`/administrator:draft`** — a reply to any thread, written the way you write: it reads the thread with the quoted history removed, the sender's person note and your open follow-ups, learns your greeting, sign-off and length from your sent mail, answers every question in the last mail and marks anything it does not know as `[fill in: …]`. Shows the draft; on a yes it lands in Outlook Drafts as a reply in the thread. Never sends.
+- **`/administrator:wiki`** — read a wiki page, ask the wiki a question ("what do we know about the ACME contract"), add or change a fact from chat (kept as yours, so no later mail overrides it), resolve the review queue, or ingest a record saved before the wiki existed.
+- **`/administrator:lint`** — the wiki's fixed checklist: index drift, dangling links, orphans, stale pages, size caps, possible duplicates, records never ingested, contradictions. `fix` applies the safe fixes; merges and new pages only after a yes.
+- **`/administrator:draft`** — a reply to any thread, written the way you write: it reads the thread with the quoted history removed, the sender's wiki page and your open follow-ups, learns your greeting, sign-off and length from your sent mail, answers every question in the last mail and marks anything it does not know as `[fill in: …]`. Shows the draft; on a yes it lands in Outlook Drafts as a reply in the thread. Never sends.
+
+## The wiki
+
+Records (saved emails, meeting notes, daily and weekly notes) are never edited; they are what happened. Next to them, `Administrator\Wiki\` holds what is *currently true*: one page per person, organisation, topic (a subject with a timeline and an outcome) and procedure, each with a short lead, dated facts that point back to the records they came from, open items, and a History that keeps every fact that was replaced. `save` and `notes` end by putting the facts of the new record onto the pages they belong to; `prep`, `find` and `draft` read the pages before they read old mail; `weekly` runs the lint and shows the review queue. A fact changes only when a *later* record says so — an old thread you save today can never overwrite a newer fact; it goes to `Wiki\Review.md` for you to settle. A topic page is created only when a subject shows up in two records on two different days, or when you name it. Nothing is deleted, merged, or resolved without your yes. `Wiki\Index.md` is the home page (generated, one line per page); `Wiki\Wiki.md` is the contract, the same text the plugin reads, and you can add your own notes at the bottom. Say "save without wiki" to skip the step for one record. A vault from 0.1.0 keeps working; `/administrator:setup` shows a dry run and moves `People\` into the wiki only after you agree.
 
 ## Requirements
 
 - Windows 10 or 11.
 - **Classic** Outlook (desktop, `outlook.exe`) with a configured mail profile. The new Outlook (`olk.exe`) is not supported; switch back to classic if you are on it.
 - [uv](https://docs.astral.sh/uv/) on your PATH.
-- A local checkout of `outlook-classic-mcp` 0.4.0 or later (the current checkout with `outlook_get_event_by_key`, `outlook_get_free_busy`, `outlook_find_meeting_times`, `outlook_search_attachments`, `outlook_advanced_search`, `outlook_extract_attachment_text`, `outlook_reply_mail(save_only=true)`, `outlook_awaiting_reply`, `outlook_find`, `outlook_voice_sample`, `fields=` / `preview_chars=` on every list, search and get tool, `trim_quoted` and the `administrator-vault` script — 46 Outlook tools plus 15 vault tools; install its `search` extra for PDF and Excel attachment text), with its path in the `OUTLOOK_MCP_DIR` environment variable (see "Set the vault path" below). The plugin starts two servers from that checkout: `outlook` (`uv run --directory $OUTLOOK_MCP_DIR outlook-mcp`, reads Outlook) and `vault` (`… administrator-vault`, writes the notes). Both need `OUTLOOK_MCP_DIR`; `vault` also needs `ADMINISTRATOR_VAULT`.
+- A local checkout of `outlook-classic-mcp` 0.4.0 or later (the current checkout with `outlook_get_event_by_key`, `outlook_get_free_busy`, `outlook_find_meeting_times`, `outlook_search_attachments`, `outlook_advanced_search`, `outlook_extract_attachment_text`, `outlook_reply_mail(save_only=true)`, `outlook_awaiting_reply`, `outlook_find`, `outlook_voice_sample`, `fields=` / `preview_chars=` on every list, search and get tool, `trim_quoted` and the `administrator-vault` script with its `vault_wiki_*` tools — 46 Outlook tools plus 25 vault tools; install its `search` extra for PDF and Excel attachment text), with its path in the `OUTLOOK_MCP_DIR` environment variable (see "Set the vault path" below). The plugin starts two servers from that checkout: `outlook` (`uv run --directory $OUTLOOK_MCP_DIR outlook-mcp`, reads Outlook) and `vault` (`… administrator-vault`, writes the notes). Both need `OUTLOOK_MCP_DIR`; `vault` also needs `ADMINISTRATOR_VAULT`.
 - An Obsidian vault on disk. Notes are plain markdown with frontmatter; no community plugins are needed to read them.
 
 ## Install
@@ -67,10 +73,12 @@ Restart Claude Code after setting either variable permanently. `/administrator:s
   Daily\YYYY-MM-DD.md          one per day
   Emails\YYYY-MM-DD <slug>.md  one per saved mail
   Meetings\YYYY-MM-DD HHmm <slug>.md  one per meeting (prepared, noted, or booked)
-  People\<Display Name>.md     one per sender or attendee
+  Wiki\                        the wiki: Index.md, Log.md, Review.md, Wiki.md (the contract),
+    People\<Display Name>.md   one page per sender or attendee
+    Orgs\ Topics\ Howto\       one page per organisation, topic, procedure
   Attachments\<date slug>\     .msg and attachment exports, one folder per saved mail
   Weekly\YYYY-Www.md           one review note per week
-  _views\*.base                four Bases views (People, Follow-ups, Meetings, Emails)
+  _views\*.base                five Bases views (People, Follow-ups, Meetings, Emails, Wiki)
   Follow-ups.md                rolling "waiting on" list
   Preferences.md               your scheduling preferences (created by setup, edited by you)
   Rules.md                     sender / subject rules applied before the inbox is labelled (created by setup, edited by you)
@@ -202,6 +210,27 @@ Pulls people, topic words, dates and attachment hints out of the sentence, makes
 
 Finds the thread (asks when more than one matches), reads it, reads what the vault knows about the sender, and writes the reply in your voice. Your voice comes from one `outlook_voice_sample` call: the opening and sign-off of your last 10 sent mails to that person (or overall) plus counted greetings and sign-offs; you can add hard rules in `Preferences.md` under `## Voice` — the plugin only reads that file. Missing facts become `[fill in: …]` markers, never guesses. Only after a yes does it call `outlook_reply_mail(save_only=true)`; the draft sits in Drafts inside the conversation and you send it from Outlook.
 
+### `/administrator:wiki <page | question | statement | ingest <record>>`
+
+```
+/administrator:wiki q3 budget
+/administrator:wiki who owns the supplier contract at ACME
+/administrator:wiki add: Jane is out of office until 2026-09-08
+/administrator:wiki ingest Emails/2026-08-12 Net 30 terms
+/administrator:wiki resolve review
+```
+
+A page name shows the page (lead, facts, open items, newest records). A question is answered from the two best-matching pages, every claim with its page link. A statement becomes one operation on one page, shown first and written only after you say ok, marked as yours so that no later mail replaces it without asking. `ingest` runs the wiki step on a record that was saved before the wiki existed; `resolve review` walks through `Wiki\Review.md` one item at a time.
+
+### `/administrator:lint [fix]`
+
+```
+/administrator:lint
+/administrator:lint fix
+```
+
+Runs the fifteen checks in `Wiki\Wiki.md` and reports the counts: index out of step, dangling links, orphans, frontmatter, section order, oversized pages, stale pages, past due dates, ticked open items, possible duplicates, records never ingested, topic candidates, contradictions, unconfirmed facts. With `fix` the safe ones are applied (index, keys, order, ticked items, stale topics set dormant, roll-overs). Merges and new topic pages are questions; nothing happens without a yes. `/administrator:weekly` runs the same with `fix` and offers to ingest records that were never ingested, ten at a time.
+
 ### `Administrator\Preferences.md`
 
 Created by `/administrator:setup` (or with defaults the first time any command needs it). Edit it in Obsidian: `work_start`, `work_end`, `buffer_minutes`, `no_meeting_blocks`, `max_meetings_per_day`, `default_duration`, `default_location`, `preferred_days`. The plugin reads it once per session and never changes it. An optional `## Voice` section (plain bullets: greeting, sign-off, length, formality, hard rules like "no exclamation marks") is read by `/administrator:draft`, nudges and minutes; you write it yourself, the plugin never edits the file.
@@ -226,13 +255,13 @@ The connector talks to Outlook through COM, which only classic desktop Outlook e
 
 ## Notes the plugin writes
 
-Every note has frontmatter with `type` (`email`, `daily`, `person`, `meeting`, `weekly`, or `preferences`), `source: outlook` (`administrator` for preferences and weekly notes), `created_by: administrator/0.1.0`, and for emails the Outlook identity (`internet_message_id`, `entry_id`, `conversation_id`), sender SMTP address, recipients, `received` with timezone offset, and a `status` of `todo`, `waiting`, `done`, or `fyi`. Meeting notes carry the event's `global_id` and `occurrence_key` (one note per occurrence of a recurring meeting) and a `status` of `upcoming`, `held`, or `cancelled`. Links use wikilinks (`[[People/Jane Doe]]`) so Obsidian's graph and backlinks work out of the box.
+Every note has frontmatter with `type` (`email`, `daily`, `person`, `meeting`, `weekly`, `preferences`, or a wiki type `org`, `topic`, `howto`, `me`), `source: outlook` (`administrator` for preferences and weekly notes), `created_by: administrator/0.2.0`, and for emails the Outlook identity (`internet_message_id`, `entry_id`, `conversation_id`), sender SMTP address, recipients, `received` with timezone offset, and a `status` of `todo`, `waiting`, `done`, or `fyi`. Meeting notes carry the event's `global_id` and `occurrence_key` (one note per occurrence of a recurring meeting) and a `status` of `upcoming`, `held`, or `cancelled`. Links use wikilinks (`[[Wiki/People/Jane Doe]]`) so Obsidian's graph and backlinks work out of the box.
 
 Existing notes are never overwritten. When a mail is saved again, an `## Update <timestamp>` section is appended. Every command that writes a note ends with an `obsidian://open` link to it. The notes are written by the `vault` server, which also enforces the frontmatter and never edits text that is already there.
 
 ## Obsidian
 
-Notes are plain markdown with frontmatter and wikilinks; nothing beyond core Obsidian is needed. `Administrator\_views\` holds four Bases files (core plugin, Obsidian 1.9+): `People.base`, `Follow-ups.base`, `Meetings.base` (by week), `Emails.base` (by status and sender). Open them like notes or embed one with `![[Administrator/_views/People.base]]`. Every command reply ends with an `obsidian://open` link to the note it wrote; set `ADMINISTRATOR_VAULT_NAME` if the name Obsidian shows differs from the folder name. The plugin never touches `.obsidian\` or anything outside `Administrator\`. Details, including sync advice and why the saved `.msg` is the way back to the original mail: `skills/administrator/references/obsidian.md`.
+Notes are plain markdown with frontmatter and wikilinks; nothing beyond core Obsidian is needed. `Administrator\_views\` holds five Bases files (core plugin, Obsidian 1.9+): `People.base`, `Follow-ups.base`, `Meetings.base` (by week), `Emails.base` (by status and sender), `Wiki.base` (active topics, stale pages, the review queue, people by organisation). Open them like notes or embed one with `![[Administrator/_views/People.base]]`. Every command reply ends with an `obsidian://open` link to the note it wrote; set `ADMINISTRATOR_VAULT_NAME` if the name Obsidian shows differs from the folder name. The plugin never touches `.obsidian\` or anything outside `Administrator\`. Details, including sync advice and why the saved `.msg` is the way back to the original mail: `skills/administrator/references/obsidian.md`.
 
 ## License
 

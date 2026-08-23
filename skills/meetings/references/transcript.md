@@ -27,7 +27,7 @@ Input: `meeting_path` (the meeting note, vault-relative) and `transcript_path` (
 
    ### Transcript
 
-   **Speakers:** [[People/Jane Doe]], [[People/Tom Lee]], Hux Waitt, Priya
+   **Speakers:** [[Wiki/People/Jane Doe]], [[Wiki/People/Tom Lee]], Hux Waitt, Priya
 
    > [!note]- Transcript (9 turns, 4 speakers)
    > [13:02] Jane Doe: …

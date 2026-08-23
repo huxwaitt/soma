@@ -16,6 +16,7 @@ Before the first run in a session: `vault_status` once, `outlook_whoami(response
 | Step | What | `outlook_*` calls |
 | --- | --- | --- |
 | 0 | Read the sentence into `{people, words (2–4), since, until, attachment, folders}` as `references/search-plan.md` says. Pass names as the user said them — `outlook_find` matches names as well as addresses; do not call `outlook_resolve_name` first. No words and no people → ask one question and stop. | 0 |
+| 0b | `vault_wiki_match(text=<the sentence>, people=[…], limit=5)`; on a hit, `vault_wiki_read(path, sections=["lead","facts","records"], max_chars=800)` on at most 2 pages. A page that answers the sentence ("did we ever agree on…") is answered from its lead and facts first, with the page link; its `## Records` lines are the candidate list, each checked with `vault_find` for the note. Only when the page does not hold the line the user wants, go on to step 1 with the page's aliases added to `words`. Wiki calls are free and do not count toward the cap. | 0 |
 | 1 | `outlook_find(people=[…], words=[…], since, until, folders=["inbox","sent"] or the folders the user named, limit=10)` — one call. It searches every folder, merges by conversation, scores (person > words > date fit) and returns `items[]` best first with `snippet` (the sentence that holds the most search words) and `score`. | 1 |
 | 2 | Only when step 0 set `attachment`: `outlook_search_attachments(query=<the one pattern>, folder="inbox", since, limit=20, include_subfolders=true)` and `outlook_advanced_search(query=<words>, scope="all", since, limit=20, timeout_sec=20)`. Their hits join the list; a hit already in step 1's items (same `entry_id` or `conversation_id`) gets an attachment mark instead of a second row. | 0–2 |
 | 3 | Widen, only when step 1 (plus 2) gave fewer than 1 usable hit, or every hit's `snippet` misses the topic: one more `outlook_find` with fewer words, wider dates or extra folders — the rules in `references/search-plan.md`. Never a third. | 0–1 |
@@ -39,13 +40,15 @@ Up to three candidates, best first:
 2. …
 ```
 
+When step 0b found a page, one line comes first: `Wiki: [[Wiki/Topics/q3-budget]] — <lead sentence that answers>` (verbatim from the page), then the candidates.
+
 Line 1: who → whom (display names; "me" for the user), `received` as local date and time, subject with reply prefixes kept; `from_address` is the user's own → "me → …". Line 2: the quoted sentence, exact words, one or two sentences. Line 3 only when there are attachments (filenames from `matches[]`). Line 4 only when a note exists: the wikilink plus an `obsidian://open?vault=<vault_status.vault_name>&file=<path, URL-encoded>` link (`skills/administrator/references/obsidian.md`).
 
 Then one line: `Save #1 as a note? (/administrator:save <entry_id>)` — for the winner only, skipped when it already has a note. Say nothing is saved until they answer. `find` never calls `vault_write`; saving is the `save` skill's job after a yes.
 
 ## Rules
 
-- Read-only: no `outlook_mark_mail`, `outlook_move_mail`, `outlook_save_*`, `outlook_send_mail`, `outlook_reply_mail`, no `vault_write`, no `vault_append_row`.
+- Read-only: no `outlook_mark_mail`, `outlook_move_mail`, `outlook_save_*`, `outlook_send_mail`, `outlook_reply_mail`, no `vault_write`, no `vault_append_row`, no `vault_wiki_ingest` / `vault_wiki_apply`.
 - Quote, do not summarise. When no snippet or body sentence holds a search word, quote the first sentence of the newest message and say "closest match".
 - The snippet is the server's best sentence, not proof: read the thread when the snippet is a greeting, a signature line or says "see below".
 - `outlook_advanced_search` returning nothing proves nothing (unindexed store; `count: 0` with `timed_out: false`); say "not found in the index", never "does not exist".

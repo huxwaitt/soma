@@ -21,7 +21,7 @@ preferred_days:
   - Tue
   - Wed
   - Thu
-created_by: administrator/0.1.0
+created_by: administrator/0.2.0
 ---
 
 # Scheduling preferences

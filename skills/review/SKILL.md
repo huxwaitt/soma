@@ -4,10 +4,9 @@ description: Two look-back workflows over Outlook and the vault. `followups` ask
 ---
 
 # review — followups and weekly
-
 Both workflows look back instead of at the inbox of the moment. The tools do the collecting, comparing and counting; you decide and write the few lines only a person can write. Outlook is read through `outlook_*` tools, the vault is read and written only through `vault_*` tools (`skills/administrator/references/vault.md`), and nothing in Outlook changes except, in `followups`, a draft the user said yes to. Outlook mechanics follow the `outlook` skill and `skills/administrator/references/outlook.md`. Worked examples with real call sequences: `references/examples.md` (load it the first time a workflow runs in a session).
 
-Before either workflow: `vault_status` once per session (run `vault_init(created_by="administrator/0.1.0")` if a folder or file flag is false) and `outlook_whoami(response_format="json")` once per session. "Self" = any `accounts[].smtp_address`, compared case-insensitively. "Today" and "now" come from `whoami.local_time`, never from a guess.
+Before either workflow: `vault_status` once per session (run `vault_init(created_by="administrator/0.2.0")` if a folder or file flag is false) and `outlook_whoami(response_format="json")` once per session. "Self" = any `accounts[].smtp_address`, compared case-insensitively. "Today" and "now" come from `whoami.local_time`, never from a guess.
 
 Cost rules for both: pass `fields=[...]` on every list, search, get and conversation call and `preview_chars=0` unless a preview is needed; never repeat text a tool result already holds (paste `last_line`, `subject`, `who` as they came); never read a note with `vault_read` when a helper already returned the facts.
 
@@ -33,7 +32,7 @@ Cost rules for both: pass `fields=[...]` on every list, search, get and conversa
 
 `vault_read("Administrator/Follow-ups.md")` once — the only `vault_read` in this workflow; `Follow-ups.md` has no helper and is short. From `## Open` collect each row's hidden key (`<!-- entry_id: … -->`, `<!-- internet_message_id: … -->`, `<!-- occurrence_key: … -->`), `Who` and `What`.
 
-**Open.** Per item: key = `internet_message_id`, `entry_id` when empty; `key_label` to match. Skip the item as "already listed" when an `## Open` row's key equals the item's `internet_message_id` or `entry_id`, or the row has the same `Who` link and the same `What` text. Otherwise `vault_find("person", <to[0]>, fields=["name"])` → `Who` cell `[[People/<note name>]]` when found, else `to_names[0]`; `vault_find("email", {"internet_message_id": <key or "">, "entry_id": <entry_id>}, fields=[])` → `Email` cell `[[Emails/<filename without .md>]]` when found, else empty. Then
+**Open.** Per item: key = `internet_message_id`, `entry_id` when empty; `key_label` to match. Skip the item as "already listed" when an `## Open` row's key equals the item's `internet_message_id` or `entry_id`, or the row has the same `Who` link and the same `What` text. Otherwise `vault_find("person", <to[0]>, fields=["name"])` → `Who` cell `[[Wiki/People/<note name>]]` when found, else `to_names[0]`; `vault_find("email", {"internet_message_id": <key or "">, "entry_id": <entry_id>}, fields=[])` → `Email` cell `[[Emails/<filename without .md>]]` when found, else empty. Then
 
 ```
 vault_append_row("Administrator/Follow-ups.md", "Open",
@@ -74,41 +73,46 @@ Three to five lines: `threads_checked` from `sent_scanned` mails, waiting count,
 
 ## weekly — one note for the week
 
-`/administrator:weekly [week]`. `week` = `YYYY-Www` (ISO, Monday–Sunday), a date inside the week, `this`, or `last`. Default: the ISO week containing today, except on a Monday or Tuesday, when it is the previous week (say which was used). Read-only in Outlook; exactly one `vault_write`.
+`/administrator:weekly [week]`. `week` = `YYYY-Www` (ISO, Monday–Sunday), a date inside the week, `this`, or `last`. Default: the ISO week containing today, except on a Monday or Tuesday, when it is the previous week (say which was used). Read-only in Outlook; exactly one `vault_write`, plus the wiki lint and whatever the user says yes to in step 2.
 
 ### 1. Two calls
 
 - `vault_weekly_facts(week=<YYYY-Www>, today=<today>)` → `start, end, open_from_inbox[] {date, label, subject, from, entry_id, note, daily}, waiting[] {since, who, what, email, age_days}, meetings_held[] {path, subject, date, unchecked_actions[]}, no_notes[] {path, subject, date}, quiet_people[] {name, email, path, last_contact, days}`. Ticked to-dos, `status: done` email notes and the 30-day cut are already applied.
 - `outlook_list_events(start="<Monday after end>T00:00:00", end="<Friday after that>T23:59:59", include_recurrences=true, limit=200, fields=["subject","start","end","location","organizer","attendees","all_day","occurrence_key","global_id"], response_format="json")`. Prep-note check: `vault_find("meeting", {"occurrence_key": …, "global_id": …}, fields=[])` per event that is not all-day, at most 15; beyond that say "not checked".
 
-### 2. Write the note
+### 2. Wiki (load `skills/wiki/SKILL.md` first)
 
-Identity = `week`. Render the five sections from the two results, line for line, without rewording — the layout is in `references/examples.md`:
+`vault_wiki_lint(fix=true, created_by="administrator/0.2.0")` once (the safe fixes: index, code-owned keys, section order, ticked open items, stale topics to `dormant`, roll-overs); then `vault_wiki_review(action="list")`. From the two results: the open Review items (`open[].text`: page, question, record links), the topic proposals (`checks["12"].items`: "create `<slug>` from N records?"), the possible duplicates (`checks["10"].items`, pairs `{a, b, shared}`), the un-ingested records (`checks["11"].count` and `records[]` with paths), the per-check numbers in `counts`. Ask one question per proposal and act only on a yes (`vault_wiki_create` / `vault_wiki_merge`). Un-ingested records: offer "ingest the N records saved before the wiki, ten at a time?"; on a yes run the `wiki` skill's ingest steps on the first 10 (`vault_read` each once, oldest first), report, offer the next 10. Skip this whole step on "without wiki".
+
+### 3. Write the note
+
+Identity = `week`. Render the sections from the results, line for line, without rewording — the layout is in `references/examples.md`:
 
 - `## Still open from inbox` — one line per `open_from_inbox` row, oldest first: `- <date> — <label> — <subject> (<from>) — <note>` (the `<!-- entry_id: … -->` comment when `note` is null). Empty → `- nothing open`; no daily notes → `- no daily notes this week (run /administrator:inbox)`.
 - `## Waiting on` — table `| Since | Who | What | Days |` from `waiting`, `who`/`what` as returned. Empty → `- nothing`.
 - `## Meetings held` — `### [[<path without .md>]] — <date>` then the `unchecked_actions` lines, or `- all done`; `no_notes` under `No notes taken (run /administrator:notes):` as plain links. Nothing → `- none`.
 - `## Next week` — one table per weekday with events `| Start | End | Subject | Location | Organizer |` (`all day` in both time columns for all-day events), then `**Watch out**`: each clash (overlapping `start`/`end` on the same day, each pair once) and the count without a prep note. No events → `- nothing booked`.
 - `## People going quiet` — `- [[<path without .md>]] — last contact <last_contact> (<days> days)`. None → `- nobody`.
+- `## Wiki` — one line per `counts` entry above zero (`fixed` when the check has a fix), then `Review (N open):` with each open line as returned, `Proposed:` the topic and merge proposals with the user's answer (created / merged / declined / no answer), `Not ingested: N records` (and what was ingested this run). All clean → `- clean; Review empty`.
 - `## Notes` — the only part you write yourself: 3–6 bullets at most on what stands out (a wait past 7 days, a meeting whose actions all belong to the user, a clash worth moving, a person to call). Nothing stands out → leave the section out.
 
 ```
 vault_write("weekly",
     {"type": "weekly", "source": "administrator", "week": "2026-W34", "start": "2026-08-17", "end": "2026-08-23",
-     "generated": "<ISO now with offset>", "created_by": "administrator/0.1.0"},
+     "generated": "<ISO now with offset>", "created_by": "administrator/0.2.0"},
     <body: "# Week 2026-W34 (2026-08-17 – 2026-08-23)" + the sections>, mode="upsert")
 ```
 
 `action: created` → new note; `appended` → the week had a note and the server put the whole body under `## Update <ISO>` (the earlier text stays). Say which happened.
 
-### 3. Report
+### 4. Report
 
-One line per section with counts, the note path, and `obsidian://open?vault=<vault_name>&file=Administrator/Weekly/<week>`. Offer `/administrator:followups` only when a `waiting` row has `age_days` over 7, `/administrator:prep` only when next week has meetings without a prep note.
+One line per section with counts, the note path, and `obsidian://open?vault=<vault_name>&file=Administrator/Weekly/<week>`. Offer `/administrator:followups` only when a `waiting` row has `age_days` over 7, `/administrator:prep` only when next week has meetings without a prep note, `/administrator:wiki resolve review` when Review has open items.
 
 ## Rules that apply to both
 
 - Never call `outlook_mark_mail`, `outlook_move_mail`, `outlook_delete_mail`, `outlook_set_category`, any `bulk_*` tool, `outlook_create_event`, `outlook_update_event`, `outlook_forward_mail`, or `outlook_send_mail` / `outlook_reply_mail` without `save_only=true`.
-- The vault is written only through `vault_append_row`, `vault_move_row` and `vault_write`; nothing by hand, nothing outside `Administrator/`.
+- The vault is written only through `vault_append_row`, `vault_move_row`, `vault_write` and, for wiki pages in `weekly`, the `vault_wiki_*` tools; nothing by hand, nothing outside `Administrator/`.
 - Keep datetimes exactly as the tools returned them. "Days" are counted on local dates by the tools; do not recount.
 - No raw JSON in the reply. Tables and bullet lines only.
 - A second run leaves the vault as after the first: `followups` finds every key already present; `weekly` appends an `## Update` section to the same note and never creates a second file.

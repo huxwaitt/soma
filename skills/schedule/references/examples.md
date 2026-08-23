@@ -47,7 +47,7 @@ User: "a, 1". `outlook_list_events` for Tue 25 Aug with the same `fields` → no
 
 User: "yes". `outlook_create_event(subject="Budget review", start="2026-08-25T10:00:00", end="2026-08-25T10:30:00", attendees=["sam.ortiz@example.com","jane.doe@acme-parts.com"], location="Teams", is_online_meeting=true, body="Booked by administrator on 2026-08-22")` → `{"status":"created","entry_id":"00000000C1…","global_id":"040000008200E0…","occurrence_key":"040000008200E0…|2026-08-25T10:00:00+02:00","subject":"Budget review","start":"2026-08-25T10:00:00+02:00","end":"2026-08-25T10:30:00+02:00","invite_sent":true}`. `global_id` is there, so no `outlook_get_event`.
 
-Person notes: `vault_find("person", {"email": "jane.doe@acme-parts.com"})` → found (from an earlier save) → `vault_write("person", <frontmatter as found>, "- 2026-08-25 — [[Meetings/2026-08-25 1000 Budget review]] (upcoming)", mode="append")`. `vault_find("person", {"email": "sam.ortiz@example.com"})` → not found → `vault_write("person", {type: person, source: outlook, name: "Sam Ortiz", email: "sam.ortiz@example.com", last_contact: "", aliases: [], created_by: "administrator/0.1.0"}, "# Sam Ortiz\n\nsam.ortiz@example.com\n\n## Meetings\n\n- 2026-08-25 — [[Meetings/2026-08-25 1000 Budget review]] (upcoming)", mode="create")`.
+Person notes: `vault_find("person", {"email": "jane.doe@acme-parts.com"})` → found (from an earlier save) → `vault_write("person", <frontmatter as found>, "- 2026-08-25 — [[Meetings/2026-08-25 1000 Budget review]]", mode="append")`. `vault_find("person", {"email": "sam.ortiz@example.com"})` → not found → `vault_write("person", {type: person, name: "Sam Ortiz", email: "sam.ortiz@example.com", last_contact: "", aliases: [], created_by: "administrator/0.2.0"}, "- 2026-08-25 — [[Meetings/2026-08-25 1000 Budget review]]", mode="create")` (the server writes the `draft` wiki page with that line under `## Records`).
 
 Meeting note — frontmatter passed as an object (the server quotes what needs quoting):
 
@@ -67,11 +67,11 @@ attendees:
   - sam.ortiz@example.com
   - jane.doe@acme-parts.com
 attendee_links:
-  - "[[People/Sam Ortiz]]"
-  - "[[People/Jane Doe]]"
+  - "[[Wiki/People/Sam Ortiz]]"
+  - "[[Wiki/People/Jane Doe]]"
 is_recurring: false
 status: upcoming
-created_by: administrator/0.1.0
+created_by: administrator/0.2.0
 ```
 
 Body:
@@ -82,7 +82,7 @@ Body:
 **When:** 2026-08-25 10:00–10:30
 **Where:** Teams
 **Organizer:** me <hux@example.com>
-**Attendees:** [[People/Sam Ortiz]] (required, no reply), [[People/Jane Doe]] (required, no reply)
+**Attendees:** [[Wiki/People/Sam Ortiz]] (required, no reply), [[Wiki/People/Jane Doe]] (required, no reply)
 
 ## Prep
 
@@ -109,7 +109,7 @@ _(none yet)_
 
 Report:
 
-> Sent. Invite went to Sam Ortiz and Jane Doe. Note: `Meetings/2026-08-25 1000 Budget review.md`; new person note `People/Sam Ortiz.md`.
+> Sent. Invite went to Sam Ortiz and Jane Doe. Note: `Meetings/2026-08-25 1000 Budget review.md`; new person note `Wiki/People/Sam Ortiz.md`.
 > obsidian://open?vault=Vault&file=Administrator%2FMeetings%2F2026-08-25%201000%20Budget%20review.md
 
 Had the user answered "b":
@@ -134,7 +134,7 @@ Body:
 Save this as a draft in Outlook? Nothing is sent; you send it from Drafts.
 ```
 
-A yes → `outlook_send_mail(to=["jane.doe@acme-parts.com"], subject="Proposed times — Budget review", body=…, save_only=true)`, then `vault_append_row("Administrator/Follow-ups.md", "Open", ["2026-08-22", "[[People/Jane Doe]]", "pick a time — Budget review", "", "2026-08-22"], dedupe_key="jane.doe@acme-parts.com # pick a time — Budget review", key_label="proposal")` (the comment reads `<!-- proposal: … -->`), and the report "Draft saved in Drafts — open Outlook to send it. Added a follow-up for Jane." No event, no meeting note.
+A yes → `outlook_send_mail(to=["jane.doe@acme-parts.com"], subject="Proposed times — Budget review", body=…, save_only=true)`, then `vault_append_row("Administrator/Follow-ups.md", "Open", ["2026-08-22", "[[Wiki/People/Jane Doe]]", "pick a time — Budget review", "", "2026-08-22"], dedupe_key="jane.doe@acme-parts.com # pick a time — Budget review", key_label="proposal")` (the comment reads `<!-- proposal: … -->`), and the report "Draft saved in Drafts — open Outlook to send it. Added a follow-up for Jane." No event, no meeting note.
 
 ## Example 3 — "move my 2pm with Sam to Thursday"
 
