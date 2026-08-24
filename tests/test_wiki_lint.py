@@ -11,7 +11,7 @@ from administrator_vault import frontmatter as fmt
 from administrator_vault import store, wiki, wiki_lint, workflows
 from administrator_vault.server import build_server
 
-CB = "administrator/0.2.0"
+CB = "administrator/0.3.0"
 W = "Administrator/Wiki"
 
 
@@ -242,3 +242,14 @@ def test_server_lint_and_merge_tools(vault):
     m = call("vault_wiki_merge", {"keep": "Wiki/Topics/q3-budget", "drop": "Wiki/Topics/budget-q3"})
     assert m["redirect"] == "[[Wiki/Topics/q3-budget]]"
     assert fm_of(vault, f"{W}/Topics/budget-q3.md")["type"] == "redirect"
+
+
+def test_uningested_includes_chat_records(vault):
+    chat = {"id": "19:abc@thread.v2", "title": "Q3 budget", "type": "group", "members": [{"name": "Jane Doe"}], "account": "acme"}
+    rec = workflows.save_chat(chat, [{"id": "m1", "time": "2026-08-21T09:14:00+02:00", "sender": "Jane Doe", "is_self": False, "text": "Hi"}], ["Hux"], created_by=CB)["path"]
+    assert wiki_lint._record_day(fm_of(vault, rec)) == "2026-08-21"
+    assert wiki_lint.uningested_records(vault) == (1, [rec])
+    assert wiki_lint.lint()["checks"]["11"]["records"] == [rec]
+    page = wiki.create("topic", "Q3 budget", lead="Numbers.", summary="Numbers.")["path"]
+    wiki.ingest(rec, [{"path": page, "ops": []}], created_by=CB)
+    assert wiki_lint.uningested_records(vault) == (0, [])

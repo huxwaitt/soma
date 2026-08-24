@@ -14,7 +14,7 @@ from administrator_vault import frontmatter as fmt
 from administrator_vault import store, wiki, workflows
 from administrator_vault.server import build_server
 
-CB = "administrator/0.2.0"
+CB = "administrator/0.3.0"
 W = "Administrator/Wiki"
 
 
@@ -145,7 +145,7 @@ def test_every_fact_op(vault):
     assert r["applied"][0]["result"] == "confirm" and r["applied"][0]["id"] == fid
     facts = wiki.read(path)["facts"]
     assert facts == [{"id": fid, "text": "Forecast closes 2026-09-02", "since": "2026-08-22", "src": ["<m2@example.com>", "<m1@example.com>"]}]
-    assert fm_of(vault, path)["verified"] == "2026-08-23" and fm_of(vault, path)["sources"] == 2
+    assert fm_of(vault, path)["verified"] == wiki._today() and fm_of(vault, path)["sources"] == 2  # confirm stamps verified with today
     # update keeps id and since, extends src (capped at 3, newest first)
     r = wiki.apply(path, [{"op": "update", "id": fid, "text": "Forecast closes 2026-09-02 at noon", "src": "<m3@example.com>"}])
     f = wiki.read(path)["facts"][0]
@@ -537,7 +537,7 @@ def test_save_email_person_page_follows_contract(vault):
     fm = fmt.split_note(text)[0]
     assert fm["status"] == "draft" and fm["org"] == "Example GmbH" and fm["email"] == "jane.doe@example.com" and fm["last_contact"] == "2026-08-22T09:14:00+02:00"
     assert all(k in fm for k in ("name", "aliases", "created", "updated", "verified", "sources", "open_items", "flags", "created_by"))
-    assert fm["created_by"] == "administrator/0.2.0"
+    assert fm["created_by"] == "administrator/0.3.0"
     assert "# Jane Doe\n\nJane Doe (jane.doe@example.com) — Example GmbH.\n\n## Facts\n\n## Topics\n\n## Open\n\n## Records\n\n- 2026-08-22 — [[Emails/2026-08-22 Budget Q3]] — Jane asks for the Q3 numbers by Friday.\n\n## Related\n\n## History\n\n- " in text
     assert fm_of(vault, res["path"])["from_link"] == "[[Wiki/People/Jane Doe]]" and fm_of(vault, res["path"])["wiki"] == ["[[Wiki/People/Jane Doe]]"]
     assert "- [[Wiki/People/Jane Doe]] · Example GmbH · " in text_of(vault, f"{W}/Index.md")
@@ -618,3 +618,27 @@ def test_sources_counts_each_record_once(vault):
     assert fm_of(vault, path)["sources"] == 2
     wiki.apply(path, [{"op": "add", "text": "The user reports to Jane"}])  # src user never counts
     assert fm_of(vault, path)["sources"] == 2
+
+
+def chat_record(day="2026-08-21"):
+    chat = {"id": "19:abc@thread.v2", "title": "Q3 budget", "type": "group", "members": [{"name": "Jane Doe"}, {"name": "Hux"}], "account": "acme"}
+    msgs = [
+        {"id": "m1", "time": f"{day}T09:14:00+02:00", "sender": "Jane Doe", "is_self": False, "text": "Numbers by Friday?"},
+        {"id": "m2", "time": f"{day}T09:20:00+02:00", "sender": "Hux", "is_self": True, "text": "Yes."},
+    ]
+    return workflows.save_chat(chat, msgs, ["Hux"], created_by=CB)["path"]
+
+
+def test_record_info_and_ingest_on_a_chat_record(vault):
+    rec = chat_record()
+    info = wiki._record_info(vault, rec)
+    assert info["type"] == "chat" and info["date"] == "2026-08-21" and info["src"] == "19:abc@thread.v2|2026-08-21"
+    assert info["subject"] == "Q3 budget" and info["summary"] == "Jane Doe: Numbers by Friday?" and info["link"] == "[[Teams/2026-08-21 Q3 budget]]"
+    path = topic(vault)
+    r = wiki.ingest(rec, [{"path": path, "ops": [{"op": "add", "text": "Jane wants the numbers by Friday"}]}], created_by=CB)
+    assert r["record"] == "[[Teams/2026-08-21 Q3 budget]]" and r["pages"][0]["record_added"] is True
+    f = wiki.read(path)["facts"][0]
+    assert f["src"] == ["19:abc@thread.v2|2026-08-21"] and f["since"] == "2026-08-21"
+    assert "- 2026-08-21 — [[Teams/2026-08-21 Q3 budget]] — Jane Doe: Numbers by Friday?" in text_of(vault, path)
+    assert fm_of(vault, rec)["wiki"] == ["[[Wiki/Topics/q3-budget]]"]
+    assert fm_of(vault, path)["sources"] == 1  # the fact src and the Records line are the same chat day

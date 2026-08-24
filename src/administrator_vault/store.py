@@ -147,13 +147,20 @@ def preferences_template(work_start: str, work_end: str, buffer_minutes: int, cr
             "default_duration": 30,
             "default_location": "Teams",
             "preferred_days": ["Tue", "Wed", "Thu"],
+            "peak_hours": list(PREFERENCE_DEFAULTS["peak_hours"]),
+            "focus_block_minutes": PREFERENCE_DEFAULTS["focus_block_minutes"],
+            "focus_blocks_per_day": PREFERENCE_DEFAULTS["focus_blocks_per_day"],
+            "admin_blocks_per_day": PREFERENCE_DEFAULTS["admin_blocks_per_day"],
+            "admin_block_minutes": PREFERENCE_DEFAULTS["admin_block_minutes"],
+            "slack_share": PREFERENCE_DEFAULTS["slack_share"],
+            "collect_folders": [],
             "created_by": created_by,
         }
     )
     return fm + (
         "\n# Scheduling preferences\n\n"
-        "Edit the frontmatter above. The plugin reads it before suggesting or booking any meeting. "
-        "Plain words on what each key does:\n\n"
+        "Edit the frontmatter above. The plugin reads it before suggesting or booking any meeting "
+        "and before planning focus and admin blocks. Plain words on what each key does:\n\n"
         "- `work_start` / `work_end` — the only hours a slot may be suggested in. 24-hour `\"HH:MM\"`, quoted.\n"
         "- `timezone` — a note to yourself; the plugin always works in the local time Outlook reports. "
         "Change your Windows timezone, not this line, if you travel.\n"
@@ -164,10 +171,104 @@ def preferences_template(work_start: str, work_end: str, buffer_minutes: int, cr
         "- `max_meetings_per_day` — days that already have this many meetings are skipped. `0` means no limit.\n"
         "- `default_duration` — minutes, used when you do not say how long.\n"
         "- `default_location` — used when you do not say where. `\"Teams\"`, a room name, or `\"\"` for none.\n"
-        "- `preferred_days` — days listed here are shown first when there is a choice. An empty list `[]` means no preference.\n\n"
+        "- `preferred_days` — days listed here are shown first when there is a choice. An empty list `[]` means no preference.\n"
+        "- `peak_hours` — the hours you think best, as ranges `\"09:00-12:00\"`, one per line; focus blocks are placed there first.\n"
+        "- `focus_block_minutes` — length of one focus block; nothing shorter is booked.\n"
+        "- `focus_blocks_per_day` — how many focus blocks a day may get at most.\n"
+        "- `admin_blocks_per_day` — how many admin blocks (email and small tasks) a day may get at most.\n"
+        "- `admin_block_minutes` — length of one admin block.\n"
+        "- `slack_share` — the share of the work day left unbooked for what comes up: `0.2` keeps a fifth free. "
+        "Days where meetings already eat past this share get no blocks.\n"
+        "- `collect_folders` — extra folders /administrator:collect-information reads for changed notes, "
+        "as paths relative to the vault root (`\"Projects\"`, `\"Journal/2026\"`). They are only read, never written. "
+        "An empty list `[]` means only the Administrator/ notes.\n\n"
         "## Notes\n\n"
         "Anything you write below this line is yours; the plugin never touches it.\n"
     )
+
+
+def priorities_template(created_by: str) -> str:
+    fm = fmt.format_frontmatter({"type": "priorities", "source": "administrator", "created_by": created_by})
+    return fm + (
+        "\n# Priorities\n\n"
+        "What matters most right now, ranked. /administrator:time-block reads this list when it plans focus blocks: "
+        "rank 1 gets every other block, the rest follow in order. Keep it to three to five lines. "
+        "A line is a wiki topic page link or plain words. This file is yours; the plugin never rewrites it.\n\n"
+        "## Priorities\n\n"
+        "1. (your first priority — a topic page link such as [[Wiki/Topics/acme-supplier-contract]] or plain words)\n"
+    )
+
+
+# Every preferences key with its default; read_preferences() fills these in when the file lacks a key.
+PREFERENCE_DEFAULTS: dict[str, Any] = {
+    "work_start": "09:00",
+    "work_end": "17:00",
+    "buffer_minutes": 15,
+    "no_meeting_blocks": [],
+    "max_meetings_per_day": 5,
+    "default_duration": 30,
+    "default_location": "Teams",
+    "preferred_days": [],
+    "peak_hours": ["09:00-12:00"],
+    "focus_block_minutes": 90,
+    "focus_blocks_per_day": 2,
+    "admin_blocks_per_day": 2,
+    "admin_block_minutes": 45,
+    "slack_share": 0.2,
+    "collect_folders": [],
+}
+PREFERENCES_PATH = f"{ADMIN_DIR}/Preferences.md"
+
+
+def _coerce_preference(key: str, value: Any) -> Any:
+    """A value of the key's own kind (the frontmatter parser leaves floats as text)."""
+    default = PREFERENCE_DEFAULTS[key]
+    if isinstance(default, list):
+        if isinstance(value, str):
+            return [value] if value.strip() else []
+        return [str(v) for v in (value or []) if str(v).strip()]
+    if isinstance(default, bool):
+        return bool(value)
+    if isinstance(default, int):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+    if isinstance(default, float):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+    return str(value)
+
+
+def read_preferences() -> dict[str, Any]:
+    """Preferences.md as one dict: {path, preferences, missing}.
+
+    ``preferences`` holds every key of PREFERENCE_DEFAULTS (the file's value,
+    else the default) plus any extra key the user added; ``missing`` lists
+    the keys the file does not have. A vault without the file gives the
+    defaults with every key missing."""
+    root = vault_root()
+    p = root / PREFERENCES_PATH
+    fm: dict[str, Any] = {}
+    if p.is_file():
+        try:
+            fm = fmt.split_note(read_text(p))[0]
+        except (fmt.FrontmatterError, UnicodeDecodeError):
+            fm = {}
+    prefs: dict[str, Any] = {}
+    missing: list[str] = []
+    for key, default in PREFERENCE_DEFAULTS.items():
+        if key in fm and fm[key] not in (None, ""):
+            prefs[key] = _coerce_preference(key, fm[key])
+        else:
+            prefs[key] = list(default) if isinstance(default, list) else default
+            missing.append(key)
+    for key, value in fm.items():
+        if key not in prefs and key not in ("type", "source", "created_by", "timezone"):
+            prefs[key] = value
+    return {"path": PREFERENCES_PATH if p.is_file() else None, "preferences": prefs, "missing": missing}
 
 
 def init(
@@ -177,9 +278,10 @@ def init(
     overwrite: bool = False,
     created_by: str = "administrator-vault",
 ) -> dict[str, Any]:
-    """Create the Administrator/ tree, Follow-ups.md, Preferences.md and the
-    _views/*.base files. ``overwrite`` re-writes Preferences.md and the views;
-    Follow-ups.md is never overwritten (it holds data)."""
+    """Create the Administrator/ tree, Follow-ups.md, Preferences.md,
+    Priorities.md and the _views/*.base files. ``overwrite`` re-writes
+    Preferences.md and the views; Follow-ups.md and Priorities.md are never
+    overwritten (they hold the user's data)."""
     for t in (work_start, work_end):
         if not re.match(r"^\d{2}:\d{2}$", t):
             raise VaultError(f"Work hours must look like HH:MM, got {t!r}.")
@@ -208,6 +310,13 @@ def init(
     else:
         write_text(pref, preferences_template(work_start, work_end, buffer_minutes, created_by))
         created.append(rel(root, pref))
+
+    prio = admin / "Priorities.md"
+    if prio.exists():
+        skipped.append(rel(root, prio))  # the user's ranked list; never rewritten
+    else:
+        write_text(prio, priorities_template(created_by))
+        created.append(rel(root, prio))
 
     from administrator_vault.workflows import rules_template  # local import: workflows imports store
 

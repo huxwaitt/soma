@@ -117,6 +117,56 @@ def test_init_creates_everything(vault):
     assert "Administrator/Follow-ups.md" in again["skipped"]
 
 
+def test_init_creates_priorities_and_the_planner_preferences(vault):
+    prio = vault / "Administrator" / "Priorities.md"
+    text = prio.read_text(encoding="utf-8")
+    assert "type: priorities" in text and "source: administrator" in text and "## Priorities" in text
+    assert "1. (your first priority" in text and "[[Wiki/Topics/acme-supplier-contract]]" in text
+    assert store.status()["files"]["Priorities.md"] is True
+    pref_text = (vault / "Administrator" / "Preferences.md").read_text(encoding="utf-8")
+    pref = fmt.split_note(pref_text)[0]
+    assert pref["peak_hours"] == ["09:00-12:00"] and pref["focus_block_minutes"] == 90 and pref["focus_blocks_per_day"] == 2
+    assert pref["admin_blocks_per_day"] == 2 and pref["admin_block_minutes"] == 45 and pref["collect_folders"] == []
+    for key in ("peak_hours", "focus_block_minutes", "focus_blocks_per_day", "admin_blocks_per_day", "admin_block_minutes", "slack_share", "collect_folders"):
+        assert f"- `{key}`" in pref_text, key  # every key has its one-line explanation
+    # read_preferences: the file's values, typed, nothing missing
+    r = store.read_preferences()
+    assert r["path"] == "Administrator/Preferences.md" and r["missing"] == []
+    p = r["preferences"]
+    assert p["slack_share"] == 0.2 and p["work_start"] == "09:00" and p["buffer_minutes"] == 15 and p["no_meeting_blocks"] == ["Fri 13:00-17:00"]
+    # a 0.2.0 file without the planner keys: defaults filled in, missing listed
+    (vault / "Administrator" / "Preferences.md").write_text("---\ntype: preferences\nwork_start: \"08:00\"\nslack_share: 0.5\nmine: true\n---\n# P\n", encoding="utf-8")
+    r = store.read_preferences()
+    assert r["preferences"]["work_start"] == "08:00" and r["preferences"]["slack_share"] == 0.5 and r["preferences"]["peak_hours"] == ["09:00-12:00"]
+    assert r["preferences"]["focus_block_minutes"] == 90 and r["preferences"]["mine"] is True
+    assert "peak_hours" in r["missing"] and "collect_folders" in r["missing"] and "work_start" not in r["missing"] and "slack_share" not in r["missing"]
+    # no file at all: every key missing, path None
+    (vault / "Administrator" / "Preferences.md").unlink()
+    r = store.read_preferences()
+    assert r["path"] is None and set(r["missing"]) == set(store.PREFERENCE_DEFAULTS) and r["preferences"]["admin_block_minutes"] == 45
+    # Priorities.md is the user's: overwrite=true leaves it alone
+    prio.write_text("---\ntype: priorities\n---\n# mine\n\n## Priorities\n\n1. [[Wiki/Topics/q3-budget]]\n", encoding="utf-8")
+    res = store.init(overwrite=True, created_by=CB)
+    assert "Administrator/Priorities.md" in res["skipped"] and "# mine" in prio.read_text(encoding="utf-8")
+
+
+def test_chat_and_time_block_note_rules():
+    fm = {"type": "chat", "chat_id": "19:abc@thread.v2", "chat_title": "Re: Q3 budget", "date": "2026-08-21"}
+    assert notes.base_filename("chat", fm) == "2026-08-21 Q3 budget.md"
+    assert notes.folder_of("chat") == "Administrator/Teams" and notes.folder_of("time-block") == "Administrator/Time-blocks"
+    assert notes.identity_of("chat", fm) == {"chat_id": "19:abc@thread.v2", "date": "2026-08-21"}
+    ident = notes.normalize_identity("chat", "19:abc@thread.v2|2026-08-21")
+    assert ident == {"chat_id": "19:abc@thread.v2", "date": "2026-08-21"} and notes.matches("chat", fm, ident)
+    assert not notes.matches("chat", dict(fm, date="2026-08-22"), ident)
+    with pytest.raises(notes.NoteError):
+        notes.normalize_identity("chat", "19:abc@thread.v2")
+    tb = {"type": "time-block", "week": "2026-W35", "start": "2026-08-24", "end": "2026-08-30"}
+    assert notes.base_filename("time-block", tb) == "2026-W35.md" and notes.identity_of("time-block", tb) == {"week": "2026-W35"}
+    assert notes.matches("time-block", tb, notes.normalize_identity("time-block", "2026-W35"))
+    assert {"messages", "last", "planned"} <= set(notes.REPLACEABLE_KEYS)
+    assert "Teams" in notes.FOLDERS and "Time-blocks" in notes.FOLDERS and "Priorities.md" in notes.FILES
+
+
 def test_init_overwrite_keeps_followups(vault):
     fu = vault / "Administrator" / "Follow-ups.md"
     fu.write_text("---\ntype: followups\n---\n# mine\n", encoding="utf-8")
@@ -510,8 +560,10 @@ def test_server_tools():
         "vault_wiki_match", "vault_wiki_read", "vault_wiki_ingest", "vault_wiki_create",
         "vault_wiki_apply", "vault_wiki_log", "vault_wiki_review",
         "vault_wiki_lint", "vault_wiki_merge", "vault_wiki_migrate",
+        "vault_save_chat", "vault_collect_sources", "vault_changed_notes",
+        "vault_time_block_plan", "vault_time_block_write", "vault_time_audit",
     }
-    assert len(tools) == 25
+    assert len(tools) == 31
 
 
 def test_server_call_round_trip(vault):

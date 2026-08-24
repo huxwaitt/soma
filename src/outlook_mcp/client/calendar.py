@@ -50,6 +50,25 @@ _RESPONSE_MAP = {
 }
 # OlRecurrenceState
 _RECURRENCE_STATE_MAP = {0: "not_recurring", 1: "master", 2: "occurrence", 3: "exception"}
+# OlBusyStatus — the "show as" value of an appointment
+BUSY_STATUS_CODES = {
+    "free": 0,
+    "tentative": 1,
+    "busy": 2,
+    "oof": 3,
+    "working_elsewhere": 4,
+}
+_BUSY_STATUS_NAMES = {code: name for name, code in BUSY_STATUS_CODES.items()}
+
+
+def busy_status_code(show_as: str) -> int:
+    """Map a ``show_as`` name to its OlBusyStatus code, or raise a clear error."""
+    code = BUSY_STATUS_CODES.get((show_as or "").strip().lower().replace("-", "_"))
+    if code is None:
+        raise OutlookError(
+            f"show_as must be one of: {', '.join(repr(n) for n in BUSY_STATUS_CODES)}; got {show_as!r}."
+        )
+    return code
 
 
 def _response_name(code: Any) -> str:
@@ -122,6 +141,7 @@ def _event_summary(ev: Any) -> dict[str, Any]:
     recur_state = _safe_get(ev, "RecurrenceState", 0)
     global_id = _safe_get(ev, "GlobalAppointmentID", "") or ""
     start_iso = to_iso(_safe_get(ev, "Start"))
+    attendees = _attendees(ev)
     return {
         "entry_id": _safe_get(ev, "EntryID"),
         "global_id": global_id,
@@ -132,7 +152,11 @@ def _event_summary(ev: Any) -> dict[str, Any]:
         "location": _safe_get(ev, "Location", ""),
         "organizer": _safe_get(ev, "Organizer", ""),
         "organizer_address": organizer_smtp(ev),
-        "attendees": _attendees(ev),
+        "attendees": attendees,
+        "attendee_count": len(attendees),
+        "is_meeting": bool(_safe_get(ev, "MeetingStatus", 0)),
+        "busy_status": _BUSY_STATUS_NAMES.get(_safe_get(ev, "BusyStatus", 2), "busy"),
+        "categories": _safe_get(ev, "Categories", "") or "",
         "response_status": _response_name(_safe_get(ev, "ResponseStatus")),
         "is_recurring": bool(recur_state),
         "recurrence_state": _RECURRENCE_STATE_MAP.get(recur_state, "not_recurring"),
@@ -146,7 +170,6 @@ def _event_full(ev: Any) -> dict[str, Any]:
         **_event_summary(ev),
         "body": _safe_get(ev, "Body", ""),
         "reminder_minutes": _safe_get(ev, "ReminderMinutesBeforeStart"),
-        "categories": _safe_get(ev, "Categories", ""),
     }
 
 
@@ -286,15 +309,27 @@ def create_event(
     is_online_meeting: bool = False,
     reminder_minutes: int | None = 15,
     recurrence: Recurrence | None = None,
+    show_as: str = "busy",
+    categories: str | None = None,
 ) -> dict[str, Any]:
+    """Create an appointment (or a meeting when ``attendees`` are given).
+
+    ``show_as`` sets the free/busy state Outlook shows to others (see
+    ``BUSY_STATUS_CODES``); ``categories`` is a comma-separated string of
+    category names. Both are checked and written before ``Save()``.
+    """
+    busy_code = busy_status_code(show_as)
     appt = outlook.CreateItem(OL_APPOINTMENT_ITEM)
     appt.Subject = subject
     appt.Start = from_iso(start)
     appt.End = from_iso(end)
+    appt.BusyStatus = busy_code
     if location:
         appt.Location = location
     if body:
         appt.Body = body
+    if categories is not None:
+        appt.Categories = categories
     if reminder_minutes is not None:
         appt.ReminderSet = True
         appt.ReminderMinutesBeforeStart = reminder_minutes
@@ -319,6 +354,8 @@ def create_event(
         "subject": appt.Subject,
         "start": start_iso,
         "end": to_iso(appt.End),
+        "show_as": _BUSY_STATUS_NAMES[busy_code],
+        "categories": _safe_get(appt, "Categories", "") or "",
         "invite_sent": bool(attendees),
     }
 
@@ -333,15 +370,21 @@ def update_event(
     end: str | None = None,
     location: str | None = None,
     body: str | None = None,
+    show_as: str | None = None,
+    categories: str | None = None,
     send_update: bool = True,
 ) -> dict[str, Any]:
-    """Update scalar fields of an event.
+    """Update scalar fields of an event. Only non-None values are written.
+
+    ``show_as`` (free / tentative / busy / oof / working_elsewhere) and
+    ``categories`` (comma-separated string) are left unchanged when None.
 
     If the event is a meeting the user organises (``MeetingStatus`` ==
     olMeeting) and ``send_update`` is true, ``Send()`` is called after
     ``Save()`` so attendees receive the updated invite — without it the
     change is local only and Outlook shows it as a pending update.
     """
+    busy_code = busy_status_code(show_as) if show_as is not None else None
     ev = get_item_by_id(namespace, entry_id)
     if subject is not None:
         ev.Subject = subject
@@ -353,6 +396,10 @@ def update_event(
         ev.Location = location
     if body is not None:
         ev.Body = body
+    if busy_code is not None:
+        ev.BusyStatus = busy_code
+    if categories is not None:
+        ev.Categories = categories
     ev.Save()
     is_meeting = _safe_get(ev, "MeetingStatus", 0) == 1
     has_attendees = bool(_safe_get(_safe_get(ev, "Recipients"), "Count", 0))

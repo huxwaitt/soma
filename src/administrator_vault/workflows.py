@@ -20,10 +20,15 @@ from administrator_vault import notes, store, wiki
 from administrator_vault.notes import ADMIN_DIR, NoteError
 from administrator_vault.store import VaultError, read_text, rel, resolve, write_text
 
-CREATED_BY = "administrator/0.2.0"
+CREATED_BY = "administrator/0.3.0"
 RULES_PATH = f"{ADMIN_DIR}/Rules.md"
 FOLLOWUPS_PATH = f"{ADMIN_DIR}/Follow-ups.md"
 CACHE_DIR = f"{ADMIN_DIR}/Attachments/_cache"
+COLLECT_PATH = f"{wiki.CACHE_DIR}/collect.json"
+COLLECT_SOURCES = ("teams", "outlook", "notes")
+COLLECT_ASK_HOURS = 24
+COLLECT_DEFAULT_FOLDERS = ("Meetings", "Emails", "Daily", "Weekly")  # under Administrator/
+COLLECT_NEVER_READ = ("Wiki", "Attachments", "_views", "_backup")  # under Administrator/
 
 LABELS = ("act", "reply", "waiting", "fyi", "noise")
 DAILY_HEADER = ["#", "Label", "From", "Subject", "Received", "Why", "Note"]
@@ -37,6 +42,7 @@ _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 _UNCHECKED_RE = re.compile(r"^\s*- \[ \] ")
 _CHECKED_RE = re.compile(r"^\s*- \[x\] (.*)$", re.IGNORECASE)
 _EMAIL_LINE_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2}) — \[\[Emails/")
+_CHAT_ID_RE = re.compile(r"<!--\s*id:\s*(.*?)\s*-->")
 _WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
 # skills/meetings/references/transcript.md, step 1
 _TURN_RE = re.compile(r"^\[?\d{0,2}:?\d{0,2}\]?\s*([A-Z][^:]{1,40}): ")
@@ -1029,4 +1035,347 @@ def attach_transcript(meeting_path: str, transcript_path: str, created_by: str =
         "appended_lines": len(body),
         "linked": linked,
         "update_heading": res["update_heading"],
+    }
+
+
+# ------------------------------------------------------------------ save chat
+
+
+def _norm_name(text: Any) -> str:
+    return " ".join(re.sub(r"[^\w\s]", " ", _s(text).lower()).split())
+
+
+def _member_names(chat: dict[str, Any]) -> list[str]:
+    out = []
+    for m in chat.get("members") or []:
+        name = _s(m.get("name") or m.get("displayName")).strip() if isinstance(m, dict) else _s(m).strip()
+        if name and name not in out:
+            out.append(name)
+    return out
+
+
+def _chat_line(m: dict[str, Any], mid: str) -> str:
+    text = " ".join(_s(m.get("text")).split())
+    return f"- {_hhmm(m.get('time'))} **{_s(m.get('sender')).strip() or '(unknown)'}**: {text} <!-- id: {mid} -->"
+
+
+def _save_chat_day(root: Path, chat: dict[str, Any], day: str, msgs: list[dict[str, Any]], selves: set[str], created_by: str) -> dict[str, Any]:
+    chat_id = _s(chat.get("id")).strip()
+    title = _s(chat.get("title")).strip() or chat_id
+    record_id = f"{chat_id}|{day}"
+    existing = store.find("chat", {"chat_id": chat_id, "date": day})
+    old_text = read_text(resolve(root, existing["path"])) if existing["found"] else ""
+    seen = {m.group(1) for m in _CHAT_ID_RE.finditer(old_text)}
+    fresh: list[tuple[str, dict[str, Any]]] = []
+    dups = 0
+    done: set[str] = set()
+    for m in msgs:
+        mid = _s(m.get("id")).strip() or f"{_s(m.get('time'))} {_s(m.get('sender'))}".strip()
+        if mid in done:
+            continue
+        done.add(mid)
+        if mid in seen:
+            dups += 1
+        else:
+            fresh.append((mid, m))
+    out: dict[str, Any] = {"date": day, "record_id": record_id, "added": len(fresh), "skipped_duplicates": dups, "people": [], "unknown_people": []}
+    if existing["found"] and not fresh:
+        out.update(path=existing["path"], action="unchanged", messages=existing["frontmatter"].get("messages"))
+        return out
+
+    times = [_s(m.get("time")) for _mid, m in fresh]
+    old_fm = existing["frontmatter"] if existing["found"] else {}
+    last = max(times + [_s(old_fm.get("last"))])
+    fm: dict[str, Any] = {
+        "type": "chat",
+        "source": "teams",
+        "chat_id": chat_id,
+        "chat_title": title,
+        "chat_type": _s(chat.get("type")),
+        "date": day,
+        "account": _s(chat.get("account")),
+        "members": _member_names(chat),
+        "record_id": record_id,
+        "messages": int(old_fm.get("messages") or 0) + len(fresh),
+        "first": _s(old_fm.get("first")) or min(times),
+        "last": last,
+        "created_by": _s(old_fm.get("created_by")) or created_by,
+    }
+    lines = [f"# {title} — {day}", "", "**Members:** " + ", ".join(fm["members"]), "", "## Messages", ""] if not existing["found"] else ["### Messages", ""]
+    lines += [_chat_line(m, mid) for mid, m in fresh]
+    res = store.write("chat", fm, "\n".join(lines), "upsert")
+    out.update(path=res["path"], action=res["action"], messages=fm["messages"])
+
+    # senders with a person page get a Records line; nobody gets a page without an address
+    pages = [pg for pg in wiki._all_pages(root) if pg[1].get("type") == "person"]
+    senders: dict[str, list[dict[str, Any]]] = {}
+    for _mid, m in fresh:
+        name = _s(m.get("sender")).strip()
+        if not name or m.get("is_self") or _norm_name(name) in selves:
+            continue
+        senders.setdefault(name, []).append(m)
+    for name, theirs in senders.items():
+        hit = wiki._find_by_name(pages, name, [])
+        if not hit:
+            out["unknown_people"].append(name)
+            continue
+        first_text = " ".join(_s(theirs[0].get("text")).split())
+        pres = wiki.record_person(
+            name=_s(hit[1].get("title") or hit[1].get("name")) or name,
+            email=_s(hit[1].get("email")),
+            aliases=[],
+            last_contact=max(_s(m.get("time")) for m in theirs),
+            company=None,
+            record_path=res["path"],
+            record_date=day,
+            summary=_short(f"{title}: {first_text}", 120),
+            created_by=created_by,
+            existing=hit[0],
+        )
+        out["people"].append({"name": name, "page": pres["path"]})
+    return out
+
+
+def save_chat(chat: dict[str, Any], messages: list[dict[str, Any]], self_names: Optional[list[str]] = None, created_by: str = CREATED_BY) -> Any:
+    """Write or extend the day record(s) of one Teams chat.
+
+    ``chat`` is the object teams_list_chats returned (id, title, type,
+    members, account); ``messages`` are its messages ({id, time, sender,
+    is_self, text}) in any order. One record per chat per day: the day comes
+    from each message's time, so messages spanning several days give several
+    records and the answer is then a list of per-day results (a dict for one
+    day). A second call the same day appends only messages whose ids are not
+    in the file yet and moves ``messages`` / ``last`` forward."""
+    if not isinstance(chat, dict) or not _s(chat.get("id")).strip():
+        raise NoteError("chat must be the JSON from teams_list_chats with an id.")
+    root = store.vault_root()
+    selves = {_norm_name(n) for n in (self_names or []) if _norm_name(n)}
+    by_day: dict[str, list[dict[str, Any]]] = {}
+    no_time = 0
+    for m in messages or []:
+        if not isinstance(m, dict):
+            continue
+        day = _date_of(m.get("time"))
+        if not day:
+            no_time += 1
+            continue
+        by_day.setdefault(day, []).append(m)
+    if not by_day:
+        raise NoteError("messages is empty, or no message has an ISO time.")
+    results = []
+    for day in sorted(by_day):
+        msgs = sorted(by_day[day], key=lambda m: _s(m.get("time")))
+        results.append(_save_chat_day(root, chat, day, msgs, selves, created_by))
+    if no_time:
+        results[0]["skipped_no_time"] = no_time
+    return results[0] if len(results) == 1 else results
+
+
+# ------------------------------------------------------------------ collect stamps
+
+
+def _local(dt: datetime) -> datetime:
+    """An aware datetime; a naive one is taken as local time."""
+    return dt.astimezone() if dt.tzinfo is None else dt
+
+
+def _stamp_words(dt: datetime) -> str:
+    """``Thu 21 Aug 18:10`` — the wording of the "Last collected" line."""
+    return f"{dt:%a} {dt.day} {dt:%b} {dt:%H:%M}"
+
+
+def _collect_stamps(root: Path) -> dict[str, Optional[str]]:
+    p = root / COLLECT_PATH
+    data: dict[str, Any] = {}
+    if p.is_file():
+        try:
+            data = json.loads(read_text(p)) or {}
+        except ValueError:
+            data = {}
+    return {src: (_s(data.get(src)) or None) for src in COLLECT_SOURCES}
+
+
+def collect_sources(action: str = "read", source: Optional[str] = None, at: Optional[str] = None, now: Optional[str] = None) -> dict[str, Any]:
+    """The "last collected" stamp per source (teams, outlook, notes) in
+    Wiki/_cache/collect.json. ``read`` reports them with their age and the
+    ask rule; ``advance`` moves one (or all) to ``at``, never backwards.
+    ``now`` is only for tests."""
+    root = store.vault_root()
+    if now:
+        now_dt = _parse_dt(now)
+        if now_dt is None:
+            raise VaultError(f"'now' must be an ISO datetime, got {now!r}.")
+        now_dt = _local(now_dt)
+    else:
+        now_dt = datetime.now().astimezone()
+    stamps = _collect_stamps(root)
+    if action == "read":
+        ages: dict[str, Optional[float]] = {}
+        ask = False
+        known: list[datetime] = []
+        for src in COLLECT_SOURCES:
+            dt = _parse_dt(stamps[src]) if stamps[src] else None
+            if dt is None:
+                ages[src] = None
+                ask = True
+                continue
+            dt = _local(dt)
+            known.append(dt)
+            hours = round((now_dt - dt).total_seconds() / 3600, 1)
+            ages[src] = hours
+            if hours > COLLECT_ASK_HOURS:
+                ask = True
+        oldest = min(known) if known else None
+        newest = max(known) if known else None
+        default_since = oldest if oldest else now_dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        return {
+            "path": COLLECT_PATH,
+            "stamps": stamps,
+            "age_hours": ages,
+            "ask": ask,
+            "default_since": default_since.isoformat(timespec="seconds"),
+            "last_collected": _stamp_words(newest) if newest else "never",
+        }
+    if action == "advance":
+        if source is not None and source not in COLLECT_SOURCES:
+            raise VaultError(f"source must be one of {', '.join(COLLECT_SOURCES)}, got {source!r}.")
+        targets = [source] if source else list(COLLECT_SOURCES)
+        if at:
+            at_dt = _parse_dt(at)
+            if at_dt is None:
+                raise VaultError(f"'at' must be an ISO datetime, got {at!r}.")
+            at_dt = _local(at_dt)
+        else:
+            at_dt = now_dt
+        at_iso = at_dt.isoformat(timespec="seconds")
+        advanced, refused = [], []
+        for src in targets:
+            cur = _parse_dt(stamps[src]) if stamps[src] else None
+            if cur is not None and at_dt < _local(cur):
+                refused.append({"source": src, "reason": "older-than-stamp", "stamp": stamps[src], "at": at_iso})
+                continue
+            stamps[src] = at_iso
+            advanced.append(src)
+        if advanced:
+            write_text(resolve(root, COLLECT_PATH), json.dumps(stamps, ensure_ascii=False, indent=1))
+        return {"path": COLLECT_PATH, "stamps": stamps, "advanced": advanced, "refused": refused}
+    raise VaultError(f"action must be 'read' or 'advance', got {action!r}.")
+
+
+# ------------------------------------------------------------------ changed notes
+
+
+def _collect_folder(root: Path, raw: Any) -> Path:
+    """A vault-relative folder as an absolute path; anything that leaves the vault is refused."""
+    s = _s(raw).strip().replace("\\", "/")
+    if not s:
+        raise VaultError("A collect folder is empty.")
+    if s.startswith("/") or re.match(r"^[A-Za-z]:", s):
+        raise VaultError(f"Collect folders must be vault-relative, not absolute: {raw!r}.")
+    parts = [p for p in s.split("/") if p not in ("", ".")]
+    if any(p == ".." for p in parts):
+        raise VaultError(f"Collect folders may not contain '..': {raw!r}.")
+    p = root.joinpath(*parts) if parts else root
+    try:
+        p.resolve().relative_to(root.resolve())
+    except ValueError:
+        raise VaultError(f"Refused: {raw!r} resolves outside the vault.") from None
+    return p
+
+
+def _never_read(root: Path, p: Path) -> bool:
+    r = rel(root, p)
+    parts = r.split("/")
+    if any(part.startswith(".") for part in parts):
+        return True
+    return len(parts) >= 2 and parts[0] == ADMIN_DIR and parts[1] in COLLECT_NEVER_READ
+
+
+def _last_update(body: str) -> tuple[str, bool]:
+    """(the last '## Update …' section's text, True) or (the whole body, False)."""
+    lines = body.split("\n")
+    last = None
+    for level, heading, lo, hi in _sections(body):
+        if level == 2 and heading.strip().startswith("Update "):
+            last = (lo, hi)
+    if last:
+        return "\n".join(lines[last[0] : last[1]]).strip(), True
+    return body.strip(), False
+
+
+def changed_notes(since: str, folders: Optional[list[str]] = None, max_chars: int = 1200, limit: int = 20) -> dict[str, Any]:
+    """Markdown notes modified after ``since``, oldest first, from
+    Administrator/Meetings, Emails, Daily, Weekly and the ``collect_folders``
+    of Preferences.md (or the given ``folders``). Wiki/, Attachments/,
+    _views/, _backup/ and dot-folders are never read."""
+    root = store.vault_root()
+    since_dt = _parse_dt(since)
+    if since_dt is None:
+        raise VaultError(f"'since' must be an ISO date or datetime, got {since!r}.")
+    since_dt = _local(since_dt)
+    if folders is None:
+        prefs = store.read_preferences()["preferences"]
+        raw = [f"{ADMIN_DIR}/{f}" for f in COLLECT_DEFAULT_FOLDERS] + [_s(f) for f in (prefs.get("collect_folders") or [])]
+    else:
+        raw = [_s(f) for f in folders]
+    checked: list[str] = []
+    skipped: list[dict[str, str]] = []
+    missing: list[str] = []
+    seen: set[Path] = set()
+    items: list[dict[str, Any]] = []
+    for f in raw:
+        p = _collect_folder(root, f)
+        r = rel(root, p) if p != root else "."
+        if p != root and _never_read(root, p):
+            skipped.append({"folder": r, "reason": "never read"})
+            continue
+        if not p.is_dir():
+            missing.append(r)
+            continue
+        checked.append(r)
+        for file in sorted(p.rglob("*.md")):
+            if file in seen or not file.is_file() or _never_read(root, file):
+                continue
+            seen.add(file)
+            try:
+                modified = datetime.fromtimestamp(file.stat().st_mtime).astimezone()
+            except OSError:
+                continue
+            if modified <= since_dt:
+                continue
+            try:
+                text = read_text(file)
+            except (OSError, UnicodeDecodeError):
+                continue
+            try:
+                fm, _block, body = fmt.split_note(text)
+            except fmt.FrontmatterError:
+                fm, body = {}, text
+            excerpt, from_update = _last_update(body)
+            truncated = bool(max_chars) and len(excerpt) > max_chars
+            if truncated:
+                excerpt = excerpt[:max_chars].rstrip() + "…"
+            items.append(
+                {
+                    "path": rel(root, file),
+                    "type": _s(fm.get("type")),
+                    "modified": modified.isoformat(timespec="seconds"),
+                    "ingested": bool(fm.get("wiki")),
+                    "excerpt": excerpt,
+                    "from_update": from_update,
+                    "truncated": truncated,
+                    "_t": modified,
+                }
+            )
+    items.sort(key=lambda i: (i["_t"], i["path"]))
+    out = [{k: v for k, v in i.items() if k != "_t"} for i in items[:limit]]
+    return {
+        "since": since_dt.isoformat(timespec="seconds"),
+        "count": len(out),
+        "total": len(items),
+        "capped": len(items) > limit,
+        "folders": checked,
+        "skipped": skipped,
+        "missing": missing,
+        "notes": out,
     }

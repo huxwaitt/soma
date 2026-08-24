@@ -141,14 +141,16 @@ def _last_ingest(root: Path) -> str:
 
 
 def _record_day(fm: dict[str, Any]) -> str:
-    return _s(fm.get("received") if fm.get("type") == "email" else fm.get("start"))[:10]
+    kind = fm.get("type")
+    key = "received" if kind == "email" else "date" if kind == "chat" else "start"
+    return _s(fm.get(key))[:10]
 
 
 def uningested_records(root: Path) -> tuple[int, list[str]]:
-    """Email / meeting notes without a ``wiki:`` key that are newer than the last ingest (check 11)."""
+    """Email / meeting / chat notes without a ``wiki:`` key that are newer than the last ingest (check 11)."""
     since = _last_ingest(root)[:10]
     out = []
-    for kind in ("email", "meeting"):
+    for kind in ("email", "meeting", "chat"):
         for p, fm in store._iter_notes(root, kind):
             if fm.get("wiki"):
                 continue

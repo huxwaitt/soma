@@ -26,7 +26,7 @@ from administrator_vault import notes, store
 from administrator_vault.notes import ADMIN_DIR
 from administrator_vault.store import VaultError, read_text, rel, resolve
 
-CREATED_BY = "administrator/0.2.0"
+CREATED_BY = "administrator/0.3.0"
 WIKI_DIR = f"{ADMIN_DIR}/Wiki"
 INDEX_PATH = f"{WIKI_DIR}/Index.md"
 LOG_PATH = f"{WIKI_DIR}/Log.md"
@@ -95,6 +95,7 @@ _CHECKED_RE = re.compile(r"^\s*- \[x\] (.*)$", re.IGNORECASE)
 _UNCHECKED_RE = re.compile(r"^\s*- \[ \] ")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}")
 _LOG_RE = re.compile(r"^- \[([^\]]+)\] (\S+) \| (\S+) \| (.*)$")
+_CHAT_LINE_RE = re.compile(r"^- \d{2}:\d{2} \*\*(.+?)\*\*: (.*?)\s*(?:<!--.*?-->)?\s*$")
 _STOP = {"re", "fw", "aw", "wg", "of", "a", "an", "in", "on", "to", "the", "and", "for", "with", "from", "about", "into", "your", "our", "this", "that", "are", "was", "is"}
 _ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz234567"
 
@@ -666,24 +667,36 @@ def _record_info(root: Path, record_path: str) -> dict[str, Any]:
     elif kind == "meeting":
         day = _s(fm.get("start"))[:10]
         src = _s(fm.get("occurrence_key")) or _s(fm.get("global_id"))
+    elif kind == "chat":
+        day = _s(fm.get("date"))[:10]
+        src = _s(fm.get("record_id")) or f"{_s(fm.get('chat_id'))}|{day}"
     else:
-        raise VaultError(f"{record_path!r} is not an email or meeting note (type {kind!r}).")
+        raise VaultError(f"{record_path!r} is not an email, meeting or chat note (type {kind!r}).")
     if not _DATE_RE.match(day):
         raise VaultError(f"{record_path!r} has no usable date in its frontmatter.")
     summary = ""
     lines = body.split("\n")
-    for i, line in enumerate(lines):
-        if re.match(r"^#{2,3} Summary\s*$", line):
-            summary = next((l.strip() for l in lines[i + 1 :] if l.strip() and not l.startswith("#")), "")
-            break
+    if kind == "chat":
+        # the first message line: "- HH:MM **Sender**: text <!-- id: … -->" -> "Sender: text"
+        for line in lines:
+            m = _CHAT_LINE_RE.match(line)
+            if m:
+                summary = f"{m.group(1)}: {m.group(2)}"
+                break
+    else:
+        for i, line in enumerate(lines):
+            if re.match(r"^#{2,3} Summary\s*$", line):
+                summary = next((l.strip() for l in lines[i + 1 :] if l.strip() and not l.startswith("#")), "")
+                break
+    subject = _s(fm.get("subject") or fm.get("chat_title"))
     path = rel(root, p)
     return {
         "path": path,
         "link": _link(path),
         "date": day,
         "src": src or "user",
-        "subject": _s(fm.get("subject")),
-        "summary": " ".join(summary.split()) or _s(fm.get("subject")),
+        "subject": subject,
+        "summary": " ".join(summary.split()) or subject,
         "type": kind,
     }
 
@@ -1015,7 +1028,7 @@ def _rotate_history(page: Page, root: Path) -> None:
 
 
 def _record_src_id(root: Path, stem: str, cache: dict[str, str]) -> str:
-    """The source id (internet_message_id / occurrence_key / ...) of the record at ``stem``.
+    """The source id (record_id / internet_message_id / occurrence_key / ...) of the record at ``stem``.
 
     Falls back to the stem itself when the record cannot be read, so a Records
     line and a fact src for the same record count as one source."""
@@ -1026,7 +1039,7 @@ def _record_src_id(root: Path, stem: str, cache: dict[str, str]) -> str:
             try:
                 rfm, _block, _body = fmt.split_note(read_text(p))
                 ident = (
-                    _s(rfm.get("internet_message_id")) or _s(rfm.get("occurrence_key"))
+                    _s(rfm.get("record_id")) or _s(rfm.get("internet_message_id")) or _s(rfm.get("occurrence_key"))
                     or _s(rfm.get("entry_id")) or _s(rfm.get("global_id")) or stem
                 )
             except Exception:  # noqa: BLE001 - an unreadable record still counts once

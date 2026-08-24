@@ -1,0 +1,31 @@
+{
+  "conversationId": "19:aaaa0000bbbb1111cccc2222dddd3333@thread.v2",
+  "replyChainId": "1787572991123",
+  "messageMap": {
+    "1787572991123": {
+      "id": "1787572991123",
+      "content": "Hi, can you send the <b>Q3 budget</b>?&nbsp;Thanks &amp; regards",
+      "imDisplayName": "Jane Doe (ACME)",
+      "from": "8:orgid:33333333-3333-3333-3333-333333333333",
+      "originalArrivalTime": "2026-08-24T12:03:11.123Z",
+      "messageType": "RichText/Html"
+    },
+    "1787573100000": {
+      "id": "1787573100000",
+      "content": "<p>Sure, on its way.</p>",
+      "imDisplayName": "Me Myself (ACME)",
+      "from": "8:orgid:22222222-2222-2222-2222-222222222222",
+      "composetime": "2026-08-24T12:05:00Z",
+      "messageType": "Text",
+      "isSentByCurrentUser": true
+    },
+    "1787573200000": {
+      "id": "1787573200000",
+      "content": "<addmember><eventtime>1787573200000</eventtime><target>8:orgid:44444444-4444-4444-4444-444444444444</target></addmember>",
+      "imDisplayName": "",
+      "from": "8:orgid:33333333-3333-3333-3333-333333333333",
+      "originalArrivalTime": 1787573200000,
+      "messageType": "ThreadActivity/AddMember"
+    }
+  }
+}

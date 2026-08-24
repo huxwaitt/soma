@@ -14,7 +14,7 @@ from administrator_vault import store, wiki, wiki_migrate, workflows
 from administrator_vault.server import build_server
 
 OLD = "administrator/0.1.0"
-CB = "administrator/0.2.0"
+CB = "administrator/0.3.0"
 A = "Administrator"
 LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:[#|][^\]]*)?\]\]")
 
@@ -75,7 +75,7 @@ def all_links(root):
     out = []
     for p in (root / A).rglob("*.md"):
         r = p.relative_to(root).as_posix()
-        if r.startswith(f"{A}/_backup/") or r == f"{A}/Wiki/Wiki.md":  # the schema copy holds example links
+        if r.startswith(f"{A}/_backup/") or r in (f"{A}/Wiki/Wiki.md", f"{A}/Priorities.md"):  # the schema copy and the priorities template hold example links
             continue
         for m in LINK_RE.finditer(p.read_text(encoding="utf-8")):
             out.append((r, m.group(1).strip()))

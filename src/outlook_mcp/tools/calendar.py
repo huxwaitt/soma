@@ -46,7 +46,7 @@ def register(mcp, bridge) -> None:
         fields: Fields = None,
         response_format: Annotated[str, Field(description="'markdown' or 'json'.")] = "markdown",
     ) -> CallToolResult:
-        """List calendar events in a date range, including recurring instances."""
+        """List calendar events in a date range, including recurring instances. Each event carries busy_status, categories, attendee_count and is_meeting next to the usual fields."""
         data = await bridge.call(
             cal_client.list_events,
             start=start,
@@ -145,8 +145,21 @@ def register(mcp, bridge) -> None:
             Optional[Recurrence],
             Field(description="Recurrence pattern. Omit for a single occurrence."),
         ] = None,
+        show_as: Annotated[
+            str,
+            Field(
+                description=(
+                    "How the time shows in your free/busy: 'busy' (default), 'free', "
+                    "'tentative', 'oof' (out of office) or 'working_elsewhere'."
+                )
+            ),
+        ] = "busy",
+        categories: Annotated[
+            Optional[str],
+            Field(description="Comma-separated category names (e.g. 'Administrator'). Omit for none."),
+        ] = None,
     ) -> str:
-        """Create a calendar event or meeting invite."""
+        """Create a calendar event or meeting invite. Without attendees nothing is sent to anyone."""
         data = await bridge.call(
             cal_client.create_event,
             subject=subject,
@@ -158,6 +171,8 @@ def register(mcp, bridge) -> None:
             is_online_meeting=is_online_meeting,
             reminder_minutes=reminder_minutes,
             recurrence=recurrence,
+            show_as=show_as,
+            categories=categories,
         )
         return format_response(data, "json")
 
@@ -179,6 +194,24 @@ def register(mcp, bridge) -> None:
         end: Annotated[Optional[str], Field()] = None,
         location: Annotated[Optional[str], Field()] = None,
         body: Annotated[Optional[str], Field()] = None,
+        show_as: Annotated[
+            Optional[str],
+            Field(
+                description=(
+                    "New free/busy state: 'busy', 'free', 'tentative', 'oof' or "
+                    "'working_elsewhere'. Omit to leave it as is."
+                )
+            ),
+        ] = None,
+        categories: Annotated[
+            Optional[str],
+            Field(
+                description=(
+                    "Comma-separated category names; replaces the current ones. "
+                    "'' clears them. Omit to leave them as they are."
+                )
+            ),
+        ] = None,
         send_update: Annotated[
             bool,
             Field(
@@ -189,7 +222,7 @@ def register(mcp, bridge) -> None:
             ),
         ] = True,
     ) -> str:
-        """Update fields on an existing event. Only non-null fields are written. Meetings with attendees send an update unless send_update=False."""
+        """Update fields on an existing event (subject, times, location, body, show_as, categories). Only non-null fields are written. Meetings with attendees send an update unless send_update=False."""
         data = await bridge.call(
             cal_client.update_event,
             entry_id=entry_id,
@@ -198,6 +231,8 @@ def register(mcp, bridge) -> None:
             end=end,
             location=location,
             body=body,
+            show_as=show_as,
+            categories=categories,
             send_update=send_update,
         )
         return format_response(data, "json")

@@ -13,10 +13,10 @@ from typing import Any
 ADMIN_DIR = "Administrator"
 
 FOLDERS = (
-    "Daily", "Emails", "Meetings", "Attachments", "Weekly", "_views",
+    "Daily", "Emails", "Meetings", "Attachments", "Weekly", "Teams", "Time-blocks", "_views",
     "Wiki", "Wiki/People", "Wiki/Orgs", "Wiki/Topics", "Wiki/Howto",
 )
-FILES = ("Follow-ups.md", "Preferences.md", "Rules.md")
+FILES = ("Follow-ups.md", "Preferences.md", "Rules.md", "Priorities.md")
 
 # type -> (folder under Administrator/, required frontmatter keys, date key)
 SCHEMAS: dict[str, dict[str, Any]] = {
@@ -56,10 +56,23 @@ SCHEMAS: dict[str, dict[str, Any]] = {
         "required": ("type", "week", "start", "end", "created_by"),
         "date_key": "start",
     },
+    "chat": {  # one Teams chat on one day; record_id = "<chat_id>|<date>"
+        "folder": "Teams",
+        "required": (
+            "type", "source", "chat_id", "chat_title", "date", "account", "members",
+            "record_id", "messages", "first", "last", "created_by",
+        ),
+        "date_key": "date",
+    },
+    "time-block": {  # the plan note of one week (Time-blocks/<week>.md)
+        "folder": "Time-blocks",
+        "required": ("type", "source", "week", "start", "end", "planned", "created_by"),
+        "date_key": "start",
+    },
 }
 
 # Keys vault_write may replace on an existing note (everything else is frozen).
-REPLACEABLE_KEYS = ("status", "last_contact", "inbox_checked", "mails_seen", "wiki")
+REPLACEABLE_KEYS = ("status", "last_contact", "inbox_checked", "mails_seen", "wiki", "messages", "last", "planned")
 
 FOLLOWUPS_OPEN_HEADER = ["Since", "Who", "What", "Email", "Last checked"]
 FOLLOWUPS_DONE_HEADER = ["Since", "Who", "What", "Email", "Closed"]
@@ -106,6 +119,10 @@ def identity_of(note_type: str, fm: dict[str, Any]) -> dict[str, Any]:
         return {"date": str(fm.get("date") or "")}
     if note_type == "weekly":
         return {"week": str(fm.get("week") or "")}
+    if note_type == "chat":
+        return {"chat_id": str(fm.get("chat_id") or ""), "date": str(fm.get("date") or "")[:10]}
+    if note_type == "time-block":
+        return {"week": str(fm.get("week") or "")}
     schema(note_type)
     return {}
 
@@ -126,6 +143,14 @@ def normalize_identity(note_type: str, identity: Any) -> dict[str, Any]:
             ident = {"date": s}
         elif note_type == "weekly":
             ident = {"week": s}
+        elif note_type == "chat":
+            # the record_id form "<chat_id>|<date>"
+            chat_id, _sep, day = s.rpartition("|")
+            if not chat_id or not re.match(r"^\d{4}-\d{2}-\d{2}$", day):
+                raise NoteError(f"identity for a chat note must be 'chat_id|YYYY-MM-DD', got {s!r}.")
+            ident = {"chat_id": chat_id, "date": day}
+        elif note_type == "time-block":
+            ident = {"week": s}
         else:
             schema(note_type)
             ident = {}
@@ -142,7 +167,7 @@ def matches(note_type: str, fm: dict[str, Any], identity: dict[str, Any]) -> boo
     email: internet_message_id when the identity has one, else entry_id.
     meeting: occurrence_key when the identity has one, else global_id.
     person: email, case-insensitive, also against ``aliases``.
-    daily: date. weekly: week.
+    daily: date. weekly: week. chat: chat_id and date. time-block: week.
     """
     if fm.get("type") not in (None, note_type):
         return False
@@ -178,6 +203,11 @@ def matches(note_type: str, fm: dict[str, Any], identity: dict[str, Any]) -> boo
     if note_type == "daily":
         return bool(identity.get("date")) and str(fm.get("date") or "") == identity["date"]
     if note_type == "weekly":
+        return bool(identity.get("week")) and str(fm.get("week") or "") == identity["week"]
+    if note_type == "chat":
+        chat_id, day = identity.get("chat_id") or "", (identity.get("date") or "")[:10]
+        return bool(chat_id and day) and str(fm.get("chat_id") or "") == chat_id and str(fm.get("date") or "")[:10] == day
+    if note_type == "time-block":
         return bool(identity.get("week")) and str(fm.get("week") or "") == identity["week"]
     return False
 
@@ -251,11 +281,14 @@ def base_filename(note_type: str, fm: dict[str, Any]) -> str:
         return f"{person_filename(str(fm.get('name') or ''), str(fm.get('email') or ''))}.md"
     if note_type == "daily":
         return f"{_date_part(fm.get('date'), 'date')}.md"
-    if note_type == "weekly":
+    if note_type in ("weekly", "time-block"):
         week = str(fm.get("week") or "").strip()
         if not re.match(r"^\d{4}-W\d{2}$", week):
             raise NoteError(f"'week' must look like 2026-W34, got {week!r}.")
         return f"{week}.md"
+    if note_type == "chat":
+        title = str(fm.get("chat_title") or "").strip() or str(fm.get("chat_id") or "")
+        return f"{_date_part(fm.get('date'), 'date')} {slug(title)}.md"
     schema(note_type)
     raise NoteError(f"No filename rule for {note_type}.")
 

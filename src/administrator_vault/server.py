@@ -9,7 +9,7 @@ from typing import Annotated, Any, Callable, Optional
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
-from administrator_vault import store, wiki, wiki_lint, wiki_migrate, workflows
+from administrator_vault import store, timeblock, wiki, wiki_lint, wiki_migrate, workflows
 from administrator_vault.frontmatter import FrontmatterError
 from administrator_vault.notes import NoteError, SCHEMAS
 
@@ -23,7 +23,8 @@ write to the same note appends a "## Update <timestamp>" section.
 
 Note types and identity: email (internet_message_id, else entry_id),
 meeting (occurrence_key, else global_id), person (email, also aliases),
-daily (date), weekly (week). Every tool returns a JSON string.
+daily (date), weekly (week), chat (chat_id and date), time-block (week).
+Every tool returns a JSON string.
 
 The wiki (Administrator/Wiki/) holds pages the model keeps: person, org,
 topic, howto, me. vault_wiki_match finds pages, vault_wiki_read returns a
@@ -33,13 +34,18 @@ status, title, alias, related, role, open, steps, due, owner, org).
 vault_wiki_lint runs the fifteen checks, vault_wiki_merge folds one page
 into another (only on a yes), vault_wiki_migrate moves a 0.1.0 vault's
 People/ folder into the wiki (dry run first).
+
+Collecting: vault_collect_sources keeps the "last collected" stamp per
+source (teams, outlook, notes), vault_save_chat writes a Teams chat as a day
+record under Teams/, vault_changed_notes lists the notes modified since a
+time (records and the user's collect_folders, read only).
 """
 
 # Module-level aliases: with ``from __future__ import annotations`` every hint
 # is a string resolved against module globals when FastMCP builds the schema.
 NoteType = Annotated[
     str,
-    Field(description="Note type: email, meeting, person, daily or weekly."),
+    Field(description="Note type: email, meeting, person, daily, weekly, chat or time-block."),
 ]
 Identity = Annotated[
     Any,
@@ -47,7 +53,7 @@ Identity = Annotated[
         description=(
             "Identity of the note: a string, or an object with the identity keys "
             "(email: internet_message_id / entry_id; meeting: occurrence_key / global_id; "
-            "person: email; daily: date; weekly: week)."
+            "person: email; daily: date; weekly: week; chat: chat_id + date, or 'chat_id|date'; time-block: week)."
         )
     ),
 ]
@@ -375,7 +381,7 @@ def register(mcp: FastMCP) -> None:
     )
     @_guard
     def vault_wiki_ingest(
-        record_path: Annotated[str, Field(description="Vault-relative path of the email or meeting note the ops come from.")],
+        record_path: Annotated[str, Field(description="Vault-relative path of the email, meeting or chat note the ops come from.")],
         pages: Annotated[list[dict[str, Any]], Field(description="Per page: {path, ops} for an existing page or {new: {type, title, aliases, lead, summary}, ops} for a new one. An empty ops list still adds the Records line.")],
         created_by: CreatedBy = wiki.CREATED_BY,
     ) -> str:
@@ -475,6 +481,91 @@ def register(mcp: FastMCP) -> None:
     ) -> str:
         """Move Administrator/People/*.md to Wiki/People/ as person pages following the page contract (old Emails / Meetings lines become Records, a 'Voice with this person:' block and other user text go under Notes), rewrite [[People/...]] links to [[Wiki/People/...]] in every other note including frontmatter, update the .base views, generate the index, write one Log line, and remove the old folder when empty. A copy of People/ is kept under Administrator/_backup/<stamp>/People/. Returns the plan ({needed, people, links, views, left, backup}) plus, after a real run, {moved, skipped, links_rewritten, old_folder_removed, old_folder_left}."""
         return _json(wiki_migrate.migrate(dry_run, created_by))
+
+    # ---------------------------------------------------------------- collect (0.3.0)
+
+    @mcp.tool(
+        name="vault_save_chat",
+        annotations={"title": "Save a Teams chat as a day record", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+    )
+    @_guard
+    def vault_save_chat(
+        chat: Annotated[dict[str, Any], Field(description="The chat as teams_list_chats returned it: id, title, type, members (names or {name, mri}), account.")],
+        messages: Annotated[list[dict[str, Any]], Field(description="Messages of that chat, any order: [{id, time (local ISO), sender, is_self, text}].")],
+        self_names: Annotated[Optional[list[str]], Field(description="The user's own display names, to tell 'from me' apart when is_self is missing.")] = None,
+        created_by: CreatedBy = workflows.CREATED_BY,
+    ) -> str:
+        """Write or extend Teams/<date> <chat>.md, one record per chat per day (record_id = chat_id|date): '## Messages' with one line per message, oldest first, hidden message ids. A second call the same day appends only the messages whose ids are not in the file yet (under '## Update') and moves messages / last forward. Senders that match a person page by name or alias get a Records line and last_contact on it; senders without a page are listed in unknown_people (no page is made without an address). Returns {path, action (created / appended / unchanged), date, record_id, added, skipped_duplicates, messages, people: [{name, page}], unknown_people}; when the messages span several days, a list with one such result per day."""
+        return _json(workflows.save_chat(chat, messages, self_names, created_by))
+
+    @mcp.tool(
+        name="vault_collect_sources",
+        annotations={"title": "Read or advance the 'last collected' stamps", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+    )
+    @_guard
+    def vault_collect_sources(
+        action: Annotated[str, Field(description="'read' returns the stamps; 'advance' moves them.")] = "read",
+        source: Annotated[Optional[str], Field(description="advance: teams, outlook or notes; omit for all three.")] = None,
+        at: Annotated[Optional[str], Field(description="advance: the new stamp (local ISO); defaults to now.")] = None,
+        now: Annotated[Optional[str], Field(description="Only for tests: the time ages are measured against.")] = None,
+    ) -> str:
+        """The 'last collected' stamp per source in Wiki/_cache/collect.json. read: {stamps, age_hours, ask (a stamp is missing or older than 24 h: ask the user how far back to collect), default_since (the oldest stamp, else today 00:00), last_collected ('Thu 21 Aug 18:10', or 'never')}. advance: sets the stamp(s) to at; a stamp is never moved back (refused: [{source, reason: 'older-than-stamp', stamp, at}]). Returns {stamps, advanced, refused}."""
+        return _json(workflows.collect_sources(action, source, at, now))
+
+    @mcp.tool(
+        name="vault_changed_notes",
+        annotations={"title": "Notes modified since a time", "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+    )
+    @_guard
+    def vault_changed_notes(
+        since: Annotated[str, Field(min_length=1, description="Local ISO datetime; notes modified after it are returned.")],
+        folders: Annotated[Optional[list[str]], Field(description="Vault-relative folders to read instead of the default set (Administrator/Meetings, Emails, Daily, Weekly plus the collect_folders of Preferences.md).")] = None,
+        max_chars: Annotated[int, Field(ge=0, le=20000, description="Cut each excerpt at this many characters; 0 = no cut.")] = 1200,
+        limit: Annotated[int, Field(ge=1, le=200, description="Max notes to return, oldest first.")] = 20,
+    ) -> str:
+        """Markdown notes modified after since, oldest first: {since, count, total, capped, folders, skipped, missing, notes: [{path, type, modified, ingested (a wiki key is present), excerpt (the last '## Update' section when there is one, else the body), from_update, truncated}]}. Wiki/, Attachments/, _views/, _backup/ and dot-folders are never read; folders outside Administrator/ are only read, never written; paths outside the vault are refused."""
+        return _json(workflows.changed_notes(since, folders, max_chars, limit))
+
+    # ---------------------------------------------------------------- time blocks (0.3.0)
+
+    @mcp.tool(
+        name="vault_time_block_plan",
+        annotations={"title": "Plan the week's focus and admin blocks", "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+    )
+    @_guard
+    def vault_time_block_plan(
+        week: Annotated[str, Field(min_length=1, description="ISO week, e.g. 2026-W35.")],
+        events: Annotated[list[dict[str, Any]], Field(description="outlook_list_events items for the week: subject, start, end, all_day, attendee_count, is_meeting, occurrence_key, entry_id, busy_status.")],
+        today: Annotated[Optional[str], Field(description="Local date YYYY-MM-DD; days before it are not planned. Defaults to today.")] = None,
+        now: Annotated[Optional[str], Field(description="Local time HH:MM (from outlook_whoami.local_time). Only matters on today: nothing is placed before it. Omit and today is planned from work_start.")] = None,
+    ) -> str:
+        """Plan focus and admin blocks for the working days of week from today on, from Preferences.md (peak_hours, focus_block_minutes, focus_blocks_per_day, admin_blocks_per_day, admin_block_minutes, slack_share, work hours, buffer_minutes, no_meeting_blocks) and the priorities (the numbered lines of Priorities.md, then active wiki topics due within 30 days or with open items). Nothing is booked; the model creates the appointments after a yes. Bookable minutes per day = (1 - slack_share) * work minutes - meeting minutes; a day with none left is in skipped_days with the reason. Existing [Focus] / [Admin] appointments are kept (existing: true) and never duplicated. Returns {week, priorities: [{rank, name, page}], days: [{date, day, work_minutes, meeting_minutes, bookable_minutes, booked_minutes, slack_minutes, blocks: [{start, end, minutes, kind, subject, priority, page, existing}]}], totals: {focus_minutes, admin_minutes, new_blocks, existing_blocks, slack_share_kept}, unplaced, skipped_days: [{date, reason}], preferences_used, missing_keys}."""
+        return _json(timeblock.time_block_plan(week, events, today, now))
+
+    @mcp.tool(
+        name="vault_time_block_write",
+        annotations={"title": "Write the week's time-block note", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+    )
+    @_guard
+    def vault_time_block_write(
+        week: Annotated[str, Field(min_length=1, description="ISO week, e.g. 2026-W35.")],
+        blocks: Annotated[list[dict[str, Any]], Field(description="The plan's blocks (start, end, kind, subject, priority) with the create results merged in: occurrence_key and entry_id from outlook_create_event. Existing blocks may be passed too.")],
+        created_by: CreatedBy = workflows.CREATED_BY,
+    ) -> str:
+        """Write Time-blocks/<week>.md after the appointments exist: a '## Plan' table (Day | Start | End | Kind | Subject | Priority, hidden occurrence_key per row), an empty '## Held' table (Day | Block | Result | Note; /administrator:collect-information fills it with vault_append_row, dedupe_key = occurrence_key, key_label = occurrence_key) and '## Notes'. A re-plan of the same week appends the new table under '## Update'. Returns {path, action, week, blocks, planned}."""
+        return _json(timeblock.write(week, blocks, created_by))
+
+    @mcp.tool(
+        name="vault_time_audit",
+        annotations={"title": "Hours per kind for a week", "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+    )
+    @_guard
+    def vault_time_audit(
+        week: Annotated[str, Field(min_length=1, description="ISO week, e.g. 2026-W34.")],
+        events: Annotated[list[dict[str, Any]], Field(description="outlook_list_events items for that week: subject, start, end, all_day, attendee_count, is_meeting, occurrence_key, busy_status.")],
+    ) -> str:
+        """How the week went: hours per kind (meeting = attendees or is_meeting, focus = '[Focus]', admin = '[Admin]', other, unplanned = work hours not booked; all-day events skipped) against the work hours of Preferences.md, the Held rows of Time-blocks/<week>.md applied (skipped blocks count as unplanned, moved ones keep their minutes, rows without an answer are unanswered), per-priority planned and held hours. Returns {week, hours, work_hours, shares, per_priority: [{name, planned_hours, held_hours}], blocks: {planned, held, moved, skipped, unanswered}, lines} — lines are ready for the weekly note's '## Time' section."""
+        return _json(timeblock.time_audit(week, events))
 
 
 __all__ = ["build_server", "register", "SCHEMAS"]
