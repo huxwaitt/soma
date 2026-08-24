@@ -14,7 +14,7 @@ Vault conventions live in the core `administrator` skill and `administrator/refe
 - `folder` (optional, default `inbox`) — any folder reference the `outlook` skill accepts.
 - `since` (optional) — ISO-8601 lower bound. If absent, see step 1.
 - `date` (`daily` only, default today) and, for `daily`, the day's events.
-- A working vault: `vault_status` once per session; if `administrator_dir_exists` or any folder or file flag is false (including `Rules.md`), call `vault_init(created_by="administrator/0.2.0")` and mention `/administrator:setup`. Vault unset or not a directory: stop and tell the user; do not guess a path.
+- A working vault: `vault_status` once per session; if `administrator_dir_exists` or any folder or file flag is false (including `Rules.md`), call `vault_init(created_by="administrator/0.3.0")` and mention `/administrator:setup`. Vault unset or not a directory: stop and tell the user; do not guess a path.
 
 ## Steps
 
@@ -32,7 +32,7 @@ outlook_list_mails(folder=<folder>, unread_only=true, since=<since>, limit=100,
 
 Remember the time of this call; it is `inbox_checked`. Never ask for more fields or a longer preview here — step 4 reads the few bodies that matter.
 
-- **0 mails:** `vault_write_daily(date, labels=[], items=[], since, inbox_checked, created_by="administrator/0.2.0")` still runs so the window moves on; tell the user "nothing new since <since>" and stop. No batch offer.
+- **0 mails:** `vault_write_daily(date, labels=[], items=[], since, inbox_checked, created_by="administrator/0.3.0")` still runs so the window moves on; tell the user "nothing new since <since>" and stop. No batch offer.
 - **`has_more`:** label the 100 you have; say "More than 100 unread since <since>; the newest 100 are in the note" and ask before paging (`offset=100`), never page on your own.
 
 ### 3. Let the rules go first
@@ -66,7 +66,7 @@ Past the cap, or still unsure: `reply` when a person wrote and the preview addre
 ```
 vault_write_daily(date=<today>, labels=<the JSON from step 4>, since=<since>, inbox_checked=<time of step 2>,
     folder=<folder unless inbox>, events=<daily only, step 6>, watch_out=<daily only, extra bullets or omitted>,
-    tokens_used=<the turn's token count when the host shows one, else omit>, created_by="administrator/0.2.0")
+    tokens_used=<the turn's token count when the host shows one, else omit>, created_by="administrator/0.3.0")
 ```
 
 Items come from the cache; rule-labelled mails need no entry in `labels`. The server sorts the table, writes the `<!-- entry_id -->` comments, links the `Note` column to existing email notes, fills `## To do` and `## Waiting on`, appends one `Follow-ups.md` row per `waiting` mail, and on a second run today appends only new rows under `## Update <ISO>` (the only frontmatter key that moves is `inbox_checked`). Read the result: `action` (`created` / `appended` / `unchanged`), `rows_written`, `duplicates_skipped`, `followups_added`, `unlabelled[]` (fix: label them and call again — they were left out of the note). `unchanged` means nothing was written; say so.

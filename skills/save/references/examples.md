@@ -83,7 +83,7 @@ has_attachments: true
 attachments:
   - "[[Administrator/Attachments/2026-08-21 Q3 supplier contract – signature needed/Q3-supplier-contract-v3.pdf|Q3-supplier-contract-v3.pdf]]"
 msg_file: "[[Administrator/Attachments/2026-08-21 Q3 supplier contract – signature needed/2026-08-21 Q3 supplier contract – signature needed.msg|2026-08-21 Q3 supplier contract – signature needed.msg]]"
-created_by: administrator/0.2.0
+created_by: administrator/0.3.0
 ---
 
 # RE: Q3 supplier contract – signature needed

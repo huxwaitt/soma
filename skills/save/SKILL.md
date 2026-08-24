@@ -7,7 +7,7 @@ description: Turn one Outlook email (or the thread it belongs to) into a note in
 
 One mail (or the mail plus its thread) goes from Outlook into `<vault>/Administrator/Emails/`. Outlook gives the facts, `vault_save_email` writes the note, the person note and the Follow-ups row; you decide only the summary, the action items and the status. Never send, move, delete, mark or categorise anything in Outlook. Outlook mechanics follow the `outlook` skill and `skills/administrator/references/outlook.md`; note layout is `skills/administrator/references/vault.md`; worked examples (single mail, thread, re-run) are in `references/examples.md` — load it the first time a save runs in a session.
 
-Once per session: `vault_status` (any folder or file flag false → `vault_init(created_by="administrator/0.2.0")`; vault unset or not a directory → stop and tell the user, do not guess a path) and `outlook_whoami(response_format="json")` for `self_addresses` (every `accounts[].smtp_address`).
+Once per session: `vault_status` (any folder or file flag false → `vault_init(created_by="administrator/0.3.0")`; vault unset or not a directory → stop and tell the user, do not guess a path) and `outlook_whoami(response_format="json")` for `self_addresses` (every `accounts[].smtp_address`).
 
 ## Steps
 
@@ -55,14 +55,14 @@ You supply, from `body_trimmed` only:
 ```
 vault_save_email(mail=<step 2 result>, summary, action_items, attachments_saved=[<file paths>],
                  msg_file=<.msg path>, status=<only when you override>, self_addresses=<whoami>,
-                 company=<step 3, only when found>, created_by="administrator/0.2.0")
+                 company=<step 3, only when found>, created_by="administrator/0.3.0")
 ```
 
 The helper copies the body, builds the frontmatter (identity, recipients, `has_attachments`, links), names the file, writes or appends the email note, creates or updates the sender's person page in the wiki (`last_contact`, `aliases`, one `## Records` line) and adds the `Follow-ups.md` row for `waiting`. Result: `{path, action: created | appended, status, person_path, person_action, followup_added}`. A tool error (bad status, missing identity) is yours to fix: correct the input and call again; never write the file by hand.
 
 ### 6. Wiki ingest (after the record is written)
 
-Skip when the user said "save without wiki" (say so in one line) or when `action` was `appended` and the note already had a `wiki:` key (add `"wiki"` to the `fields` of the step 3 `vault_find`). Otherwise load `skills/wiki/SKILL.md` (and `skills/wiki/references/examples.md` the first time this session) and run its ingest steps: `vault_wiki_match(text=<subject + first 300 chars of body_trimmed>, people=[mail.from_address], domains=[<sender domain>])`, `vault_wiki_read(path, sections=["lead","facts"])` on at most 3 hits, then one `vault_wiki_ingest(record_path=<step 5 path>, pages=[...], created_by="administrator/0.2.0")`. The sender's person page is always one of the pages (`vault_save_email` created it as `draft` when new): give it a `lead` when it has none, and `confirm` / `add` the role facts the mail states. No page matched and no candidate over the threshold → `vault_wiki_ingest` with `pages=[]` so the record is marked seen, nothing else. A candidate over the threshold → propose the topic page in the report; create it only on a yes.
+Skip when the user said "save without wiki" (say so in one line) or when `action` was `appended` and the note already had a `wiki:` key (add `"wiki"` to the `fields` of the step 3 `vault_find`). Otherwise load `skills/wiki/SKILL.md` (and `skills/wiki/references/examples.md` the first time this session) and run its ingest steps: `vault_wiki_match(text=<subject + first 300 chars of body_trimmed>, people=[mail.from_address], domains=[<sender domain>])`, `vault_wiki_read(path, sections=["lead","facts"])` on at most 3 hits, then one `vault_wiki_ingest(record_path=<step 5 path>, pages=[...], created_by="administrator/0.3.0")`. The sender's person page is always one of the pages (`vault_save_email` created it as `draft` when new): give it a `lead` when it has none, and `confirm` / `add` the role facts the mail states. No page matched and no candidate over the threshold → `vault_wiki_ingest` with `pages=[]` so the record is marked seen, nothing else. A candidate over the threshold → propose the topic page in the report; create it only on a yes.
 
 ### 7. Report
 

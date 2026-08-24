@@ -1,12 +1,12 @@
 ---
 name: review
-description: Two look-back workflows over Outlook and the vault. `followups` asks `outlook_awaiting_reply` for the threads where the user wrote last and nobody answered for N days, updates `Follow-ups.md` (opens new rows, closes rows that got a reply), and offers short nudge drafts that go to Drafts only. `weekly` takes `vault_weekly_facts` plus next week's calendar and writes one note `Administrator/Weekly/YYYY-Www.md` with what is still open from the week's inbox, what the user is waiting on and for how long, meetings held with their unchecked action items, next week's calendar with clashes, and people who have gone quiet for 30+ days. Trigger when the user says "/administrator:followups", "/administrator:weekly", "who hasn't replied", "who owes me an answer", "what am I waiting on", "anything I chased and heard nothing", "weekly review", "wrap up the week", "what did I not get to this week", "what's next week look like", "who have I not talked to in a while". Reads Outlook only; the single Outlook write is a nudge draft with `save_only=true`, one yes per draft, never a send.
+description: Two look-back workflows over Outlook and the vault. `followups` asks `outlook_awaiting_reply` for the threads where the user wrote last and nobody answered for N days, updates `Follow-ups.md` (opens new rows, closes rows that got a reply), and offers short nudge drafts that go to Drafts only. `weekly` takes `vault_weekly_facts` plus next week's calendar and writes one note `Administrator/Weekly/YYYY-Www.md` with what is still open from the week's inbox, what the user is waiting on and for how long, meetings held with their unchecked action items, next week's calendar with clashes, people who have gone quiet for 30+ days, and where the week's hours went against the user's priorities (`vault_time_audit` over the week's events and the `[Focus]` / `[Admin]` blocks). Trigger when the user says "/administrator:followups", "/administrator:weekly", "who hasn't replied", "who owes me an answer", "what am I waiting on", "anything I chased and heard nothing", "weekly review", "wrap up the week", "what did I not get to this week", "what's next week look like", "who have I not talked to in a while". Reads Outlook only; the single Outlook write is a nudge draft with `save_only=true`, one yes per draft, never a send.
 ---
 
 # review — followups and weekly
 Both workflows look back instead of at the inbox of the moment. The tools do the collecting, comparing and counting; you decide and write the few lines only a person can write. Outlook is read through `outlook_*` tools, the vault is read and written only through `vault_*` tools (`skills/administrator/references/vault.md`), and nothing in Outlook changes except, in `followups`, a draft the user said yes to. Outlook mechanics follow the `outlook` skill and `skills/administrator/references/outlook.md`. Worked examples with real call sequences: `references/examples.md` (load it the first time a workflow runs in a session).
 
-Before either workflow: `vault_status` once per session (run `vault_init(created_by="administrator/0.2.0")` if a folder or file flag is false) and `outlook_whoami(response_format="json")` once per session. "Self" = any `accounts[].smtp_address`, compared case-insensitively. "Today" and "now" come from `whoami.local_time`, never from a guess.
+Before either workflow: `vault_status` once per session (run `vault_init(created_by="administrator/0.3.0")` if a folder or file flag is false) and `outlook_whoami(response_format="json")` once per session. "Self" = any `accounts[].smtp_address`, compared case-insensitively. "Today" and "now" come from `whoami.local_time`, never from a guess.
 
 Cost rules for both: pass `fields=[...]` on every list, search, get and conversation call and `preview_chars=0` unless a preview is needed; never repeat text a tool result already holds (paste `last_line`, `subject`, `who` as they came); never read a note with `vault_read` when a helper already returned the facts.
 
@@ -75,14 +75,15 @@ Three to five lines: `threads_checked` from `sent_scanned` mails, waiting count,
 
 `/administrator:weekly [week]`. `week` = `YYYY-Www` (ISO, Monday–Sunday), a date inside the week, `this`, or `last`. Default: the ISO week containing today, except on a Monday or Tuesday, when it is the previous week (say which was used). Read-only in Outlook; exactly one `vault_write`, plus the wiki lint and whatever the user says yes to in step 2.
 
-### 1. Two calls
+### 1. Three calls
 
 - `vault_weekly_facts(week=<YYYY-Www>, today=<today>)` → `start, end, open_from_inbox[] {date, label, subject, from, entry_id, note, daily}, waiting[] {since, who, what, email, age_days}, meetings_held[] {path, subject, date, unchecked_actions[]}, no_notes[] {path, subject, date}, quiet_people[] {name, email, path, last_contact, days}`. Ticked to-dos, `status: done` email notes and the 30-day cut are already applied.
 - `outlook_list_events(start="<Monday after end>T00:00:00", end="<Friday after that>T23:59:59", include_recurrences=true, limit=200, fields=["subject","start","end","location","organizer","attendees","all_day","occurrence_key","global_id"], response_format="json")`. Prep-note check: `vault_find("meeting", {"occurrence_key": …, "global_id": …}, fields=[])` per event that is not all-day, at most 15; beyond that say "not checked".
+- `outlook_list_events(start="<start>T00:00:00", end="<end>T23:59:59", include_recurrences=true, limit=200, fields=["subject","start","end","all_day","attendee_count","is_meeting","occurrence_key","busy_status"], response_format="json")` for the review week itself, then `vault_time_audit(week=<YYYY-Www>, events=<items[]>)` → `{week, hours: {meeting, focus, admin, other, unplanned}, work_hours, shares, per_priority: [{name, planned_hours, held_hours}], blocks: {planned, held, moved, skipped, unanswered}, held_rows, lines}`. The server classifies each timed event (`[Focus]`, `[Admin]`, a meeting when it has attendees or `is_meeting`, else other; all-day and free-marked ones skipped), applies the `## Held` rows of `Time-blocks/<week>.md` (a skipped block counts as unplanned, a moved one keeps its minutes) and lays out `lines` for the note. No `vault_read` of the time-block note.
 
 ### 2. Wiki (load `skills/wiki/SKILL.md` first)
 
-`vault_wiki_lint(fix=true, created_by="administrator/0.2.0")` once (the safe fixes: index, code-owned keys, section order, ticked open items, stale topics to `dormant`, roll-overs); then `vault_wiki_review(action="list")`. From the two results: the open Review items (`open[].text`: page, question, record links), the topic proposals (`checks["12"].items`: "create `<slug>` from N records?"), the possible duplicates (`checks["10"].items`, pairs `{a, b, shared}`), the un-ingested records (`checks["11"].count` and `records[]` with paths), the per-check numbers in `counts`. Ask one question per proposal and act only on a yes (`vault_wiki_create` / `vault_wiki_merge`). Un-ingested records: offer "ingest the N records saved before the wiki, ten at a time?"; on a yes run the `wiki` skill's ingest steps on the first 10 (`vault_read` each once, oldest first), report, offer the next 10. Skip this whole step on "without wiki".
+`vault_wiki_lint(fix=true, created_by="administrator/0.3.0")` once (the safe fixes: index, code-owned keys, section order, ticked open items, stale topics to `dormant`, roll-overs); then `vault_wiki_review(action="list")`. From the two results: the open Review items (`open[].text`: page, question, record links), the topic proposals (`checks["12"].items`: "create `<slug>` from N records?"), the possible duplicates (`checks["10"].items`, pairs `{a, b, shared}`), the un-ingested records (`checks["11"].count` and `records[]` with paths), the per-check numbers in `counts`. Ask one question per proposal and act only on a yes (`vault_wiki_create` / `vault_wiki_merge`). Un-ingested records: offer "ingest the N records saved before the wiki, ten at a time?"; on a yes run the `wiki` skill's ingest steps on the first 10 (`vault_read` each once, oldest first), report, offer the next 10. Skip this whole step on "without wiki".
 
 ### 3. Write the note
 
@@ -93,13 +94,14 @@ Identity = `week`. Render the sections from the results, line for line, without 
 - `## Meetings held` — `### [[<path without .md>]] — <date>` then the `unchecked_actions` lines, or `- all done`; `no_notes` under `No notes taken (run /administrator:notes):` as plain links. Nothing → `- none`.
 - `## Next week` — one table per weekday with events `| Start | End | Subject | Location | Organizer |` (`all day` in both time columns for all-day events), then `**Watch out**`: each clash (overlapping `start`/`end` on the same day, each pair once) and the count without a prep note. No events → `- nothing booked`.
 - `## People going quiet` — `- [[<path without .md>]] — last contact <last_contact> (<days> days)`. None → `- nobody`.
+- `## Time` — the `lines` of `vault_time_audit`, one bullet each, as returned (hours per kind with shares of the work hours; blocks planned / held / moved / skipped / unanswered; hours per priority planned and held). A week without a `Time-blocks/` note still gets the first line and `Blocks: none planned this week.`
 - `## Wiki` — one line per `counts` entry above zero (`fixed` when the check has a fix), then `Review (N open):` with each open line as returned, `Proposed:` the topic and merge proposals with the user's answer (created / merged / declined / no answer), `Not ingested: N records` (and what was ingested this run). All clean → `- clean; Review empty`.
 - `## Notes` — the only part you write yourself: 3–6 bullets at most on what stands out (a wait past 7 days, a meeting whose actions all belong to the user, a clash worth moving, a person to call). Nothing stands out → leave the section out.
 
 ```
 vault_write("weekly",
     {"type": "weekly", "source": "administrator", "week": "2026-W34", "start": "2026-08-17", "end": "2026-08-23",
-     "generated": "<ISO now with offset>", "created_by": "administrator/0.2.0"},
+     "generated": "<ISO now with offset>", "created_by": "administrator/0.3.0"},
     <body: "# Week 2026-W34 (2026-08-17 – 2026-08-23)" + the sections>, mode="upsert")
 ```
 
@@ -107,13 +109,12 @@ vault_write("weekly",
 
 ### 4. Report
 
-One line per section with counts, the note path, and `obsidian://open?vault=<vault_name>&file=Administrator/Weekly/<week>`. Offer `/administrator:followups` only when a `waiting` row has `age_days` over 7, `/administrator:prep` only when next week has meetings without a prep note, `/administrator:wiki resolve review` when Review has open items.
+One line per section with counts, the note path, and `obsidian://open?vault=<vault_name>&file=Administrator/Weekly/<week>`. Offer `/administrator:followups` only when a `waiting` row has `age_days` over 7, `/administrator:prep` only when next week has meetings without a prep note, `/administrator:wiki resolve review` when Review has open items, `/administrator:time-block` when `blocks.planned` is 0 or `shares.unplanned` is above the `slack_share` of `Preferences.md`.
 
 ## Rules that apply to both
 
 - Never call `outlook_mark_mail`, `outlook_move_mail`, `outlook_delete_mail`, `outlook_set_category`, any `bulk_*` tool, `outlook_create_event`, `outlook_update_event`, `outlook_forward_mail`, or `outlook_send_mail` / `outlook_reply_mail` without `save_only=true`.
 - The vault is written only through `vault_append_row`, `vault_move_row`, `vault_write` and, for wiki pages in `weekly`, the `vault_wiki_*` tools; nothing by hand, nothing outside `Administrator/`.
-- Keep datetimes exactly as the tools returned them. "Days" are counted on local dates by the tools; do not recount.
-- No raw JSON in the reply. Tables and bullet lines only.
+- Keep datetimes exactly as the tools returned them. "Days" are counted on local dates by the tools; do not recount. No raw JSON in the reply: tables and bullet lines only.
 - A second run leaves the vault as after the first: `followups` finds every key already present; `weekly` appends an `## Update` section to the same note and never creates a second file.
 - Measurement: when the host shows the turn's token count, end the reply with `Tokens this turn: <n>`; when it does not, say nothing about it. Neither workflow writes a daily note, so `tokens_used` is only passed to `vault_write_daily` when that tool is called in the same turn.

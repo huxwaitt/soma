@@ -5,10 +5,10 @@ Everything the plugin writes goes under `<vault>/Administrator/` where `<vault>`
 Conventions the server applies:
 
 - Dates in frontmatter are ISO-8601 with the offset Outlook returned (`2026-08-22T09:14:00+02:00`). Never convert time zones.
-- Quoting is the server's job: `entry_id`, `internet_message_id`, `conversation_id`, `global_id`, `occurrence_key`, `subject`, `location`, `msg_file` are always quoted; plain SMTP addresses and `administrator/0.2.0` stay unquoted. Pass raw values.
+- Quoting is the server's job: `entry_id`, `internet_message_id`, `conversation_id`, `global_id`, `occurrence_key`, `subject`, `location`, `msg_file` are always quoted; plain SMTP addresses and `administrator/0.3.0` stay unquoted. Pass raw values.
 - Lists are YAML block lists; pass arrays (`[]` when empty).
 - Wikilinks in frontmatter are quoted: `from_link: "[[Wiki/People/Jane Doe]]"`.
-- `created_by: administrator/0.2.0` on every note (pass it; the server fills in only `type`).
+- `created_by: administrator/0.3.0` on every note (pass it; the server fills in only `type`).
 
 ## Writing notes: the `vault_*` tools
 
@@ -24,8 +24,10 @@ The rules on this page are enforced by the `vault` MCP server (`administrator-va
 | Which daily note was last written? | `vault_list("daily", limit=1, fields=["date", "inbox_checked"])` |
 | Do the mechanical part of a workflow in code | `vault_rules`, `vault_inbox_prepare`, `vault_write_daily`, `vault_save_email`, `vault_prep_context`, `vault_weekly_facts`, `vault_attach_transcript` — see "Workflow helpers" below |
 | Read or change a wiki page | `vault_wiki_match`, `vault_wiki_read`, `vault_wiki_ingest`, `vault_wiki_apply` … — see "Wiki" below and `skills/wiki/SKILL.md` |
+| Save a Teams chat as a day record, read or move the "last collected" stamps, list notes changed since a time | `vault_save_chat(chat, messages, self_names)`, `vault_collect_sources(action, source, at)`, `vault_changed_notes(since)` — see "Chat note" below and `skills/collect-information/SKILL.md` |
+| Plan the week's focus and admin blocks, write the plan note once the appointments exist, count where a week's hours went | `vault_time_block_plan(week, events, today)`, `vault_time_block_write(week, blocks)`, `vault_time_audit(week, events)` — see "Time-block note" below and `skills/time-block/SKILL.md` |
 
-On `append` the server only changes `status`, `last_contact`, `inbox_checked`, `mails_seen` and adds new `aliases` (and `vault_wiki_ingest` replaces `wiki`); every other frontmatter key and all existing body text stay as they are. `append` still checks the required keys, so pass the frontmatter `vault_find` returned with just the intended key changed. Use `created_by: administrator/0.2.0` in every frontmatter you pass.
+On `append` the server only changes `status`, `last_contact`, `inbox_checked`, `mails_seen` and adds new `aliases` (and `vault_wiki_ingest` replaces `wiki`); every other frontmatter key and all existing body text stay as they are. `append` still checks the required keys, so pass the frontmatter `vault_find` returned with just the intended key changed. Use `created_by: administrator/0.3.0` in every frontmatter you pass.
 
 `dedupe_key` for meeting rows is `<occurrence_key> # <What>` (one meeting can create several rows); for proposed-times rows it is `<address> # pick a time — <subject>` with `key_label="proposal"`; for rows `followups` writes from the user's own sent mail it is the `internet_message_id` of that mail with `key_label="internet_message_id"` (`entry_id` when it is empty). The server treats a row as a duplicate when the key value appears in any hidden comment anywhere in the file, whatever the label.
 
@@ -33,7 +35,7 @@ A key or a cell may contain `|` (an `occurrence_key` always does); the server st
 
 ## Workflow helpers
 
-These tools do the moving, comparing and formatting so the model only decides. They take the JSON the outlook tools returned and write through the same code as `vault_write` / `vault_append_row`, so every rule on this page still holds. Pass `created_by="administrator/0.2.0"` to the ones that write.
+These tools do the moving, comparing and formatting so the model only decides. They take the JSON the outlook tools returned and write through the same code as `vault_write` / `vault_append_row`, so every rule on this page still holds. Pass `created_by="administrator/0.3.0"` to the ones that write.
 
 - `vault_inbox_prepare(items, date)` — pass the `items[]` from `outlook_list_mails`. Back come only the mails not yet in any daily note of that ISO week and not matched by a never-save rule; each has `label` / `rule` filled when a rule decided. Read the `preview` only of the ones with `label: null`, then call `vault_write_daily(date, labels=[{entry_id, label, reason}], since, inbox_checked, events)` with your labels — items come from the cached list (`Attachments/_cache/inbox-<date>.json`), so do not pass them back. Pass `events` from `outlook_list_events` in `daily`; clashes and missing prep notes are worked out in code, `watch_out` is for anything else. A second run on the same day appends only new rows; `action: unchanged` means nothing was written. Items with no label from the model or a rule come back in `unlabelled` and are left out of the note.
 - `vault_save_email(mail, summary, action_items, attachments_saved, msg_file, self_addresses, company)` — `mail` is the `outlook_get_mail(trim_quoted=true)` JSON. The note, the person note and the Follow-ups row (for `waiting`) are written in one call; `status` defaults to `todo` with action items, `fyi` without, `waiting` when the mail is from one of `self_addresses` and has action items.
@@ -50,9 +52,12 @@ The server builds these; listed so you can predict the path and the `Attachments
 | --- | --- | --- |
 | Email | `Emails/YYYY-MM-DD <slug>.md` | Date = `received` date (local). Slug from subject, see below. |
 | Meeting | `Meetings/YYYY-MM-DD HHmm <slug>.md` | Date and time = `start` (local). Slug from `subject` with the email rule plus `Canceled:` / `Cancelled:` / `Abgesagt:` / `Updated:` / `Aktualisiert:` prefixes stripped. Full template in `skills/meetings/references/meeting-note.md`. |
+| Chat | `Teams/YYYY-MM-DD <slug>.md` | One per Teams chat per day. Date = the messages' local date; slug from `chat_title` with the email rule (the chat id when the title is empty). Written by `vault_save_chat`. |
 | Preferences | `Preferences.md` | Fixed. |
+| Priorities | `Priorities.md` | Fixed. |
 | Daily | `Daily/YYYY-MM-DD.md` | Local date of the run. |
 | Weekly | `Weekly/YYYY-Www.md` | ISO week (Monday–Sunday) of the review. Written by `/administrator:weekly`. |
+| Time-block | `Time-blocks/YYYY-Www.md` | ISO week of the plan. Written by `vault_time_block_write` (`/administrator:time-block`); `## Held` rows added by `/administrator:collect-information`. |
 | Person | `Wiki/People/<Display Name>.md` | Display name as Outlook gives it (`from` / `recipients[].name`), illegal characters replaced by `_`, trimmed. If no display name, the part of the SMTP address before `@`. |
 | Attachments | `Attachments/<YYYY-MM-DD slug>/<filename>` | One subfolder per email note, same name as the note minus `.md`. |
 | Follow-ups | `Follow-ups.md` | Fixed. |
@@ -96,7 +101,7 @@ has_attachments: true
 attachments:
   - "[[Administrator/Attachments/2026-08-22 Budget Q3/Budget_Q3.xlsx|Budget_Q3.xlsx]]"
 msg_file: "[[Administrator/Attachments/2026-08-22 Budget Q3/Budget Q3.msg|Budget Q3.msg]]"
-created_by: administrator/0.2.0
+created_by: administrator/0.3.0
 ---
 
 # <Subject as received, untouched>
@@ -151,7 +156,7 @@ since: 2026-08-21T18:02:00+02:00
 inbox_checked: 2026-08-22T08:31:10+02:00
 mails_seen: 23
 status: todo
-created_by: administrator/0.2.0
+created_by: administrator/0.3.0
 ---
 
 # 2026-08-22
@@ -215,7 +220,7 @@ People live in the wiki: `Wiki/People/<Display Name>.md`, `type: person`, follow
 
 ## The `wiki` key on records
 
-`vault_wiki_ingest` adds one replaceable list key to the email or meeting note it ingested: `wiki: ["[[Wiki/Topics/q3-budget]]", "[[Wiki/People/Jane Doe]]"]`. It is the only frontmatter key on a record the wiki writes, it is rewritten (not appended) on a second ingest, and it is what `prep`, `find`, the Bases views and lint check 11 ("records never ingested") read. Ask for it with `fields=["wiki"]` on `vault_find` / `vault_list`; never set it through `vault_write`.
+`vault_wiki_ingest` adds one replaceable list key to the email, meeting or chat note it ingested (`vault_save_chat` sets it too, for the person pages of the senders it matched): `wiki: ["[[Wiki/Topics/q3-budget]]", "[[Wiki/People/Jane Doe]]"]`. It is the only frontmatter key on a record the wiki writes, it is rewritten (not appended) on a second ingest, and it is what `prep`, `find`, the Bases views and lint check 11 ("records never ingested") read. Ask for it with `fields=["wiki"]` on `vault_find` / `vault_list`; never set it through `vault_write`.
 
 ## Wiki
 
@@ -237,11 +242,95 @@ week: 2026-W34
 start: 2026-08-17
 end: 2026-08-23
 generated: 2026-08-22T10:20:00+02:00
-created_by: administrator/0.2.0
+created_by: administrator/0.3.0
 ---
 ```
 
-Required keys: `type`, `week`, `start`, `end`, `created_by`. Body sections in fixed order: `## Still open from inbox`, `## Waiting on`, `## Meetings held`, `## Next week`, `## People going quiet`, and optionally `## Notes` (3–6 bullets written by the model; the other five are laid out from `vault_weekly_facts` and `outlook_list_events`). A second run on the same week appends `## Update <ISO>` with a fresh set of sections; the earlier text stays. Nothing in a weekly note is edited in place.
+Required keys: `type`, `week`, `start`, `end`, `created_by`. Body sections in fixed order: `## Still open from inbox`, `## Waiting on`, `## Meetings held`, `## Next week`, `## People going quiet`, `## Time`, `## Wiki`, and optionally `## Notes` (3–6 bullets written by the model; the others are laid out from `vault_weekly_facts`, `outlook_list_events`, `vault_time_audit` and the wiki tools). `## Time` holds the `lines` of `vault_time_audit(week, events)` as bullets — the week's own events from one `outlook_list_events(start=<Monday>, end=<Sunday>, fields=["subject","start","end","all_day","attendee_count","is_meeting","occurrence_key","busy_status"])` call: hours per kind (meeting, focus, admin, other, unplanned) with shares of the work hours, blocks planned / held / moved / skipped / unanswered from the `Time-blocks/` note's `## Held` rows, and hours per priority planned and held. A second run on the same week appends `## Update <ISO>` with a fresh set of sections; the earlier text stays. Nothing in a weekly note is edited in place.
+
+## Time-block note
+
+One note per ISO week under `Time-blocks/`, written only by `vault_time_block_write` after `/administrator:time-block` created the appointments; the model never types one. Identity = `week`. `source: administrator`. The appointments themselves live in Outlook (subjects `[Focus] <priority>` and `[Admin] Email and small tasks`, `show_as: busy`, category `Administrator`, no attendees); the note keeps what was planned and, row by row, how it went.
+
+```markdown
+---
+type: time-block
+source: administrator
+week: 2026-W35
+start: "2026-08-24"
+end: "2026-08-30"
+planned: 13
+created_by: administrator/0.3.0
+---
+
+# Time blocks — 2026-W35
+
+Week of Mon 24 Aug to Sun 30 Aug. Planned by /administrator:time-block; the appointments live in Outlook, this note keeps the plan and how it went.
+
+## Plan
+
+| Day | Start | End | Kind | Subject | Priority |
+| --- | --- | --- | --- | --- | --- |
+| Mon 24 Aug | 10:15 | 11:45 | focus | [Focus] ACME supplier contract | ACME supplier contract <!-- occurrence_key: 0400D01…\|2026-08-24T10:15:00+02:00 # plan --> |
+| Mon 24 Aug | 12:00 | 12:45 | admin | [Admin] Email and small tasks | — <!-- occurrence_key: 0400D02…\|2026-08-24T12:00:00+02:00 # plan --> |
+
+## Held
+
+| Day | Block | Result | Note |
+| --- | --- | --- | --- |
+| Mon 24 Aug | [Focus] ACME supplier contract 10:15–11:45 | held | <!-- occurrence_key: 0400D01…\|2026-08-24T10:15:00+02:00 --> |
+
+## Notes
+```
+
+Rules:
+
+- Required keys: `type`, `source`, `week`, `start`, `end`, `planned`, `created_by`. `planned` counts every block row written so far (the server replaces it on a re-plan).
+- `## Plan` rows come from the plan blocks plus the `entry_id` / `occurrence_key` of the create results; the hidden key carries a ` # plan` suffix so that the `## Held` row of the same block, keyed by the bare `occurrence_key`, is not refused as a duplicate. A re-plan of the same week appends a `### Plan` table under `## Update <ISO>`; nothing above it changes and no row is ever removed — an unwanted appointment is deleted in Outlook by the user.
+- `## Held` rows are written only by `/administrator:collect-information` through `vault_append_row(path, "Held", ["<Tue 25 Aug>", "<subject HH:MM–HH:MM>", "<held | moved | skipped>", "<note>"], dedupe_key=<occurrence_key>, key_label="occurrence_key", header=["Day","Block","Result","Note"])`, one per answered block; `duplicate` means it was answered already. `vault_time_audit` reads them: `skipped` moves the block's minutes to unplanned, `moved` keeps them, a block without a row is `unanswered`.
+- `## Notes` belongs to the user.
+
+## Chat note
+
+One record per Teams chat per day under `Teams/`, written only by `vault_save_chat` (`/administrator:collect-information`); the model never types one. Identity = `{chat_id, date}`, also held as `record_id: "<chat_id>|<date>"`, which is the `src` the wiki writes on facts that came from the chat. `source: teams`.
+
+```markdown
+---
+type: chat
+source: teams
+chat_id: "19:a1b2c3@thread.v2"
+chat_title: Q3 budget
+chat_type: group
+date: 2026-08-24
+account: "<tenantId>:<userObjectId>"
+members:
+  - Jane Doe
+  - Tom Lee
+  - Hux Waitt
+record_id: "19:a1b2c3@thread.v2|2026-08-24"
+messages: 2
+first: 2026-08-24T09:15:03+02:00
+last: 2026-08-24T09:17:20+02:00
+created_by: administrator/0.3.0
+---
+
+# Q3 budget — 2026-08-24
+
+**Members:** Jane Doe, Tom Lee, Hux Waitt
+
+## Messages
+
+- 09:15 **Jane Doe**: Morning — can we move the numbers deadline to Friday 29 Aug? <!-- id: 1756049703123 -->
+- 09:17 **Hux Waitt**: Fine by me. <!-- id: 1756049840555 -->
+```
+
+Rules:
+
+- Required keys: `type`, `source`, `chat_id`, `chat_title`, `date`, `account`, `members`, `record_id`, `messages`, `first`, `last`, `created_by`. `chat_type` is `chat` (1:1), `group`, `channel` or `meeting`, as `teams_list_chats` reported it. Values come from the `teams_list_chats` entry and its `messages[]`; the model passes them through unchanged.
+- One line per message, oldest first, `HH:MM` local, the sender's display name in bold, the text on one line, and the hidden message id. That id is the dedupe key: a second call the same day appends `## Update <ISO>` with a `### Messages` list of the ids not yet in the file and moves `messages` and `last` forward; nothing else changes. Nothing new → `action: unchanged`, no write.
+- Messages spanning several days give one record per day; `vault_save_chat` then returns a list with one result per day.
+- Senders that match a person page by name or alias get a `## Records` line on it (`- 2026-08-24 — [[Teams/2026-08-24 Q3 budget]] — Q3 budget: <first line>`, one per record) and `last_contact` moves forward; those pages go into the record's `wiki:` key. Senders without a page come back in `unknown_people` and get none — a chat carries no address, and no person page is ever created without one. The user's own messages (`is_self`, or a sender in `self_names`) are recorded but never matched.
+- Chat records are ingested like emails and meetings (`vault_wiki_ingest(record_path=<Teams/…>)`; `src` defaults to `record_id`, `since` to `date`); lint check 11 counts chat records never ingested.
 
 ## Follow-ups.md
 
@@ -249,7 +338,7 @@ Required keys: `type`, `week`, `start`, `end`, `created_by`. Body sections in fi
 ---
 type: followups
 source: outlook
-created_by: administrator/0.2.0
+created_by: administrator/0.3.0
 ---
 
 # Follow-ups
@@ -277,7 +366,11 @@ Row rules:
 
 ## Preferences.md
 
-`<vault>/Administrator/Preferences.md` — one file, owned by the user, read by the `schedule` skill once per session (again only when the user says they changed it). Created by `vault_init` (`/administrator:setup` asks for work hours; other commands use the defaults 09:00–17:00, buffer 15, `no_meeting_blocks: ["Fri 13:00-<work_end>"]`). `vault_init(overwrite=true)` is the only thing that ever rewrites it. Frontmatter keys: `type: preferences`, `source: administrator`, `work_start`, `work_end` (`"HH:MM"`, quoted), `timezone` (a note only), `buffer_minutes`, `no_meeting_blocks` (list of `"Fri 13:00-17:00"`), `max_meetings_per_day`, `default_duration`, `default_location`, `preferred_days` (list of `Mon`…`Sun`), `created_by`. A missing or malformed key falls back to the default for that key (`skills/schedule/references/preferences.md`). The body may hold a `## Voice` section — optional, plain bullets, written by the user only, read by the `draft` skill and by nudges and minutes (`skills/draft/references/voice.md`).
+`<vault>/Administrator/Preferences.md` — one file, owned by the user, read by the `schedule` skill once per session (again only when the user says they changed it). Created by `vault_init` (`/administrator:setup` asks for work hours; other commands use the defaults 09:00–17:00, buffer 15, `no_meeting_blocks: ["Fri 13:00-<work_end>"]`). `vault_init(overwrite=true)` is the only thing that ever rewrites it. Frontmatter keys: `type: preferences`, `source: administrator`, `work_start`, `work_end` (`"HH:MM"`, quoted), `timezone` (a note only), `buffer_minutes`, `no_meeting_blocks` (list of `"Fri 13:00-17:00"`), `max_meetings_per_day`, `default_duration`, `default_location`, `preferred_days` (list of `Mon`…`Sun`), the time-block keys `peak_hours`, `focus_block_minutes`, `focus_blocks_per_day`, `admin_blocks_per_day`, `admin_block_minutes`, `slack_share`, and `collect_folders` (extra vault-relative folders `/administrator:collect-information` reads for changed notes; folders outside `Administrator/` are only ever read), `created_by`. A missing or malformed key falls back to the default for that key (`skills/schedule/references/preferences.md`). The body may hold a `## Voice` section — optional, plain bullets, written by the user only, read by the `draft` skill and by nudges and minutes (`skills/draft/references/voice.md`).
+
+## Priorities.md
+
+`<vault>/Administrator/Priorities.md` — `type: priorities`, `source: administrator`, created by `vault_init` once (also with `overwrite=true`) and never rewritten; owned by the user. Body: a short explanation and one `## Priorities` section with a numbered list, three to five lines, each a wiki topic link (`[[Wiki/Topics/acme-supplier-contract]]`) or plain words, ranked. `/administrator:time-block` reads the numbered lines through `vault_read` and gives rank 1 every other focus block; the placeholder line `vault_init` writes counts as empty. The plugin never adds, removes or reorders a line here.
 
 ## Rules.md
 
@@ -295,7 +388,7 @@ User: `/administrator:save budget q3 jane`
 2. `outlook_get_mail(entry_id="00000000AA…", trim_quoted=true, fields=["entry_id","internet_message_id","conversation_id","subject","from","from_address","to","cc","recipients","received","attachments","body_trimmed","body_truncated"], response_format="json")` → `subject: "Re: Budget Q3"`, `from: "Jane Doe"`, `from_address: "jane.doe@example.com"`, `internet_message_id: "<7f3a9c@example.com>"`, `conversation_id: "CAE…"`, `received: "2026-08-22T09:14:00+02:00"`, `recipients: [{name:"Hux Waitt", address:"me@example.com", type:"to"}]`, one attachment `Budget_Q3.xlsx`, `body_trimmed` without the quoted earlier mail.
 3. `vault_find("email", {"internet_message_id": "<7f3a9c@example.com>", "entry_id": "00000000AA…"}, fields=["status","msg_file","attachments"])` → `found: false`; `vault_find("person", {"email": "jane.doe@example.com"}, fields=["name"])` → `found: false`.
 4. Ask: "Export the original .msg and Budget_Q3.xlsx to Administrator/Attachments/2026-08-22 Budget Q3/?" Only on yes: `outlook_save_mail_as` and `outlook_save_attachments`.
-5. `vault_save_email(mail=<the get_mail JSON>, summary="Jane asks for the final Q3 numbers by Friday so she can close the forecast.", action_items=["Send Q3 numbers to Jane by 2026-08-29 — owner: me"], attachments_saved=[…], msg_file=…, self_addresses=["me@example.com"], created_by="administrator/0.2.0")` → `{"path": "Administrator/Emails/2026-08-22 Budget Q3.md", "action": "created", "status": "todo", "person_path": "Administrator/Wiki/People/Jane Doe.md", "person_action": "created", "followup_added": false}`. The note and person note it wrote look like this (the model never types them):
+5. `vault_save_email(mail=<the get_mail JSON>, summary="Jane asks for the final Q3 numbers by Friday so she can close the forecast.", action_items=["Send Q3 numbers to Jane by 2026-08-29 — owner: me"], attachments_saved=[…], msg_file=…, self_addresses=["me@example.com"], created_by="administrator/0.3.0")` → `{"path": "Administrator/Emails/2026-08-22 Budget Q3.md", "action": "created", "status": "todo", "person_path": "Administrator/Wiki/People/Jane Doe.md", "person_action": "created", "followup_added": false}`. The note and person note it wrote look like this (the model never types them):
 
 ```yaml
 type: email
@@ -313,7 +406,7 @@ cc: []
 received: 2026-08-22T09:14:00+02:00
 status: todo
 has_attachments: true
-created_by: administrator/0.2.0
+created_by: administrator/0.3.0
 ```
 
 ```markdown

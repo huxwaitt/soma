@@ -19,19 +19,29 @@ It reads Outlook through the bundled `outlook-classic-mcp` server, decides what 
 - **`/administrator:find`** — describe an email the way you remember it ("the email where we agreed on the Q3 budget with Sam", "the spreadsheet Maria sent with vendor pricing last month") and get up to three candidates with the exact line that answers you, attachment names, and a link if the note already exists. One `outlook_find` call searches Inbox and Sent and ranks; attachment names and indexed text are checked when you mention a file. Read-only; offers to save the winner.
 - **`/administrator:wiki`** — read a wiki page, ask the wiki a question ("what do we know about the ACME contract"), add or change a fact from chat (kept as yours, so no later mail overrides it), resolve the review queue, or ingest a record saved before the wiki existed.
 - **`/administrator:lint`** — the wiki's fixed checklist: index drift, dangling links, orphans, stale pages, size caps, possible duplicates, records never ingested, contradictions. `fix` applies the safe fixes; merges and new pages only after a yes.
+- **`/administrator:collect-information`** — everything since the last run in one pass: Teams chats from the local client cache (optional, see "Teams" below), new mail in Inbox and Sent, and notes that changed in the vault. Chat records and the mails that touch a wiki page are saved, the wiki changes are shown as bullets grouped by page, and only after your yes are they applied, oldest record first — a later source wins, an older one that disagrees goes to the review queue. Then one question: how did today's `[Focus]` / `[Admin]` blocks go? Nothing in Outlook or Teams is changed.
+- **`/administrator:time-block`** — plans your week's focus and admin blocks around the meetings already in your calendar, shows how last week went against your priorities, and after your yes books the blocks as appointments in your own calendar — no attendees, so nothing is sent to anyone. A re-plan fills gaps that opened up and never deletes a block. See "Time blocks" below.
 - **`/administrator:draft`** — a reply to any thread, written the way you write: it reads the thread with the quoted history removed, the sender's wiki page and your open follow-ups, learns your greeting, sign-off and length from your sent mail, answers every question in the last mail and marks anything it does not know as `[fill in: …]`. Shows the draft; on a yes it lands in Outlook Drafts as a reply in the thread. Never sends.
 
 ## The wiki
 
 Records (saved emails, meeting notes, daily and weekly notes) are never edited; they are what happened. Next to them, `Administrator\Wiki\` holds what is *currently true*: one page per person, organisation, topic (a subject with a timeline and an outcome) and procedure, each with a short lead, dated facts that point back to the records they came from, open items, and a History that keeps every fact that was replaced. `save` and `notes` end by putting the facts of the new record onto the pages they belong to; `prep`, `find` and `draft` read the pages before they read old mail; `weekly` runs the lint and shows the review queue. A fact changes only when a *later* record says so — an old thread you save today can never overwrite a newer fact; it goes to `Wiki\Review.md` for you to settle. A topic page is created only when a subject shows up in two records on two different days, or when you name it. Nothing is deleted, merged, or resolved without your yes. `Wiki\Index.md` is the home page (generated, one line per page); `Wiki\Wiki.md` is the contract, the same text the plugin reads, and you can add your own notes at the bottom. Say "save without wiki" to skip the step for one record. A vault from 0.1.0 keeps working; `/administrator:setup` shows a dry run and moves `People\` into the wiki only after you agree.
 
+## Time blocks
+
+`/administrator:time-block` puts your own work into the calendar the way meetings already are, on five findings that hold up (the sources and numbers are in `skills/time-block/references/method.md`). A task with a fixed day and hour gets done far more often than one on a list, so every block is an appointment with a start and an end. Thinking is measurably better at some hours of the day than others, and deep work needs a long run, so focus blocks are 90 minutes or more and go into your `peak_hours` first, named after a priority from `Administrator\Priorities.md` (`[Focus] ACME supplier contract`; rank 1 gets every other block). Email and small tasks cost more when they interrupt than when they are batched, so they get two shorter `[Admin] Email and small tasks` blocks outside the peak hours. A fifth of each day stays free for what comes up (`slack_share`), and a day the meetings have already filled past that gets no blocks at all rather than a squeezed one. Finally, `/administrator:collect-information` asks each day whether the blocks were held, moved or skipped, and `/administrator:weekly` prints where the hours went — meetings, focus, admin, other, unplanned — against your priorities under `## Time`. The blocks are appointments without attendees, marked busy and filed under the Outlook category `Administrator`; nothing is ever sent to anyone, and the plugin never deletes one — if a block is in the way, delete it in Outlook, or let `/administrator:daily` move it when a meeting lands on it. `/administrator:free` and `/administrator:schedule` do not count blocks towards your `max_meetings_per_day`.
+
 ## Requirements
 
 - Windows 10 or 11.
-- **Classic** Outlook (desktop, `outlook.exe`) with a configured mail profile. The new Outlook (`olk.exe`) is not supported; switch back to classic if you are on it.
+- **Classic** Outlook (desktop, `outlook.exe`) with a configured mail profile. The new Outlook (`olk.exe`) is not supported; switch back to classic if you are on it. The new Teams client is fine (and the only one whose cache the optional Teams server reads).
 - [uv](https://docs.astral.sh/uv/) on your PATH.
-- A local checkout of `outlook-classic-mcp` 0.4.0 or later (the current checkout with `outlook_get_event_by_key`, `outlook_get_free_busy`, `outlook_find_meeting_times`, `outlook_search_attachments`, `outlook_advanced_search`, `outlook_extract_attachment_text`, `outlook_reply_mail(save_only=true)`, `outlook_awaiting_reply`, `outlook_find`, `outlook_voice_sample`, `fields=` / `preview_chars=` on every list, search and get tool, `trim_quoted` and the `administrator-vault` script with its `vault_wiki_*` tools — 46 Outlook tools plus 25 vault tools; install its `search` extra for PDF and Excel attachment text), with its path in the `OUTLOOK_MCP_DIR` environment variable (see "Set the vault path" below). The plugin starts two servers from that checkout: `outlook` (`uv run --directory $OUTLOOK_MCP_DIR outlook-mcp`, reads Outlook) and `vault` (`… administrator-vault`, writes the notes). Both need `OUTLOOK_MCP_DIR`; `vault` also needs `ADMINISTRATOR_VAULT`.
+- A local checkout of `outlook-classic-mcp` 0.4.0 or later (the current checkout with `outlook_get_event_by_key`, `outlook_get_free_busy`, `outlook_find_meeting_times`, `outlook_search_attachments`, `outlook_advanced_search`, `outlook_extract_attachment_text`, `outlook_reply_mail(save_only=true)`, `outlook_awaiting_reply`, `outlook_find`, `outlook_voice_sample`, `fields=` / `preview_chars=` on every list, search and get tool, `trim_quoted` and the `administrator-vault` script with its `vault_wiki_*`, `vault_save_chat`, `vault_collect_sources` and `vault_changed_notes` tools — 46 Outlook tools plus 31 vault tools; install its `search` extra for PDF and Excel attachment text), with its path in the `OUTLOOK_MCP_DIR` environment variable (see "Set the vault path" below). The plugin starts three servers from that checkout: `outlook` (`uv run --directory $OUTLOOK_MCP_DIR outlook-mcp`, reads Outlook), `vault` (`… administrator-vault`, writes the notes) and the optional `local-ms-teams` (`… local-ms-teams`, reads the Teams cache; see "Teams" below). All need `OUTLOOK_MCP_DIR`; `vault` also needs `ADMINISTRATOR_VAULT`.
 - An Obsidian vault on disk. Notes are plain markdown with frontmatter; no community plugins are needed to read them.
+
+### Teams (optional)
+
+`/administrator:collect-information` can read your Teams chats without any Graph permission or admin consent: the third server, `local-ms-teams` (`uv run --directory $OUTLOOK_MCP_DIR local-ms-teams`), reads a *copy* of the new Teams client's local cache on this machine and never writes to it or talks to the network. It sees what the client has synced — recent chats, group chats, channel and meeting chats you opened, with sender names and times — and nothing else: no meeting transcripts (those still go through `/administrator:notes`), no history the client has not loaded, no attachments. The cache format belongs to Microsoft and can change with a Teams update; when it does, `teams_status` says so and the command skips Teams. To turn it on, install the extra in the checkout once — `uv sync --extra teams` — sign in to the new Teams client on this machine, and restart Claude Code. Without the extra the server still starts and reports the one-line fix; nothing else in the plugin depends on it.
 
 ## Install
 
@@ -64,7 +74,7 @@ $env:OUTLOOK_MCP_DIR = "C:\Users\<you>\PycharmProjects\outlook-classic-mcp"
 [Environment]::SetEnvironmentVariable("OUTLOOK_MCP_DIR", "C:\Users\<you>\PycharmProjects\outlook-classic-mcp", "User")
 ```
 
-The plugin registers two MCP servers from that directory: `outlook` (`outlook-mcp`, reads Outlook) and `vault` (`administrator-vault`, writes the notes). Both need `OUTLOOK_MCP_DIR`; `vault` also needs `ADMINISTRATOR_VAULT`. `OUTLOOK_MCP_DIR` is only needed while the servers are run from a local checkout. Once `outlook-classic-mcp` is published, the plugin will start them with `uvx` and this variable goes away.
+The plugin registers three MCP servers from that directory: `outlook` (`outlook-mcp`, reads Outlook), `vault` (`administrator-vault`, writes the notes) and `local-ms-teams` (reads the local Teams cache; optional). All three need `OUTLOOK_MCP_DIR`; `vault` also needs `ADMINISTRATOR_VAULT`. `OUTLOOK_MCP_DIR` is only needed while the servers are run from a local checkout. Once `outlook-classic-mcp` is published, the plugin will start them with `uvx` and this variable goes away.
 
 Restart Claude Code after setting either variable permanently. `/administrator:setup` (or the first command you run) creates this layout with `vault_init`:
 
@@ -76,11 +86,14 @@ Restart Claude Code after setting either variable permanently. `/administrator:s
   Wiki\                        the wiki: Index.md, Log.md, Review.md, Wiki.md (the contract),
     People\<Display Name>.md   one page per sender or attendee
     Orgs\ Topics\ Howto\       one page per organisation, topic, procedure
+  Teams\YYYY-MM-DD <chat>.md   one record per Teams chat per day (collect-information)
   Attachments\<date slug>\     .msg and attachment exports, one folder per saved mail
   Weekly\YYYY-Www.md           one review note per week
+  Time-blocks\YYYY-Www.md      one plan note per week (time-block), with how each block went
   _views\*.base                five Bases views (People, Follow-ups, Meetings, Emails, Wiki)
   Follow-ups.md                rolling "waiting on" list
   Preferences.md               your scheduling preferences (created by setup, edited by you)
+  Priorities.md                your ranked priorities (created by setup once, edited by you; read by time-block)
   Rules.md                     sender / subject rules applied before the inbox is labelled (created by setup, edited by you)
 ```
 
@@ -190,7 +203,16 @@ One `outlook_awaiting_reply` call checks your Sent folder for the last 30 days a
 /administrator:weekly 2026-W33
 ```
 
-Writes `Weekly\YYYY-Www.md` from `vault_weekly_facts` (the week's daily notes, `Follow-ups.md`, the meeting notes and the person notes, counted in the vault server) and next week's calendar, plus a few bullets of its own under `## Notes`. Running it again on the same week appends an update section.
+Writes `Weekly\YYYY-Www.md` from `vault_weekly_facts` (the week's daily notes, `Follow-ups.md`, the meeting notes and the person notes, counted in the vault server), next week's calendar, and the week's hours by kind against your priorities (`vault_time_audit`, under `## Time`), plus a few bullets of its own under `## Notes`. Running it again on the same week appends an update section.
+
+### `/administrator:time-block [week | this | next]`
+
+```
+/administrator:time-block
+/administrator:time-block next
+```
+
+Reads `Preferences.md` and `Priorities.md` (asks for three priorities once if the list is empty), shows last week in three lines (hours per kind, blocks held / moved / skipped, hours per priority), then the plan for the week as one line per day — focus blocks in your peak hours named after your priorities, admin blocks outside them, a fifth of each day left free, days already full of meetings skipped with the reason — and asks once: "Book these N blocks? They are appointments without attendees — nothing is sent to anyone." On a yes it creates the appointments (busy, category `Administrator`, no reminder) and writes `Time-blocks\YYYY-Www.md`. Running it again keeps every existing block and adds only where room opened up.
 
 ### `/administrator:find <sentence>`
 
@@ -200,6 +222,16 @@ Writes `Weekly\YYYY-Www.md` from `vault_weekly_facts` (the week's daily notes, `
 ```
 
 Pulls people, topic words, dates and attachment hints out of the sentence, makes one `outlook_find` call (the server searches the folders, ranks and returns ten snippets), opens at most two threads, and quotes the sentence that answers the question. Hard cap of 6 Outlook calls. Changes nothing; saving is offered through `/administrator:save`.
+
+### `/administrator:collect-information [since <date> | today]`
+
+```
+/administrator:collect-information
+/administrator:collect-information today
+/administrator:collect-information since 2026-08-21
+```
+
+Reads the "last collected" stamps and, when they are older than a day, asks once: "Last collected: Fri 21 Aug 18:10. Collect since then, or just today?" Then Teams (`teams_list_chats`, at most 15 chats with 20 messages each), Inbox and Sent (`outlook_list_mails`, 50 per folder; at most 8 mails that touch a wiki page are opened and saved), and the vault's own notes changed since (`vault_changed_notes`, the record folders plus any `collect_folders` you list in `Preferences.md`). Chat records go to `Teams\`, mails to `Emails\`; then the wiki changes are shown grouped by page and applied only after your yes, oldest record first. The stamps move, and one last question asks whether today's `[Focus]` / `[Admin]` blocks were held, moved or skipped (recorded in the week's `Time-blocks\` note). Nothing in Outlook or Teams is changed.
 
 ### `/administrator:draft <thread words or entry_id> [what to say]`
 
@@ -233,7 +265,7 @@ Runs the fifteen checks in `Wiki\Wiki.md` and reports the counts: index out of s
 
 ### `Administrator\Preferences.md`
 
-Created by `/administrator:setup` (or with defaults the first time any command needs it). Edit it in Obsidian: `work_start`, `work_end`, `buffer_minutes`, `no_meeting_blocks`, `max_meetings_per_day`, `default_duration`, `default_location`, `preferred_days`. The plugin reads it once per session and never changes it. An optional `## Voice` section (plain bullets: greeting, sign-off, length, formality, hard rules like "no exclamation marks") is read by `/administrator:draft`, nudges and minutes; you write it yourself, the plugin never edits the file.
+Created by `/administrator:setup` (or with defaults the first time any command needs it). Edit it in Obsidian: `work_start`, `work_end`, `buffer_minutes`, `no_meeting_blocks`, `max_meetings_per_day`, `default_duration`, `default_location`, `preferred_days`, and for the time blocks `peak_hours`, `focus_block_minutes`, `focus_blocks_per_day`, `admin_blocks_per_day`, `admin_block_minutes`, `slack_share` (plus `collect_folders` for `/administrator:collect-information`). The plugin reads it once per session and never changes it. An optional `## Voice` section (plain bullets: greeting, sign-off, length, formality, hard rules like "no exclamation marks") is read by `/administrator:draft`, nudges and minutes; you write it yourself, the plugin never edits the file.
 
 ## What never happens without a yes
 
@@ -242,6 +274,7 @@ Created by `/administrator:setup` (or with defaults the first time any command n
 - Writing files from Outlook to disk (`outlook_save_mail_as`, `outlook_save_attachments`); these land in `<vault>\Administrator\Attachments\<date slug>\` and are offered once per save.
 - Saving an email draft (`outlook_send_mail(save_only=true)` — minutes after `/administrator:notes`, proposed times from `/administrator:schedule`, nudge drafts from `/administrator:followups`; `outlook_reply_mail(save_only=true)` — a reply in the thread from `/administrator:draft`). The plugin never sends plain email, not even with a yes: `outlook_send_mail` without `save_only`, `outlook_reply_mail` without `save_only` and `outlook_forward_mail` are never called. You send from Drafts.
 - Creating or moving a meeting (`outlook_create_event`, `outlook_update_event`), both only from `/administrator:schedule` after the full summary. An invite goes to every attendee as soon as it is created. Deleting events or answering invites never happens.
+- Booking or moving your own time blocks (`outlook_create_event` without attendees from `/administrator:time-block` after "Book these N blocks?"; `outlook_update_event` on a block from `/administrator:daily` after "Move it?"). Blocks have no attendees, so nothing reaches anyone; the plugin never deletes one.
 
 Every offer states the exact action, the number of items, and their subjects. "Yes" means that option only.
 
@@ -255,7 +288,7 @@ The connector talks to Outlook through COM, which only classic desktop Outlook e
 
 ## Notes the plugin writes
 
-Every note has frontmatter with `type` (`email`, `daily`, `person`, `meeting`, `weekly`, `preferences`, or a wiki type `org`, `topic`, `howto`, `me`), `source: outlook` (`administrator` for preferences and weekly notes), `created_by: administrator/0.2.0`, and for emails the Outlook identity (`internet_message_id`, `entry_id`, `conversation_id`), sender SMTP address, recipients, `received` with timezone offset, and a `status` of `todo`, `waiting`, `done`, or `fyi`. Meeting notes carry the event's `global_id` and `occurrence_key` (one note per occurrence of a recurring meeting) and a `status` of `upcoming`, `held`, or `cancelled`. Links use wikilinks (`[[Wiki/People/Jane Doe]]`) so Obsidian's graph and backlinks work out of the box.
+Every note has frontmatter with `type` (`email`, `daily`, `person`, `meeting`, `weekly`, `chat`, `time-block`, `preferences`, `priorities`, or a wiki type `org`, `topic`, `howto`, `me`), `source: outlook` (`teams` for chat records, `administrator` for preferences, priorities, weekly and time-block notes), `created_by: administrator/0.3.0`, and for emails the Outlook identity (`internet_message_id`, `entry_id`, `conversation_id`), sender SMTP address, recipients, `received` with timezone offset, and a `status` of `todo`, `waiting`, `done`, or `fyi`. Meeting notes carry the event's `global_id` and `occurrence_key` (one note per occurrence of a recurring meeting) and a `status` of `upcoming`, `held`, or `cancelled`. Links use wikilinks (`[[Wiki/People/Jane Doe]]`) so Obsidian's graph and backlinks work out of the box.
 
 Existing notes are never overwritten. When a mail is saved again, an `## Update <timestamp>` section is appended. Every command that writes a note ends with an `obsidian://open` link to it. The notes are written by the `vault` server, which also enforces the frontmatter and never edits text that is already there.
 

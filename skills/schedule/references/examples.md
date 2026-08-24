@@ -47,7 +47,7 @@ User: "a, 1". `outlook_list_events` for Tue 25 Aug with the same `fields` → no
 
 User: "yes". `outlook_create_event(subject="Budget review", start="2026-08-25T10:00:00", end="2026-08-25T10:30:00", attendees=["sam.ortiz@example.com","jane.doe@acme-parts.com"], location="Teams", is_online_meeting=true, body="Booked by administrator on 2026-08-22")` → `{"status":"created","entry_id":"00000000C1…","global_id":"040000008200E0…","occurrence_key":"040000008200E0…|2026-08-25T10:00:00+02:00","subject":"Budget review","start":"2026-08-25T10:00:00+02:00","end":"2026-08-25T10:30:00+02:00","invite_sent":true}`. `global_id` is there, so no `outlook_get_event`.
 
-Person notes: `vault_find("person", {"email": "jane.doe@acme-parts.com"})` → found (from an earlier save) → `vault_write("person", <frontmatter as found>, "- 2026-08-25 — [[Meetings/2026-08-25 1000 Budget review]]", mode="append")`. `vault_find("person", {"email": "sam.ortiz@example.com"})` → not found → `vault_write("person", {type: person, name: "Sam Ortiz", email: "sam.ortiz@example.com", last_contact: "", aliases: [], created_by: "administrator/0.2.0"}, "- 2026-08-25 — [[Meetings/2026-08-25 1000 Budget review]]", mode="create")` (the server writes the `draft` wiki page with that line under `## Records`).
+Person notes: `vault_find("person", {"email": "jane.doe@acme-parts.com"})` → found (from an earlier save) → `vault_write("person", <frontmatter as found>, "- 2026-08-25 — [[Meetings/2026-08-25 1000 Budget review]]", mode="append")`. `vault_find("person", {"email": "sam.ortiz@example.com"})` → not found → `vault_write("person", {type: person, name: "Sam Ortiz", email: "sam.ortiz@example.com", last_contact: "", aliases: [], created_by: "administrator/0.3.0"}, "- 2026-08-25 — [[Meetings/2026-08-25 1000 Budget review]]", mode="create")` (the server writes the `draft` wiki page with that line under `## Records`).
 
 Meeting note — frontmatter passed as an object (the server quotes what needs quoting):
 
@@ -71,7 +71,7 @@ attendee_links:
   - "[[Wiki/People/Jane Doe]]"
 is_recurring: false
 status: upcoming
-created_by: administrator/0.2.0
+created_by: administrator/0.3.0
 ```
 
 Body:

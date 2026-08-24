@@ -1,6 +1,6 @@
 # Preferences reference — `<vault>/Administrator/Preferences.md`
 
-One file holds the user's scheduling preferences. The `schedule` skill reads it (`vault_read("Administrator/Preferences.md")`) once per session — again only when the user says they changed it — and applies it on top of what Outlook returns. The user edits it by hand in Obsidian; `vault_init` creates it when it is missing (`/administrator:setup` asks for work hours first, every other command uses the defaults below) and only `vault_init(overwrite=true)` ever rewrites it.
+One file holds the user's scheduling preferences. The `schedule` skill reads it (`vault_read("Administrator/Preferences.md")`) once per session — again only when the user says they changed it — and applies it on top of what Outlook returns. The `time-block` skill's planner (`vault_time_block_plan`) and `/administrator:collect-information` (`vault_changed_notes`) read the same file inside the vault server. The user edits it by hand in Obsidian; `vault_init` creates it when it is missing (`/administrator:setup` asks for work hours first, every other command uses the defaults below) and only `vault_init(overwrite=true)` ever rewrites it.
 
 ## Template (what `vault_init` writes with the defaults)
 
@@ -21,12 +21,20 @@ preferred_days:
   - Tue
   - Wed
   - Thu
-created_by: administrator/0.2.0
+peak_hours:
+  - "09:00-12:00"
+focus_block_minutes: 90
+focus_blocks_per_day: 2
+admin_blocks_per_day: 2
+admin_block_minutes: 45
+slack_share: 0.2
+collect_folders: []
+created_by: administrator/0.3.0
 ---
 
 # Scheduling preferences
 
-Edit the frontmatter above. The plugin reads it before suggesting or booking any meeting. Plain words on what each key does:
+Edit the frontmatter above. The plugin reads it before suggesting or booking any meeting and before planning focus and admin blocks. Plain words on what each key does:
 
 - `work_start` / `work_end` — the only hours a slot may be suggested in. 24-hour `"HH:MM"`, quoted.
 - `timezone` — a note to yourself; the plugin always works in the local time Outlook reports. Change your Windows timezone, not this line, if you travel.
@@ -36,6 +44,13 @@ Edit the frontmatter above. The plugin reads it before suggesting or booking any
 - `default_duration` — minutes, used when you do not say how long.
 - `default_location` — used when you do not say where. `"Teams"`, a room name, or `""` for none.
 - `preferred_days` — days listed here are shown first when there is a choice. An empty list `[]` means no preference.
+- `peak_hours` — the hours you think best, as ranges `"09:00-12:00"`, one per line; focus blocks are placed there first.
+- `focus_block_minutes` — length of one focus block; nothing shorter is booked.
+- `focus_blocks_per_day` — how many focus blocks a day may get at most.
+- `admin_blocks_per_day` — how many admin blocks (email and small tasks) a day may get at most.
+- `admin_block_minutes` — length of one admin block.
+- `slack_share` — the share of the work day left unbooked for what comes up: `0.2` keeps a fifth free. Days where meetings already eat past this share get no blocks.
+- `collect_folders` — extra folders /administrator:collect-information reads for changed notes, as paths relative to the vault root (`"Projects"`, `"Journal/2026"`). They are only read, never written. An empty list `[]` means only the Administrator/ notes.
 
 ## Notes
 
@@ -64,6 +79,15 @@ Anything you write below this line is yours; the plugin never touches it.
 | `default_duration` | Before the call | `duration_minutes` when the user gave none. |
 | `default_location` | At booking | `location` for `outlook_create_event` when the user gave none. |
 | `preferred_days` | Ordering | Candidates on a preferred day first (earliest first inside each group), then the rest, earliest first. With an empty list, plain earliest-first. |
+| `peak_hours` | `vault_time_block_plan` (in the server) | Each range is parsed as `HH:MM-HH:MM`; a focus block goes into the largest free piece inside a range first, outside only when none fits. |
+| `focus_block_minutes` | `vault_time_block_plan` | Length of every new focus block; a free piece shorter than this gets none. An existing `[Focus]` appointment of any length is kept and counted. |
+| `focus_blocks_per_day` | `vault_time_block_plan` | Cap per working day, existing `[Focus]` appointments included. |
+| `admin_blocks_per_day` | `vault_time_block_plan` | Cap per working day, existing `[Admin]` appointments included; the first ends at or before 13:00, the second at the end of the day when there is room. |
+| `admin_block_minutes` | `vault_time_block_plan` | Length of every new admin block. |
+| `slack_share` | `vault_time_block_plan` | Bookable minutes = (1 − `slack_share`) × work minutes − meeting minutes; nothing is booked on a day where that is 0 or less (`skipped_days` names the reason). `work_start`, `work_end`, `buffer_minutes` and `no_meeting_blocks` are applied by the planner the same way `free` applies them. |
+| `collect_folders` | `vault_changed_notes` (in the server) | Extra vault-relative folders scanned for changed notes; read only. |
+
+`max_meetings_per_day` counts non-all-day events whose subject does not start with `[Focus]` or `[Admin]` — the user's own time blocks never fill a day for the meeting limit.
 
 Weekends: always `weekdays_only=true` unless the user explicitly names a weekend day or says "including weekends".
 

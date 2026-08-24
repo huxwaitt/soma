@@ -64,7 +64,7 @@ verified: 2026-08-22
 sources: 3
 open_items: 1
 flags: []
-created_by: administrator/0.2.0
+created_by: administrator/0.3.0
 ---
 
 # Q3 budget

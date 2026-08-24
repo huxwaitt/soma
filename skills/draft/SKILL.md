@@ -7,7 +7,7 @@ description: Writes a reply to an email thread in the user's own voice and saves
 
 `/administrator:draft <thread words or entry_id> [what to say]`. Reads Outlook through the `outlook_*` tools, reads the vault only through `vault_*` tools, and changes Outlook only by saving one draft the user said yes to. The plugin never sends: `outlook_reply_mail` is called with `save_only=true` and nothing else. Outlook mechanics (folders, `entry_id`, dates, `response_format`, `fields`) follow the `outlook` skill and `skills/administrator/references/outlook.md`.
 
-Before starting: `vault_status` once per session (run `vault_init(created_by="administrator/0.2.0")` if a folder or file flag is false) and `outlook_whoami(response_format="json")` once per session. "Self" means any `accounts[].smtp_address`, compared case-insensitively. Load `references/voice.md` the first time a draft, nudge or minutes email is written in a session; its end holds a worked example.
+Before starting: `vault_status` once per session (run `vault_init(created_by="administrator/0.3.0")` if a folder or file flag is false) and `outlook_whoami(response_format="json")` once per session. "Self" means any `accounts[].smtp_address`, compared case-insensitively. Load `references/voice.md` the first time a draft, nudge or minutes email is written in a session; its end holds a worked example.
 
 ## 1. Find the thread
 
