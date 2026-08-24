@@ -9,7 +9,7 @@ from typing import Annotated, Any, Callable, Optional
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
-from administrator_vault import store, timeblock, wiki, wiki_lint, wiki_migrate, workflows
+from administrator_vault import priorities, store, timeblock, wiki, wiki_lint, wiki_migrate, workflows
 from administrator_vault.frontmatter import FrontmatterError
 from administrator_vault.notes import NoteError, SCHEMAS
 
@@ -39,6 +39,10 @@ Collecting: vault_collect_sources keeps the "last collected" stamp per
 source (teams, outlook, notes), vault_save_chat writes a Teams chat as a day
 record under Teams/, vault_changed_notes lists the notes modified since a
 time (records and the user's collect_folders, read only).
+
+Priorities: vault_priorities_write gathers the material for a ranked
+suggestion (action candidates, read only) and, after the user confirmed,
+writes the numbered list into Priorities.md (action write).
 """
 
 # Module-level aliases: with ``from __future__ import annotations`` every hint
@@ -93,6 +97,10 @@ Limit = Annotated[int, Field(ge=1, le=2000, description="Max notes to return.")]
 WorkStart = Annotated[str, Field(description="Work day start, HH:MM.")]
 WorkEnd = Annotated[str, Field(description="Work day end, HH:MM.")]
 BufferMinutes = Annotated[int, Field(ge=0, le=120, description="Free minutes kept around existing meetings.")]
+PeakHours = Annotated[
+    Optional[list[str]],
+    Field(description="The hours the user works best, as ranges HH:MM-HH:MM (for example [\"09:00-12:00\"]); focus blocks are placed there first."),
+]
 Overwrite = Annotated[bool, Field(description="Rewrite Preferences.md and the _views/*.base files. Follow-ups.md is never overwritten.")]
 CreatedBy = Annotated[str, Field(description="Value for the created_by key in the files vault_init writes.")]
 Fields = Annotated[
@@ -170,9 +178,10 @@ def register(mcp: FastMCP) -> None:
         buffer_minutes: BufferMinutes = 15,
         overwrite: Overwrite = False,
         created_by: CreatedBy = "administrator-vault",
+        peak_hours: PeakHours = None,
     ) -> str:
-        """Create Administrator/ with its folders (Wiki/ with People, Orgs, Topics, Howto and an empty Index.md / Log.md / Review.md), Follow-ups.md, Preferences.md (from the given work hours) and the _views/*.base files. Existing files are kept unless overwrite=true (Follow-ups.md and the Wiki files are always kept)."""
-        return _json(store.init(work_start, work_end, buffer_minutes, overwrite, created_by))
+        """Create Administrator/ with its folders (Wiki/ with People, Orgs, Topics, Howto and an empty Index.md / Log.md / Review.md), Follow-ups.md, Preferences.md (from the given work hours and peak hours; peak_hours defaults to ["09:00-12:00"]) and the _views/*.base files. Existing files are kept unless overwrite=true (Follow-ups.md, Rules.md, Priorities.md and the Wiki files are always kept)."""
+        return _json(store.init(work_start, work_end, buffer_minutes, overwrite, created_by, peak_hours))
 
     @mcp.tool(
         name="vault_find",
@@ -538,9 +547,10 @@ def register(mcp: FastMCP) -> None:
         events: Annotated[list[dict[str, Any]], Field(description="outlook_list_events items for the week: subject, start, end, all_day, attendee_count, is_meeting, occurrence_key, entry_id, busy_status.")],
         today: Annotated[Optional[str], Field(description="Local date YYYY-MM-DD; days before it are not planned. Defaults to today.")] = None,
         now: Annotated[Optional[str], Field(description="Local time HH:MM (from outlook_whoami.local_time). Only matters on today: nothing is placed before it. Omit and today is planned from work_start.")] = None,
+        peak_hours: PeakHours = None,
     ) -> str:
-        """Plan focus and admin blocks for the working days of week from today on, from Preferences.md (peak_hours, focus_block_minutes, focus_blocks_per_day, admin_blocks_per_day, admin_block_minutes, slack_share, work hours, buffer_minutes, no_meeting_blocks) and the priorities (the numbered lines of Priorities.md, then active wiki topics due within 30 days or with open items). Nothing is booked; the model creates the appointments after a yes. Bookable minutes per day = (1 - slack_share) * work minutes - meeting minutes; a day with none left is in skipped_days with the reason. Existing [Focus] / [Admin] appointments are kept (existing: true) and never duplicated. Returns {week, priorities: [{rank, name, page}], days: [{date, day, work_minutes, meeting_minutes, bookable_minutes, booked_minutes, slack_minutes, blocks: [{start, end, minutes, kind, subject, priority, page, existing}]}], totals: {focus_minutes, admin_minutes, new_blocks, existing_blocks, slack_share_kept}, unplaced, skipped_days: [{date, reason}], preferences_used, missing_keys}."""
-        return _json(timeblock.time_block_plan(week, events, today, now))
+        """Plan focus and admin blocks for the working days of week from today on, from Preferences.md (peak_hours, focus_block_minutes, focus_blocks_per_day, admin_blocks_per_day, admin_block_minutes, slack_share, work hours, buffer_minutes, no_meeting_blocks) and the priorities (the numbered lines of Priorities.md, then active wiki topics due within 30 days or with open items). peak_hours, when given, replaces the file's peak hours for this plan only (Preferences.md is not changed). Nothing is booked; the model creates the appointments after a yes. Bookable minutes per day = (1 - slack_share) * work minutes - meeting minutes; a day with none left is in skipped_days with the reason. Existing [Focus] / [Admin] appointments are kept (existing: true) and never duplicated. Returns {week, priorities: [{rank, name, page}], days: [{date, day, work_minutes, meeting_minutes, bookable_minutes, booked_minutes, slack_minutes, blocks: [{start, end, minutes, kind, subject, priority, page, existing}]}], totals: {focus_minutes, admin_minutes, new_blocks, existing_blocks, slack_share_kept}, unplaced, skipped_days: [{date, reason}], preferences_used, missing_keys}."""
+        return _json(timeblock.time_block_plan(week, events, today, now, peak_hours))
 
     @mcp.tool(
         name="vault_time_block_write",
@@ -566,6 +576,20 @@ def register(mcp: FastMCP) -> None:
     ) -> str:
         """How the week went: hours per kind (meeting = attendees or is_meeting, focus = '[Focus]', admin = '[Admin]', other, unplanned = work hours not booked; all-day events skipped) against the work hours of Preferences.md, the Held rows of Time-blocks/<week>.md applied (skipped blocks count as unplanned, moved ones keep their minutes, rows without an answer are unanswered), per-priority planned and held hours. Returns {week, hours, work_hours, shares, per_priority: [{name, planned_hours, held_hours}], blocks: {planned, held, moved, skipped, unanswered}, lines} — lines are ready for the weekly note's '## Time' section."""
         return _json(timeblock.time_audit(week, events))
+
+    @mcp.tool(
+        name="vault_priorities_write",
+        annotations={"title": "Suggest or write the ranked priorities", "readOnlyHint": False, "destructiveHint": True, "idempotentHint": True, "openWorldHint": False},
+    )
+    @_guard
+    def vault_priorities_write(
+        action: Annotated[str, Field(description="'candidates' returns the material for a suggestion and writes nothing; 'write' replaces the numbered list in Priorities.md with lines.")] = "candidates",
+        lines: Annotated[Optional[list[str]], Field(description="write: the confirmed priorities in rank order, 1 to 7 entries, each up to 120 characters, a topic page link ([[Wiki/Topics/acme-contract]]) or plain words; no headings or comments.")] = None,
+        note: Annotated[Optional[str], Field(description="write: one optional line on how the list was chosen, kept as a comment under it.")] = None,
+        created_by: CreatedBy = workflows.CREATED_BY,
+    ) -> str:
+        """candidates (read only): {topics: [{title, page, status, due, open_items, verified, summary}] (active wiki topics, soonest due first then most open items, at most 10), followups: [{since, who, what, age_days}] (open Follow-ups rows, oldest first, at most 5), weekly_open: [{subject, label, date}] (open act / reply rows of the latest weekly note's week, at most 5), current: [the numbered lines now in Priorities.md]}. write (only after the user confirmed the list): replaces the numbered list under '## Priorities' (the placeholder or the previous list) with lines plus a '<!-- suggested by administrator, confirmed <date> -->' comment and the note as a second comment; frontmatter, the text above the heading and every other section are kept byte for byte; a missing file is created first. Returns {path, action: 'written', lines, previous}."""
+        return _json(priorities.priorities_write(action, lines, note, created_by))
 
 
 __all__ = ["build_server", "register", "SCHEMAS"]

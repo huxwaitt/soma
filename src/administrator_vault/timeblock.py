@@ -220,24 +220,38 @@ def _priority_from_line(text: str, pages: list[tuple[str, dict[str, Any]]]) -> O
     return {"name": " ".join(text.split()), "page": None}
 
 
-def _pressing_topics(pages: list[tuple[str, dict[str, Any]]], today: date) -> list[dict[str, Any]]:
-    """Active topic pages with a due date within DUE_WINDOW_DAYS (past ones included) or open items."""
+def _active_topics(pages: list[tuple[str, dict[str, Any]]]) -> list[dict[str, Any]]:
+    """Every active topic page as {name, page, path, fm, due (date or None),
+    open_items}, soonest due first, then most open items."""
     out = []
     for path, fm in pages:
         if fm.get("type") != "topic" or _s(fm.get("status") or "active") != "active":
             continue
         due = workflows._date_of(fm.get("due"))
-        due_d = date.fromisoformat(due) if due else None
         try:
             open_items = int(fm.get("open_items") or 0)
         except (TypeError, ValueError):
             open_items = 0
-        soon = due_d is not None and due_d <= today + timedelta(days=DUE_WINDOW_DAYS)
-        if not soon and open_items <= 0:
-            continue
-        out.append({"name": _s(fm.get("title")) or wiki._stem(path).rsplit("/", 1)[-1], "page": wiki._link(path), "_due": due_d or date.max, "_open": open_items})
-    out.sort(key=lambda t: (t["_due"], -t["_open"], t["name"].lower()))
-    return [{"name": t["name"], "page": t["page"]} for t in out]
+        name = _s(fm.get("title")) or wiki._stem(path).rsplit("/", 1)[-1]
+        out.append({"name": name, "page": wiki._link(path), "path": path, "fm": fm, "due": date.fromisoformat(due) if due else None, "open_items": open_items})
+    out.sort(key=lambda t: (t["due"] or date.max, -t["open_items"], t["name"].lower()))
+    return out
+
+
+def _pressing_topics(pages: list[tuple[str, dict[str, Any]]], today: date) -> list[dict[str, Any]]:
+    """Active topic pages with a due date within DUE_WINDOW_DAYS (past ones included) or open items."""
+    limit = today + timedelta(days=DUE_WINDOW_DAYS)
+    return [{"name": t["name"], "page": t["page"]} for t in _active_topics(pages) if (t["due"] is not None and t["due"] <= limit) or t["open_items"] > 0]
+
+
+def _numbered_lines(body: str) -> list[str]:
+    """The text after the number of every ``1.`` / ``1)`` line, the template's hint line left out."""
+    out = []
+    for line in body.split("\n"):
+        m = _NUMBERED_RE.match(line)
+        if m and not _HINT_RE.match(_ANY_COMMENT_RE.sub("", m.group(1)).strip()):
+            out.append(m.group(1))
+    return out
 
 
 def read_priorities(root: Path, today: date) -> list[dict[str, Any]]:
@@ -251,11 +265,8 @@ def read_priorities(root: Path, today: date) -> list[dict[str, Any]]:
             body = fmt.split_note(read_text(p))[2]
         except (fmt.FrontmatterError, UnicodeDecodeError):
             body = ""
-        for line in body.split("\n"):
-            m = _NUMBERED_RE.match(line)
-            if not m:
-                continue
-            item = _priority_from_line(m.group(1), pages)
+        for text in _numbered_lines(body):
+            item = _priority_from_line(text, pages)
             if item:
                 found.append(item)
     for topic in _pressing_topics(pages, today):
@@ -366,7 +377,7 @@ def _place_admin(free: list[Interval], peak: list[Interval], minutes: int, n: in
     return start_aligned(*fit[0])
 
 
-def plan(week: str, events: list[dict[str, Any]], today: Any, preferences: dict[str, Any], priorities: list[dict[str, Any]], missing_keys: Optional[list[str]] = None, now: Any = None) -> dict[str, Any]:
+def plan(week: str, events: list[dict[str, Any]], today: Any, preferences: dict[str, Any], priorities: list[dict[str, Any]], missing_keys: Optional[list[str]] = None, now: Any = None, peak_hours: Optional[list[str]] = None) -> dict[str, Any]:
     """Plan focus and admin blocks for ``week`` (``2026-W35``) on the working
     days from ``today`` on. Pure: the same inputs give the same plan.
 
@@ -380,10 +391,13 @@ def plan(week: str, events: list[dict[str, Any]], today: Any, preferences: dict[
     and one at the end of the day when possible. Rank 1 of ``priorities``
     takes every other focus block of the week, the others follow in order.
     ``now`` (``HH:MM``, local) only matters on ``today``: nothing is placed
-    before it, and a day whose work hours are over is skipped."""
+    before it, and a day whose work hours are over is skipped. ``peak_hours``
+    replaces the preferences' peak hours for this plan only."""
     start, end = _iso_week(week)
     today_d = _parse_day(today, "today")
     now_min = _hhmm_minutes(now, "now") if now not in (None, "") else None
+    if peak_hours is not None:
+        preferences = dict(preferences or {}, peak_hours=list(peak_hours))
     prefs = _plan_preferences(preferences)
     work_lo, work_hi = prefs["_work"]
     work_minutes = work_hi - work_lo
@@ -518,12 +532,13 @@ def plan(week: str, events: list[dict[str, Any]], today: Any, preferences: dict[
     }
 
 
-def time_block_plan(week: str, events: list[dict[str, Any]], today: Optional[str] = None, now: Optional[str] = None) -> dict[str, Any]:
-    """``vault_time_block_plan``: ``plan`` with the vault's preferences and priorities."""
+def time_block_plan(week: str, events: list[dict[str, Any]], today: Optional[str] = None, now: Optional[str] = None, peak_hours: Optional[list[str]] = None) -> dict[str, Any]:
+    """``vault_time_block_plan``: ``plan`` with the vault's preferences and priorities
+    (``peak_hours`` overrides the file's for this run; nothing is written)."""
     root = store.vault_root()
     today_d = _parse_day(today, "today") if today else date.today()
     prefs = store.read_preferences()
-    return plan(week, events, today_d, prefs["preferences"], read_priorities(root, today_d), prefs["missing"], now=now)
+    return plan(week, events, today_d, prefs["preferences"], read_priorities(root, today_d), prefs["missing"], now=now, peak_hours=peak_hours)
 
 
 # ------------------------------------------------------------------ write

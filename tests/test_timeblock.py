@@ -321,6 +321,22 @@ def test_server_time_block_tools_round_trip(vault):
         call("vault_time_block_plan", {"week": "nope", "events": []})
 
 
+def test_peak_hours_override_is_used_once_and_never_written(vault):
+    plan = timeblock.time_block_plan(WEEK, week_events(), "2026-08-24", peak_hours=["14:00-17:00"])
+    assert plan["preferences_used"]["peak_hours"] == ["14:00-17:00"]
+    assert [t for t in times(blocks_of(plan, "2026-08-24")) if t[2] == "focus"] == [("14:00", "15:30", "focus"), ("15:30", "17:00", "focus")]
+    assert store.read_preferences()["preferences"]["peak_hours"] == ["09:00-12:00"]
+    assert timeblock.time_block_plan(WEEK, week_events(), "2026-08-24")["preferences_used"]["peak_hours"] == ["09:00-12:00"]
+    # plain plan: the override merges over the preferences dict
+    assert timeblock.plan(WEEK, [], TODAY, PREFS, PRIORITIES, peak_hours=["13:00-15:00"])["preferences_used"]["peak_hours"] == ["13:00-15:00"]
+    with pytest.raises(VaultError):
+        timeblock.time_block_plan(WEEK, week_events(), "2026-08-24", peak_hours=["afternoon"])
+    server = build_server()
+    out = asyncio.run(server.call_tool("vault_time_block_plan", {"week": WEEK, "events": [], "today": "2026-08-24", "peak_hours": ["14:00-17:00"]}))
+    got = json.loads(out[0].text if isinstance(out, list) else out[0][0].text)
+    assert got["preferences_used"]["peak_hours"] == ["14:00-17:00"]
+
+
 def test_now_keeps_today_free_before_the_clock(vault):
     plan = timeblock.time_block_plan(WEEK, week_events(), "2026-08-24", now="13:20")
     monday = next(d for d in plan["days"] if d["date"] == "2026-08-24")

@@ -133,7 +133,18 @@ def followups_template(created_by: str) -> str:
     )
 
 
-def preferences_template(work_start: str, work_end: str, buffer_minutes: int, created_by: str) -> str:
+def check_peak_hours(peak_hours: Optional[list[str]]) -> list[str]:
+    """The peak_hours list checked (each ``HH:MM-HH:MM``); the default when None."""
+    if peak_hours is None:
+        return list(PREFERENCE_DEFAULTS["peak_hours"])
+    out = [str(r).strip() for r in peak_hours]
+    for r in out:
+        if not re.match(r"^\d{2}:\d{2}-\d{2}:\d{2}$", r):
+            raise VaultError(f"Peak hours must look like HH:MM-HH:MM, got {r!r}.")
+    return out
+
+
+def preferences_template(work_start: str, work_end: str, buffer_minutes: int, created_by: str, peak_hours: Optional[list[str]] = None) -> str:
     fm = fmt.format_frontmatter(
         {
             "type": "preferences",
@@ -147,7 +158,7 @@ def preferences_template(work_start: str, work_end: str, buffer_minutes: int, cr
             "default_duration": 30,
             "default_location": "Teams",
             "preferred_days": ["Tue", "Wed", "Thu"],
-            "peak_hours": list(PREFERENCE_DEFAULTS["peak_hours"]),
+            "peak_hours": check_peak_hours(peak_hours),
             "focus_block_minutes": PREFERENCE_DEFAULTS["focus_block_minutes"],
             "focus_blocks_per_day": PREFERENCE_DEFAULTS["focus_blocks_per_day"],
             "admin_blocks_per_day": PREFERENCE_DEFAULTS["admin_blocks_per_day"],
@@ -193,7 +204,8 @@ def priorities_template(created_by: str) -> str:
         "\n# Priorities\n\n"
         "What matters most right now, ranked. /administrator:time-block reads this list when it plans focus blocks: "
         "rank 1 gets every other block, the rest follow in order. Keep it to three to five lines. "
-        "A line is a wiki topic page link or plain words. This file is yours; the plugin never rewrites it.\n\n"
+        "A line is a wiki topic page link or plain words. This file is yours: the plugin only replaces the numbered list, "
+        "and only after you confirm a suggestion.\n\n"
         "## Priorities\n\n"
         "1. (your first priority — a topic page link such as [[Wiki/Topics/acme-supplier-contract]] or plain words)\n"
     )
@@ -277,6 +289,7 @@ def init(
     buffer_minutes: int = 15,
     overwrite: bool = False,
     created_by: str = "administrator-vault",
+    peak_hours: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     """Create the Administrator/ tree, Follow-ups.md, Preferences.md,
     Priorities.md and the _views/*.base files. ``overwrite`` re-writes
@@ -285,6 +298,7 @@ def init(
     for t in (work_start, work_end):
         if not re.match(r"^\d{2}:\d{2}$", t):
             raise VaultError(f"Work hours must look like HH:MM, got {t!r}.")
+    peak_hours = check_peak_hours(peak_hours)
     root = vault_root()
     created: list[str] = []
     skipped: list[str] = []
@@ -308,7 +322,7 @@ def init(
     if pref.exists() and not overwrite:
         skipped.append(rel(root, pref))
     else:
-        write_text(pref, preferences_template(work_start, work_end, buffer_minutes, created_by))
+        write_text(pref, preferences_template(work_start, work_end, buffer_minutes, created_by, peak_hours))
         created.append(rel(root, pref))
 
     prio = admin / "Priorities.md"

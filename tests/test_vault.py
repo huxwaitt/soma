@@ -167,6 +167,17 @@ def test_chat_and_time_block_note_rules():
     assert "Teams" in notes.FOLDERS and "Time-blocks" in notes.FOLDERS and "Priorities.md" in notes.FILES
 
 
+def test_init_peak_hours(vault):
+    res = store.init(overwrite=True, created_by=CB, peak_hours=["08:00-10:30", "14:00-16:00"])
+    assert "Administrator/Preferences.md" in res["created"]
+    pref = fmt.split_note((vault / "Administrator" / "Preferences.md").read_text(encoding="utf-8"))[0]
+    assert pref["peak_hours"] == ["08:00-10:30", "14:00-16:00"]
+    assert store.read_preferences()["preferences"]["peak_hours"] == ["08:00-10:30", "14:00-16:00"]
+    with pytest.raises(store.VaultError):
+        store.init(overwrite=True, created_by=CB, peak_hours=["9-12"])
+    assert fmt.split_note(store.preferences_template("09:00", "17:00", 15, CB))[0]["peak_hours"] == ["09:00-12:00"]
+
+
 def test_init_overwrite_keeps_followups(vault):
     fu = vault / "Administrator" / "Follow-ups.md"
     fu.write_text("---\ntype: followups\n---\n# mine\n", encoding="utf-8")
@@ -561,9 +572,9 @@ def test_server_tools():
         "vault_wiki_apply", "vault_wiki_log", "vault_wiki_review",
         "vault_wiki_lint", "vault_wiki_merge", "vault_wiki_migrate",
         "vault_save_chat", "vault_collect_sources", "vault_changed_notes",
-        "vault_time_block_plan", "vault_time_block_write", "vault_time_audit",
+        "vault_time_block_plan", "vault_time_block_write", "vault_time_audit", "vault_priorities_write",
     }
-    assert len(tools) == 31
+    assert len(tools) == 32
 
 
 def test_server_call_round_trip(vault):
