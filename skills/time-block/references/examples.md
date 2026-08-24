@@ -1,6 +1,6 @@
 # time-block — worked examples
 
-Three runs, call by call. Tool results are cut to what the model reads. Times are local (UTC+02:00); the vault is `C:\Users\<you>\Documents\Vault` (`vault_name: Vault`); `outlook_whoami` gave `local_time: "2026-08-24T08:05:40+02:00"` (Monday). `Preferences.md` holds the defaults: work 09:00–17:00, buffer 15, `no_meeting_blocks: ["Fri 13:00-17:00"]`, `peak_hours: ["09:00-12:00"]`, focus 90 × 2, admin 45 × 2, `slack_share: 0.2`.
+Four runs, call by call. Tool results are cut to what the model reads. Times are local (UTC+02:00); the vault is `C:\Users\<you>\Documents\Vault` (`vault_name: Vault`); `outlook_whoami` gave `local_time: "2026-08-24T08:05:40+02:00"` (Monday). `Preferences.md` holds the defaults: work 09:00–17:00, buffer 15, `no_meeting_blocks: ["Fri 13:00-17:00"]`, `peak_hours: ["09:00-12:00"]`, focus 90 × 2, admin 45 × 2, `slack_share: 0.2`.
 
 ## Example 1 — planning this week on Monday morning
 
@@ -249,3 +249,62 @@ The result is the one in example 1 step 2: `/administrator:collect-information` 
 ```
 
 A week without a `Time-blocks/` note still gets the section: line 1 from the calendar alone and `Blocks: none planned this week.` The report's line for it: "Time: meetings 9 h, focus 3 h of 4.5 h planned, unplanned 24.2 h."
+
+## Example 4 — an empty Priorities.md on a vault from 0.2.0
+
+Monday 24 Aug, 08:05, the calendar of example 1, but the vault was set up by 0.2.0: `Priorities.md` holds only the placeholder line and `Preferences.md` has no `peak_hours` key. User: "plan my week".
+
+1. `vault_read("Administrator/Priorities.md")` → one line under `## Priorities`: `1. (your first priority — a topic page link such as [[Wiki/Topics/acme-supplier-contract]] or plain words)`. That counts as empty, so:
+
+```
+vault_priorities_write(action="candidates")
+```
+
+```json
+{"path": "Administrator/Priorities.md",
+ "topics": [
+  {"title": "ACME supplier contract", "page": "[[Wiki/Topics/acme-supplier-contract]]", "status": "active", "due": "2026-08-29", "open_items": 2, "verified": "2026-08-22", "summary": "Contract v3 with ACME Parts; signature and PO pending."},
+  {"title": "Q3 budget", "page": "[[Wiki/Topics/q3-budget]]", "status": "active", "due": "2026-09-02", "open_items": 1, "verified": "2026-08-21", "summary": "Numbers due, forecast closes 2 Sep."},
+  {"title": "Offsite 2026", "page": "[[Wiki/Topics/offsite-2026]]", "status": "active", "due": null, "open_items": 3, "verified": "2026-08-14", "summary": "Venue and agenda for the October offsite."},
+  {"title": "Parking permits", "page": "[[Wiki/Topics/parking-permits]]", "status": "active", "due": null, "open_items": 0, "verified": "2026-07-30", "summary": "Renewal of the team's permits."}],
+ "followups": [{"since": "2026-08-11", "who": "Priya Nair", "what": "offsite venue shortlist", "age_days": 13},
+               {"since": "2026-08-19", "who": "Tom Lee", "what": "updated delivery schedule", "age_days": 5}],
+ "weekly_open": [{"subject": "Budget close date", "label": "act", "date": "2026-08-21"}],
+ "current": []}
+```
+
+   Nothing was written. The proposal, then the question, nothing else in that turn:
+
+```
+Suggested priorities:
+1. [[Wiki/Topics/acme-supplier-contract]] — due Sat 29 Aug, 2 open items
+2. [[Wiki/Topics/q3-budget]] — closes 2 Sep; "Budget close date" still open from last week
+3. [[Wiki/Topics/offsite-2026]] — 3 open items; Priya's venue shortlist waiting since 11 Aug (13 days)
+
+Use these as your priorities? (reorder, drop or add lines, or say yes)
+```
+
+   The parking permits topic stays out (no due date, nothing open). User: "yes, and add 'Hiring: backend role' as 4".
+
+```
+vault_priorities_write(action="write", lines=["[[Wiki/Topics/acme-supplier-contract]]", "[[Wiki/Topics/q3-budget]]", "[[Wiki/Topics/offsite-2026]]", "Hiring: backend role"], created_by="administrator/0.3.0")
+```
+
+   → `{"path": "Administrator/Priorities.md", "action": "written", "lines": ["[[Wiki/Topics/acme-supplier-contract]]", "[[Wiki/Topics/q3-budget]]", "[[Wiki/Topics/offsite-2026]]", "Hiring: backend role"], "previous": []}`. Under `## Priorities` the file now holds the four numbered lines and `<!-- suggested by administrator, confirmed 2026-08-24 -->`; the text above the heading is untouched. The run goes on in the same turn.
+
+2. Last week: the calls and the three lines of example 1 step 2.
+
+3. This week: the events of example 1 step 3, then `vault_time_block_plan(week="2026-W35", events=<items[]>, today="2026-08-24", now="08:40")` → the plan of example 1 with a fourth priority (`{"rank": 4, "name": "Hiring: backend role", "page": null}`), `"preferences_used": {…, "peak_hours": ["09:00-12:00"], …}` and `"missing_keys": ["peak_hours"]`. The key is missing, so the plan is not shown on the default; the turn ends with: "When are you sharpest? (focus blocks go there first; e.g. 09:00–12:00)". User: "mornings, 9 to 12".
+
+```
+vault_time_block_plan(week="2026-W35", events=<items[]>, today="2026-08-24", now="08:40", peak_hours=["09:00-12:00"])
+```
+
+   → `preferences_used.peak_hours: ["09:00-12:00"]`, `missing_keys` still `["peak_hours"]` (the file did not change; the override is for this run). The answer matched the default, so the blocks are those of example 1 — the point is that the hours were asked, not assumed.
+
+4. Shown and asked as in example 1 step 4 ("Book these 12 blocks? …"), booked and written as in steps 5 and 6 after the yes — three turns in all: the priorities question, the peak-hours question, the booking question.
+
+5. Report, two lines more than example 1:
+
+> Priorities written: Administrator/Priorities.md (4 lines). Open: obsidian://open?vault=Vault&file=Administrator%2FPriorities.md — edit it in Obsidian any time.
+> Preferences.md has no peak_hours; this plan used 09:00–12:00. Put `peak_hours: ["09:00-12:00"]` in the file: obsidian://open?vault=Vault&file=Administrator%2FPreferences.md

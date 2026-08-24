@@ -1,6 +1,6 @@
 ---
 name: time-block
-description: Plans the week's focus and admin blocks as appointments in the user's own Outlook calendar. Reads `Preferences.md` and `Priorities.md`, shows how last week went (`vault_time_audit`), lets `vault_time_block_plan` place `[Focus] <priority>` and `[Admin] Email and small tasks` blocks around the meetings with a slack share kept free, shows one line per day, books them with `outlook_create_event` only after a yes (appointments without attendees — nothing is sent to anyone), then writes `Administrator/Time-blocks/YYYY-Www.md` with `vault_time_block_write`. Trigger when the user says "/administrator:time-block", "plan my week", "block time for", "time-block next week", "book my focus blocks", "protect my mornings", "when do I get to work on X", "re-plan the week", "how did my week go against my priorities". Never deletes or moves an appointment; a re-plan only adds.
+description: Plans the week's focus and admin blocks as appointments in the user's own Outlook calendar. Reads `Preferences.md` and `Priorities.md` (an empty list gets a suggestion from `vault_priorities_write`, written only after the user's yes), shows how last week went (`vault_time_audit`), lets `vault_time_block_plan` place `[Focus] <priority>` and `[Admin] Email and small tasks` blocks around the meetings with a slack share kept free, shows one line per day, books them with `outlook_create_event` only after a yes (appointments without attendees — nothing is sent to anyone), then writes `Administrator/Time-blocks/YYYY-Www.md` with `vault_time_block_write`. Trigger when the user says "/administrator:time-block", "plan my week", "block time for", "time-block next week", "book my focus blocks", "protect my mornings", "when do I get to work on X", "re-plan the week", "how did my week go against my priorities", "suggest priorities", "what should I focus on", "what should my priorities be". Never deletes or moves an appointment; a re-plan only adds.
 ---
 
 # time-block — the week's focus and admin blocks
@@ -13,9 +13,21 @@ Once per session: `vault_status` (a false folder or file flag → `vault_init(cr
 
 ### 1. Preferences and priorities
 
-`vault_read("Administrator/Preferences.md")` once per session (skip when the `schedule` skill already read it). The planner reads the keys itself and returns `preferences_used` and `missing_keys`; you need the values only to explain a placement. Never edit the file.
+`vault_read("Administrator/Preferences.md")` once per session (skip when the `schedule` skill already read it). The planner reads the keys itself and returns `preferences_used` and `missing_keys`; you need the values only to explain a placement. Never edit the file; a missing `peak_hours` is asked in step 4.
 
-`vault_read("Administrator/Priorities.md")` once per run: the numbered lines under `## Priorities` are the ranked list (a `[[Wiki/Topics/…]]` link or plain words each). When there is no numbered line, or only the placeholder `(your first priority — …)`, ask exactly this and stop the turn: "Priorities.md is empty. What are your three priorities for the coming weeks, most important first? (a topic name or a few words each)". The plugin never writes `Priorities.md`: the answer is used for this run (step 4) and the report ends with the file's link and the ask to put the three lines there.
+`vault_read("Administrator/Priorities.md")` once per run: the numbered lines under `## Priorities` are the ranked list (a `[[Wiki/Topics/…]]` link or plain words each). When there is no numbered line, or only the placeholder `(your first priority — …)`, or the user asks ("suggest priorities", "what should I focus on", "what should my priorities be"):
+
+```
+vault_priorities_write(action="candidates")
+```
+
+→ `{path, topics: [{title, page, status, due, open_items, verified, summary}] (active topics, soonest due first, then most open items), followups: [{since, who, what, age_days}] (oldest first), weekly_open: [{subject, label, date}] (open act / reply rows of the latest weekly), current: [the numbered lines now in the file]}`; nothing is written. Propose 3–5 ranked priorities as a numbered list with one short reason each — a due date, open items, the oldest follow-up, an unfinished weekly item — then ask exactly "Use these as your priorities? (reorder, drop or add lines, or say yes)" and stop the turn. On a yes, or the edited list:
+
+```
+vault_priorities_write(action="write", lines=["[[Wiki/Topics/acme-supplier-contract]]", "Q3 budget", …], created_by="administrator/0.3.0")
+```
+
+→ `{path, action: "written", lines, previous}`: the numbered list under `## Priorities` is replaced, everything else in the file stays. Go on with the plan in the same turn. A "no" leaves the file alone and the planner falls back to the wiki topics it finds itself. The plugin writes `Priorities.md` only with lines you confirmed; edit it in Obsidian any time.
 
 ### 2. Which week
 
@@ -41,7 +53,7 @@ vault_time_block_plan(week=<week>, events=<items[]>, today=<today>, now=<HH:MM>)
 
 → `{week, start, end, today, priorities: [{rank, name, page}], days: [{date, day, work_minutes, meeting_minutes, bookable_minutes, booked_minutes, slack_minutes, blocks: [{date, day, start, end, minutes, kind, subject, priority, page, existing}]}], totals: {focus_minutes, admin_minutes, new_blocks, existing_blocks, slack_share_kept}, unplaced: [{rank, name, page, reason}], skipped_days: [{date, reason}], preferences_used, missing_keys}`. Blocks with `existing: true` are already in Outlook (they carry `occurrence_key` and `entry_id`) and are never booked again. `priorities` are the numbered lines plus active wiki topics due within 30 days or with open items. Pass the events exactly as listed; the planner ignores all-day and free-marked events itself.
 
-When the priorities came from the question in step 1, the file was empty and the plan's new focus blocks read `[Focus] Deep work`: give them the user's three in the planner's own order — rank 1 on the first, third, fifth… new focus block of the week, the other two in turn on the rest — as `[Focus] <priority>`, and set `priority` on those blocks to the same words. That is the one thing you change in the plan.
+`missing_keys` naming `peak_hours` (a vault from before 0.3.0: the file has no such key) → do not plan on the default. Ask exactly "When are you sharpest? (focus blocks go there first; e.g. 09:00–12:00)" and stop the turn — once per session. Then run the plan again with `peak_hours=["<HH:MM-HH:MM>", …]` (the answer as ranges) for this run only; the file is not changed, and the report ends with the `Preferences.md` link and "put `peak_hours: ["HH:MM-HH:MM"]` in the file". Only `missing_keys` triggers the question; never try to tell an unedited default from a chosen one.
 
 ### 5. Show the week, ask once
 
@@ -53,7 +65,7 @@ Wed 26 Aug — no blocks: meetings take 390 of 480 work minutes; the slack share
 Thu 27 Aug — 09:00–10:30 [Focus] ACME supplier contract (already booked) · 10:30–12:00 [Focus] Offsite 2026 · 12:15–13:00 [Admin] · 16:15–17:00 [Admin]  (meetings 0.5 h, free 3 h)
 ```
 
-`free` = `slack_minutes`; `(already booked)` marks `existing: true`; a `skipped_days` entry is its `reason`; `unplaced` and `missing_keys` get one line each when present ("Q3 budget got no block this week"; "`peak_hours` missing in Preferences.md, using 09:00-12:00"). Then exactly: "Book these N blocks? They are appointments without attendees — nothing is sent to anyone." with N = `totals.new_blocks`. N = 0 → say the week is planned already (or has no room) and stop; no question. "Drop Tuesday's second admin block" or a moved time → change that block, re-show, ask again; a yes covers only the list last shown.
+`free` = `slack_minutes`; `(already booked)` marks `existing: true`; a `skipped_days` entry is its `reason`; `unplaced` and `missing_keys` get one line each when present ("Q3 budget got no block this week"; "`slack_share` missing in Preferences.md, using 0.2" — `peak_hours` was asked in step 4 instead). Then exactly: "Book these N blocks? They are appointments without attendees — nothing is sent to anyone." with N = `totals.new_blocks`. N = 0 → say the week is planned already (or has no room) and stop; no question. "Drop Tuesday's second admin block" or a moved time → change that block, re-show, ask again; a yes covers only the list last shown.
 
 ### 6. Book
 
@@ -77,7 +89,7 @@ vault_time_block_write(week=<week>, blocks=<every block of the shown plan; new o
 
 ### 8. Report
 
-Three or four lines: "Booked N blocks: focus <focus_minutes/60> h, admin <admin_minutes/60> h, at least <slack_share_kept as %> of each day left free" (plus existing blocks kept and days skipped); the note path and `obsidian://open?vault=<vault_name>&file=Administrator%2FTime-blocks%2F<week>`; the `Priorities.md` link with "put these three lines under ## Priorities" when step 1 asked; `Tokens this turn: <n>` when the host shows the count.
+Three or four lines: "Booked N blocks: focus <focus_minutes/60> h, admin <admin_minutes/60> h, at least <slack_share_kept as %> of each day left free" (plus existing blocks kept and days skipped); the note path and `obsidian://open?vault=<vault_name>&file=Administrator%2FTime-blocks%2F<week>`; the `Priorities.md` link when step 1 wrote it ("edit it in Obsidian any time"); the `Preferences.md` link with "put `peak_hours: ["HH:MM-HH:MM"]` in the file" when step 4 asked; `Tokens this turn: <n>` when the host shows the count.
 
 ## Re-plan
 
@@ -87,7 +99,7 @@ The same run on a week that has blocks. The planner returns them as `existing` a
 
 - `outlook_create_event` only after the exact question of step 5 got a clear yes, never with attendees from this skill. Never `outlook_delete_event`. `outlook_update_event` on a block is offered only by `/administrator:daily` when a meeting lands on it (no attendees, nothing sent).
 - Subjects are exactly `[Focus] <priority>` and `[Admin] Email and small tasks`: `vault_time_audit`, `/administrator:daily`, `/administrator:collect-information` and `max_meetings_per_day` in `free` / `schedule` all key on the two prefixes.
-- Never write `Preferences.md` or `Priorities.md`; never pass the events back with a value changed (times, keys and subjects come from Outlook).
+- Never write `Preferences.md`; `Priorities.md` only through `vault_priorities_write(action="write")` with the lines the user confirmed after the exact question of step 1; never pass the events back with a value changed (times, keys and subjects come from Outlook).
 - `fields=[...]` on every `outlook_list_events` call; `response_format="json"`; the same local ISO strings everywhere.
-- One question per turn: the priorities question, the booking question, never both in one.
+- One question per turn: the priorities question, the peak-hours question, the booking question — never two in one.
 - Weeks are ISO weeks (Monday–Sunday); all-day events, free-marked events and weekends are the planner's to skip, not yours.

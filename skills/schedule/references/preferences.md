@@ -44,7 +44,7 @@ Edit the frontmatter above. The plugin reads it before suggesting or booking any
 - `default_duration` — minutes, used when you do not say how long.
 - `default_location` — used when you do not say where. `"Teams"`, a room name, or `""` for none.
 - `preferred_days` — days listed here are shown first when there is a choice. An empty list `[]` means no preference.
-- `peak_hours` — the hours you think best, as ranges `"09:00-12:00"`, one per line; focus blocks are placed there first.
+- `peak_hours` — the hours you think best, as ranges `"09:00-12:00"`, one per line; focus blocks are placed there first. `/administrator:setup` asks for them together with the work hours; a file from before 0.3.0 has no such key, and `/administrator:time-block` then asks once per session and uses the answer for that run only.
 - `focus_block_minutes` — length of one focus block; nothing shorter is booked.
 - `focus_blocks_per_day` — how many focus blocks a day may get at most.
 - `admin_blocks_per_day` — how many admin blocks (email and small tasks) a day may get at most.

@@ -6,7 +6,7 @@ It reads Outlook through the bundled `outlook-classic-mcp` server, decides what 
 
 ## What you get
 
-- **`/administrator:setup`** — checks that both MCP servers, classic Outlook and the vault are reachable, creates the `Administrator\` folder, the `Wiki\` folder, `Follow-ups.md`, `Preferences.md`, `Rules.md` and the Bases views if missing (asking your work hours once), offers to move an older vault's `People\` into the wiki (dry run first), and warns when exports cannot work. Run it first.
+- **`/administrator:setup`** — checks that both MCP servers, classic Outlook and the vault are reachable, creates the `Administrator\` folder, the `Wiki\` folder, `Follow-ups.md`, `Preferences.md`, `Rules.md` and the Bases views if missing (asking your work hours and peak hours once), offers to move an older vault's `People\` into the wiki (dry run first), and warns when exports cannot work. Run it first.
 - **`/administrator:inbox`** — goes through unread mail, sorts each item into act / reply / waiting / fyi / noise, writes today's daily note, and offers batch clean-up you can accept or decline.
 - **`/administrator:save`** — saves one email (or, on request, its whole thread via `outlook_get_conversation`) as a note with stable identity, the body without quoted history or signature (`trim_quoted`), action items, a link to a person note, and optional `.msg` and attachment exports.
 - **`/administrator:daily`** — inbox plus today's calendar in one daily note, with clashes and meetings that have no prep note called out.
@@ -36,7 +36,7 @@ Records (saved emails, meeting notes, daily and weekly notes) are never edited; 
 - Windows 10 or 11.
 - **Classic** Outlook (desktop, `outlook.exe`) with a configured mail profile. The new Outlook (`olk.exe`) is not supported; switch back to classic if you are on it. The new Teams client is fine (and the only one whose cache the optional Teams server reads).
 - [uv](https://docs.astral.sh/uv/) on your PATH.
-- A local checkout of `outlook-classic-mcp` 0.4.0 or later (the current checkout with `outlook_get_event_by_key`, `outlook_get_free_busy`, `outlook_find_meeting_times`, `outlook_search_attachments`, `outlook_advanced_search`, `outlook_extract_attachment_text`, `outlook_reply_mail(save_only=true)`, `outlook_awaiting_reply`, `outlook_find`, `outlook_voice_sample`, `fields=` / `preview_chars=` on every list, search and get tool, `trim_quoted` and the `administrator-vault` script with its `vault_wiki_*`, `vault_save_chat`, `vault_collect_sources` and `vault_changed_notes` tools — 46 Outlook tools plus 31 vault tools; install its `search` extra for PDF and Excel attachment text), with its path in the `OUTLOOK_MCP_DIR` environment variable (see "Set the vault path" below). The plugin starts three servers from that checkout: `outlook` (`uv run --directory $OUTLOOK_MCP_DIR outlook-mcp`, reads Outlook), `vault` (`… administrator-vault`, writes the notes) and the optional `local-ms-teams` (`… local-ms-teams`, reads the Teams cache; see "Teams" below). All need `OUTLOOK_MCP_DIR`; `vault` also needs `ADMINISTRATOR_VAULT`.
+- A local checkout of `outlook-classic-mcp` 0.4.0 or later (the current checkout with `outlook_get_event_by_key`, `outlook_get_free_busy`, `outlook_find_meeting_times`, `outlook_search_attachments`, `outlook_advanced_search`, `outlook_extract_attachment_text`, `outlook_reply_mail(save_only=true)`, `outlook_awaiting_reply`, `outlook_find`, `outlook_voice_sample`, `fields=` / `preview_chars=` on every list, search and get tool, `trim_quoted` and the `administrator-vault` script with its `vault_wiki_*`, `vault_save_chat`, `vault_collect_sources` and `vault_changed_notes` tools — 46 Outlook tools plus 32 vault tools; install its `search` extra for PDF and Excel attachment text), with its path in the `OUTLOOK_MCP_DIR` environment variable (see "Set the vault path" below). The plugin starts three servers from that checkout: `outlook` (`uv run --directory $OUTLOOK_MCP_DIR outlook-mcp`, reads Outlook), `vault` (`… administrator-vault`, writes the notes) and the optional `local-ms-teams` (`… local-ms-teams`, reads the Teams cache; see "Teams" below). All need `OUTLOOK_MCP_DIR`; `vault` also needs `ADMINISTRATOR_VAULT`.
 - An Obsidian vault on disk. Notes are plain markdown with frontmatter; no community plugins are needed to read them.
 
 ### Teams (optional)
@@ -93,7 +93,7 @@ Restart Claude Code after setting either variable permanently. `/administrator:s
   _views\*.base                five Bases views (People, Follow-ups, Meetings, Emails, Wiki)
   Follow-ups.md                rolling "waiting on" list
   Preferences.md               your scheduling preferences (created by setup, edited by you)
-  Priorities.md                your ranked priorities (created by setup once, edited by you; read by time-block)
+  Priorities.md                your ranked priorities (created by setup; time-block suggests a list when it is empty and writes it only with lines you confirmed; edit it any time)
   Rules.md                     sender / subject rules applied before the inbox is labelled (created by setup, edited by you)
 ```
 
@@ -212,7 +212,7 @@ Writes `Weekly\YYYY-Www.md` from `vault_weekly_facts` (the week's daily notes, `
 /administrator:time-block next
 ```
 
-Reads `Preferences.md` and `Priorities.md` (asks for three priorities once if the list is empty), shows last week in three lines (hours per kind, blocks held / moved / skipped, hours per priority), then the plan for the week as one line per day — focus blocks in your peak hours named after your priorities, admin blocks outside them, a fifth of each day left free, days already full of meetings skipped with the reason — and asks once: "Book these N blocks? They are appointments without attendees — nothing is sent to anyone." On a yes it creates the appointments (busy, category `Administrator`, no reminder) and writes `Time-blocks\YYYY-Www.md`. Running it again keeps every existing block and adds only where room opened up.
+Reads `Preferences.md` and `Priorities.md` — when the list is empty, or you say "suggest priorities", it proposes 3–5 from the wiki's due dates, open items, oldest follow-ups and unfinished weekly items and writes `Priorities.md` only after your yes (edit the file in Obsidian any time); a `Preferences.md` from before 0.3.0 has no `peak_hours`, so it asks once when you are sharpest — shows last week in three lines (hours per kind, blocks held / moved / skipped, hours per priority), then the plan for the week as one line per day — focus blocks in your peak hours named after your priorities, admin blocks outside them, a fifth of each day left free, days already full of meetings skipped with the reason — and asks once: "Book these N blocks? They are appointments without attendees — nothing is sent to anyone." On a yes it creates the appointments (busy, category `Administrator`, no reminder) and writes `Time-blocks\YYYY-Www.md`. Running it again keeps every existing block and adds only where room opened up.
 
 ### `/administrator:find <sentence>`
 
