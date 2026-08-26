@@ -31,6 +31,7 @@ Administrator/Wiki/
       state.json        the pages as code last wrote them, so your edits are visible
       prev/<page>.md.prev  each page's text before the last write, one copy per page (not a note, so Obsidian does not list it)
       queries.log       every question asked of the wiki, newest last
+      history.json      where /administrator:load-history got to in each source, and the ids it has read
       (topic candidates and the last lint report live here too)
 ```
 
