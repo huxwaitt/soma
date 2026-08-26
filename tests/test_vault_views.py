@@ -7,7 +7,7 @@ import re
 
 import pytest
 
-from administrator_vault import notes, store
+from soma_vault import notes, store
 
 VIEW_NAMES = ("People", "Follow-ups", "Meetings", "Emails", "Wiki")
 
@@ -132,10 +132,10 @@ def test_top_level_keys(view):
     assert isinstance(data["views"], list) and data["views"], name
 
 
-def test_global_filter_stays_inside_administrator(view):
+def test_global_filter_stays_inside_soma(view):
     name, _text, data = view
     conds = data["filters"]["and"]
-    assert any(isinstance(c, str) and c.startswith('file.inFolder("Administrator') for c in conds), name
+    assert any(isinstance(c, str) and c.startswith('file.inFolder("Soma') for c in conds), name
 
 
 def test_every_view_is_a_named_table(view):
@@ -200,10 +200,10 @@ def test_pyyaml_agrees_when_available(view):
 def test_vault_init_ships_the_views(tmp_path, monkeypatch):
     root = tmp_path / "My Vault"
     root.mkdir()
-    monkeypatch.setenv("ADMINISTRATOR_VAULT", str(root))
-    result = store.init(created_by="administrator/0.0.4")
+    monkeypatch.setenv("SOMA_VAULT", str(root))
+    result = store.init(created_by="soma/0.0.4")
     for name in VIEW_NAMES:
-        rel = f"Administrator/_views/{name}.base"
+        rel = f"Soma/_views/{name}.base"
         assert rel in result["created"]
         assert (root / rel).read_text(encoding="utf-8") == view_path(name).read_text(encoding="utf-8")
     assert not (root / ".obsidian").exists()

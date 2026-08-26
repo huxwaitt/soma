@@ -12,7 +12,7 @@ may spend; ``next`` and ``done`` then answer ``auto``, ``cap`` and the running
 ``cost``, and the model runs the rest without asking until the cap is in
 reach, a batch is refused, or Review needs the user.
 
-The state lives in ``Administrator/Wiki/_cache/history.json`` — the place each
+The state lives in ``Soma/Wiki/_cache/history.json`` — the place each
 source got to, the ids already seen, the totals, and the window that is open
 right now. It is written after ``plan`` and after every ``done``, so a crash
 costs at most one window: ``next`` then hands the open window out again
@@ -32,10 +32,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
-from administrator_vault import store, wiki
-from administrator_vault.store import VaultError, read_text, resolve
-from administrator_vault.wiki import _atomic_write, _s
-from administrator_vault.workflows import _collect_stamps, _date_of, _local, _parse_dt
+from soma_vault import store, wiki
+from soma_vault.store import VaultError, read_text, resolve
+from soma_vault.wiki import _atomic_write, _s
+from soma_vault.workflows import _collect_stamps, _date_of, _local, _parse_dt
 
 VERSION = 1
 PATH = f"{wiki.CACHE_DIR}/history.json"
@@ -57,7 +57,7 @@ WINDOW_MIN = 1
 WINDOW_MAX = 30
 PAGES_MAX = 1000  # how many touched pages the state keeps
 PAGES_SHOWN = 40  # how many of them status hands back (totals.pages is the count)
-LINT_LINE = "Run /administrator:lint."
+LINT_LINE = "Run /soma:lint."
 
 
 # ------------------------------------------------------------------ small helpers

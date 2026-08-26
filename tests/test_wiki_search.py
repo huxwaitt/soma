@@ -1,4 +1,4 @@
-"""administrator_vault.wiki_search: the tokeniser, the four candidate lists,
+"""soma_vault.wiki_search: the tokeniser, the four candidate lists,
 the priors, the cache, brief(), open items, the query log, and wiki.match()
 re-implemented on the engine."""
 
@@ -10,20 +10,20 @@ import json
 
 import pytest
 
-from administrator_vault import store, wiki
-from administrator_vault import wiki_search as ws
-from administrator_vault.server import build_server
+from soma_vault import store, wiki
+from soma_vault import wiki_search as ws
+from soma_vault.server import build_server
 
-CB = "administrator/0.4.1"
-W = "Administrator/Wiki"
+CB = "soma/0.4.1"
+W = "Soma/Wiki"
 
 
 @pytest.fixture
 def vault(tmp_path, monkeypatch):
     root = tmp_path / "Vault"
     root.mkdir()
-    monkeypatch.setenv("ADMINISTRATOR_VAULT", str(root))
-    monkeypatch.delenv("ADMINISTRATOR_VAULT_NAME", raising=False)
+    monkeypatch.setenv("SOMA_VAULT", str(root))
+    monkeypatch.delenv("SOMA_VAULT_NAME", raising=False)
     store.init(created_by=CB)
     ws._LIVE.clear()
     yield root

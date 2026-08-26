@@ -1,4 +1,4 @@
-"""administrator_vault v0.5: rules, inbox prepare, write daily, save email,
+"""soma_vault v0.5: rules, inbox prepare, write daily, save email,
 prep context, weekly facts, transcript, and fields on find/list."""
 
 from __future__ import annotations
@@ -8,11 +8,11 @@ import json
 
 import pytest
 
-from administrator_vault import frontmatter as fmt
-from administrator_vault import store, wiki, workflows
-from administrator_vault.server import build_server
+from soma_vault import frontmatter as fmt
+from soma_vault import store, wiki, workflows
+from soma_vault.server import build_server
 
-CB = "administrator/0.0.5"
+CB = "soma/0.0.5"
 DAY = "2026-08-22"
 
 
@@ -20,8 +20,8 @@ DAY = "2026-08-22"
 def vault(tmp_path, monkeypatch):
     root = tmp_path / "Vault"
     root.mkdir()
-    monkeypatch.setenv("ADMINISTRATOR_VAULT", str(root))
-    monkeypatch.delenv("ADMINISTRATOR_VAULT_NAME", raising=False)
+    monkeypatch.setenv("SOMA_VAULT", str(root))
+    monkeypatch.delenv("SOMA_VAULT_NAME", raising=False)
     store.init(created_by=CB)
     return root
 
@@ -52,22 +52,22 @@ def person(vault, name="Jane Doe", email="jane.doe@example.com", **over):
 
 
 def test_init_creates_rules_and_never_overwrites(vault):
-    p = vault / "Administrator" / "Rules.md"
+    p = vault / "Soma" / "Rules.md"
     assert p.is_file()
     fm = fmt.split_note(p.read_text(encoding="utf-8"))[0]
     assert fm["type"] == "rules"
     assert store.status()["files"]["Rules.md"] is True
     p.write_text("---\ntype: rules\n---\n# mine\n", encoding="utf-8")
     res = store.init(overwrite=True, created_by=CB)
-    assert "Administrator/Rules.md" in res["skipped"]
+    assert "Soma/Rules.md" in res["skipped"]
     assert "# mine" in p.read_text(encoding="utf-8")
 
 
 def test_rules_get_and_match(vault):
-    store.append_row("Administrator/Rules.md", "Labels", ["@newsletter.example", "from", "noise"])
-    store.append_row("Administrator/Rules.md", "Labels", ["invoice*", "subject", "act"])
-    store.append_row("Administrator/Rules.md", "Never save", ["spam.example", "domain"])
-    p = vault / "Administrator" / "Rules.md"
+    store.append_row("Soma/Rules.md", "Labels", ["@newsletter.example", "from", "noise"])
+    store.append_row("Soma/Rules.md", "Labels", ["invoice*", "subject", "act"])
+    store.append_row("Soma/Rules.md", "Never save", ["spam.example", "domain"])
+    p = vault / "Soma" / "Rules.md"
     p.write_text(p.read_text(encoding="utf-8") + "- boss@example.com\n", encoding="utf-8")
     person(vault, "Fyi Person", "fyi@example.com", status="fyi")
 
@@ -105,7 +105,7 @@ def test_rules_get_and_match(vault):
 
 
 def test_rules_match_splits_kept_from_dropped(vault):
-    store.append_row("Administrator/Rules.md", "Never save", ["spam.example", "domain"])
+    store.append_row("Soma/Rules.md", "Never save", ["spam.example", "domain"])
     items = [
         item(1),
         item(2, bulk=True, bulk_why="List-Unsubscribe header"),
@@ -156,7 +156,7 @@ def test_write_daily_lists_what_the_user_promised_this_week(vault):
 
 
 def test_inbox_prepare_and_write_daily_twice(vault):
-    store.append_row("Administrator/Rules.md", "Never save", ["spam.example", "domain"])
+    store.append_row("Soma/Rules.md", "Never save", ["spam.example", "domain"])
     items = [
         item(1),
         item(2, from_address="news@x.example", headers={"list_unsubscribe": "y"}),
@@ -188,7 +188,7 @@ def test_inbox_prepare_and_write_daily_twice(vault):
     ]
     res = workflows.write_daily(DAY, labels, None, events, ["Bring the contract"], since="2026-08-21T18:02:00+02:00",
                                 inbox_checked="2026-08-22T08:31:10+02:00", tokens_used=1234)
-    assert res["action"] == "created" and res["path"] == "Administrator/Daily/2026-08-22.md"
+    assert res["action"] == "created" and res["path"] == "Soma/Daily/2026-08-22.md"
     assert res["rows_written"] == 3 and res["followups_added"] == 1 and res["calendar_rows"] == 4
     text = (vault / res["path"]).read_text(encoding="utf-8")
     fm = fmt.split_note(text)[0]
@@ -211,7 +211,7 @@ def test_inbox_prepare_and_write_daily_twice(vault):
     items4 = wiki.commitments(vault, owner="others")
     assert [(i["stem"], i["text"], i["owner"], i["since"]) for i in items4] == [
         ("Wiki/People/Person 4", "Subject 4", "[[Wiki/People/Person 4]]", "2026-08-21")]
-    fu = (vault / "Administrator" / "Follow-ups.md").read_text(encoding="utf-8")
+    fu = (vault / "Soma" / "Follow-ups.md").read_text(encoding="utf-8")
     assert "| 2026-08-21 | [[Wiki/People/Person 4]] | Subject 4 |" in fu
     assert f"@ Wiki/People/Person 4 -->" in fu
 
@@ -278,29 +278,29 @@ def mail_json(**over):
 
 
 def test_save_email_creates_note_and_person(vault):
-    att_dir = vault / "Administrator" / "Attachments" / "2026-08-22 Budget Q3"
+    att_dir = vault / "Soma" / "Attachments" / "2026-08-22 Budget Q3"
     att_dir.mkdir(parents=True)
     res = workflows.save_email(
         mail_json(), "Jane asks for the Q3 numbers by Friday.", ["Send Q3 numbers to Jane by 2026-08-29 — owner: me"],
         attachments_saved=[str(att_dir / "Budget_Q3.xlsx")], msg_file=str(att_dir / "Budget Q3.msg"),
     )
-    assert res["path"] == "Administrator/Emails/2026-08-22 Budget Q3.md" and res["action"] == "created"
-    assert res["status"] == "todo" and res["person_path"] == "Administrator/Wiki/People/Jane Doe.md" and res["person_action"] == "created"
+    assert res["path"] == "Soma/Emails/2026-08-22 Budget Q3.md" and res["action"] == "created"
+    assert res["status"] == "todo" and res["person_path"] == "Soma/Wiki/People/Jane Doe.md" and res["person_action"] == "created"
     assert res["followup_added"] is False
     text = (vault / res["path"]).read_text(encoding="utf-8")
     fm = fmt.split_note(text)[0]
     assert fm["from_link"] == "[[Wiki/People/Jane Doe]]" and fm["to"] == ["hux@example.com"] and fm["cc"] == ["carol@example.com"]
     assert fm["has_attachments"] is True
-    assert fm["attachments"] == ["[[Administrator/Attachments/2026-08-22 Budget Q3/Budget_Q3.xlsx|Budget_Q3.xlsx]]"]
-    assert fm["msg_file"] == "[[Administrator/Attachments/2026-08-22 Budget Q3/Budget Q3.msg|Budget Q3.msg]]"
+    assert fm["attachments"] == ["[[Soma/Attachments/2026-08-22 Budget Q3/Budget_Q3.xlsx|Budget_Q3.xlsx]]"]
+    assert fm["msg_file"] == "[[Soma/Attachments/2026-08-22 Budget Q3/Budget Q3.msg|Budget Q3.msg]]"
     assert "**From:** [[Wiki/People/Jane Doe]] <jane.doe@example.com>" in text
     assert "**To:** Hux Waitt <hux@example.com>" in text and "**Cc:** Carol Ng <carol@example.com>" in text
     assert "**Received:** 2026-08-22 09:14" in text
     assert "## Summary\n\nJane asks for the Q3 numbers by Friday.\n" in text
     assert "- [ ] Send Q3 numbers to Jane by 2026-08-29 — owner: me" in text
     assert "## Content\n\nHi,\n\ncould you send the numbers?\n\nThanks\nJane\n" in text and "older quoted" not in text
-    assert "- [[Administrator/Attachments/2026-08-22 Budget Q3/Budget Q3.msg|Budget Q3.msg]] (original message)" in text
-    assert "- [[Administrator/Attachments/2026-08-22 Budget Q3/Budget_Q3.xlsx|Budget_Q3.xlsx]] (180 KB)" in text
+    assert "- [[Soma/Attachments/2026-08-22 Budget Q3/Budget Q3.msg|Budget Q3.msg]] (original message)" in text
+    assert "- [[Soma/Attachments/2026-08-22 Budget Q3/Budget_Q3.xlsx|Budget_Q3.xlsx]] (180 KB)" in text
     assert "- image001.png (4 KB, not exported)" in text
     assert "## Files" in text and "## Attachments" not in text
     ptext = (vault / res["person_path"]).read_text(encoding="utf-8")
@@ -316,8 +316,8 @@ def test_save_email_creates_note_and_person(vault):
     assert res2["action"] == "appended" and res2["person_action"] == "appended"
     text = (vault / res["path"]).read_text(encoding="utf-8")
     assert text.count("## Content") == 1 and "### Summary\n\nAgain." in text
-    assert len(list((vault / "Administrator" / "Emails").glob("*.md"))) == 1
-    assert len(list((vault / "Administrator" / "Wiki" / "People").glob("*.md"))) == 1
+    assert len(list((vault / "Soma" / "Emails").glob("*.md"))) == 1
+    assert len(list((vault / "Soma" / "Wiki" / "People").glob("*.md"))) == 1
     ptext = (vault / res["person_path"]).read_text(encoding="utf-8")
     assert ptext.count("[[Emails/2026-08-22 Budget Q3]]") == 1  # Records line not doubled
 
@@ -331,7 +331,7 @@ def test_save_email_updates_person_and_follow_ups(vault):
     jane = wiki.commitments(vault, page="Wiki/People/Jane Doe")
     assert [(i["text"], i["owner"], i["record"], i["src"]) for i in jane] == [
         ("Budget Q3", "[[Wiki/People/Jane Doe]]", "Emails/2026-08-22 Budget Q3", ["<7f3a9c@example.com>"])]
-    fu = (vault / "Administrator" / "Follow-ups.md").read_text(encoding="utf-8")
+    fu = (vault / "Soma" / "Follow-ups.md").read_text(encoding="utf-8")
     assert "| 2026-08-22 | [[Wiki/People/Jane Doe]] | Budget Q3 | [[Emails/2026-08-22 Budget Q3]] |" in fu
     # the same mail again is the same item: no second row
     workflows.save_email(mail_json(**{"from": "Doe, Jane"}), "s", [], status="waiting")
@@ -345,7 +345,7 @@ def test_save_email_updates_person_and_follow_ups(vault):
     mine = wiki.commitments(vault, page="Wiki/People/Hux Waitt")
     assert [(i["text"], i["owner"], i["record"]) for i in mine] == [
         ("Budget Q3", "[[Wiki/People/Hux Waitt]]", "Emails/2026-08-22 Budget Q3 (2)")]
-    fu = (vault / "Administrator" / "Follow-ups.md").read_text(encoding="utf-8")
+    fu = (vault / "Soma" / "Follow-ups.md").read_text(encoding="utf-8")
     assert "| 2026-08-22 | [[Wiki/People/Hux Waitt]] | Budget Q3 | [[Emails/2026-08-22 Budget Q3 (2)]] |" in fu
     fm = fmt.split_note((vault / res2["path"]).read_text(encoding="utf-8"))[0]
     assert fm["from_link"] == ""
@@ -381,10 +381,10 @@ def test_prep_context(vault):
 
     ctx = workflows.prep_context("GID1|2026-08-25T13:00:00+02:00", "", ["jane.doe@example.com", {"name": "Tom Lee", "address": "tom.lee@example.com"}])
     assert ctx["existing_note"] is None
-    assert ctx["previous_occurrence"]["path"].startswith("Administrator/Meetings/2026-08-18 1300")
+    assert ctx["previous_occurrence"]["path"].startswith("Soma/Meetings/2026-08-18 1300")
     assert ctx["previous_occurrence"]["open_actions"] == ["- [ ] Send forecast — owner: me", "- [ ] Confirm address — owner: Tom Lee"]
     jane, tom = ctx["people"]
-    assert jane["path"] == "Administrator/Wiki/People/Jane Doe.md" and jane["last_contact"] == "2026-08-20T09:00:00+02:00"
+    assert jane["path"] == "Soma/Wiki/People/Jane Doe.md" and jane["last_contact"] == "2026-08-20T09:00:00+02:00"
     # the old-style body became Records lines on the wiki page (status tails dropped)
     assert jane["last_emails"] == ["- 2026-08-20 — [[Emails/2026-08-20 Old mail]]", "- 2026-08-10 — [[Emails/2026-08-10 Older]]"]
     assert tom["path"] is None and tom["name"] == "Tom Lee"
@@ -393,13 +393,13 @@ def test_prep_context(vault):
         ("Contract draft", "Jane Doe"), ("Schedule", "Tom Lee"), ("Send the signed contract", "me")]
     assert ctx["followups_open"] == ["2026-08-21 — Jane Doe: Contract draft", "2026-08-21 — Tom Lee: Schedule"]
     # wiki[]: the attendee's person page (draft, identity lead), no topic without a subject match
-    assert [w["path"] for w in ctx["wiki"]] == ["Administrator/Wiki/People/Jane Doe.md"]
+    assert [w["path"] for w in ctx["wiki"]] == ["Soma/Wiki/People/Jane Doe.md"]
     assert ctx["wiki"][0]["type"] == "person" and ctx["wiki"][0]["lead"] == "Jane Doe (jane.doe@example.com)." and ctx["wiki"][0]["facts"] == []
 
     store.write("meeting", meeting_fm(), "this one")
     ctx2 = workflows.prep_context("GID1|2026-08-25T13:00:00+02:00")
-    assert ctx2["existing_note"].startswith("Administrator/Meetings/2026-08-25 1300") and ctx2["existing_status"] == "upcoming"
-    assert ctx2["previous_occurrence"]["path"].startswith("Administrator/Meetings/2026-08-18 1300")
+    assert ctx2["existing_note"].startswith("Soma/Meetings/2026-08-25 1300") and ctx2["existing_status"] == "upcoming"
+    assert ctx2["previous_occurrence"]["path"].startswith("Soma/Meetings/2026-08-18 1300")
 
 
 # ------------------------------------------------------------------ weekly facts
@@ -470,10 +470,10 @@ Priya
 
 def test_attach_transcript_callout_and_link(vault):
     mpath = store.write("meeting", meeting_fm(), "# Supplier sync\n\n## Notes\n\n_(none yet)_")["path"]
-    folder = vault / "Administrator" / "Attachments" / "2026-08-25 1300 Supplier sync"
+    folder = vault / "Soma" / "Attachments" / "2026-08-25 1300 Supplier sync"
     folder.mkdir(parents=True)
     (folder / "transcript.md").write_text(TRANSCRIPT, encoding="utf-8")
-    res = workflows.attach_transcript(mpath, "Administrator/Attachments/2026-08-25 1300 Supplier sync/transcript.md")
+    res = workflows.attach_transcript(mpath, "Soma/Attachments/2026-08-25 1300 Supplier sync/transcript.md")
     assert res["turns"] == 5 and res["speakers"] == ["Jane Doe", "Hux Waitt", "Tom Lee", "Priya"] and res["linked"] is False
     assert res["speaker_links"] == ["[[Wiki/People/Jane Doe]]", "Hux Waitt", "[[Wiki/People/Tom Lee]]", "Priya"]
     text = (vault / mpath).read_text(encoding="utf-8")
@@ -483,16 +483,16 @@ def test_attach_transcript_callout_and_link(vault):
 
     big = "\n".join(f"[13:{i % 60:02d}] Jane Doe: line {i}" for i in range(401))
     (folder / "big.md").write_text(big, encoding="utf-8")
-    res2 = workflows.attach_transcript(mpath, "Administrator/Attachments/2026-08-25 1300 Supplier sync/big.md")
+    res2 = workflows.attach_transcript(mpath, "Soma/Attachments/2026-08-25 1300 Supplier sync/big.md")
     assert res2["linked"] is True and res2["turns"] == 401 and res2["speakers"] == ["Jane Doe"]
     text = (vault / mpath).read_text(encoding="utf-8")
-    assert "Full text: [[Administrator/Attachments/2026-08-25 1300 Supplier sync/big|big.md]] (401 turns, 1 speakers, 401 lines)" in text
+    assert "Full text: [[Soma/Attachments/2026-08-25 1300 Supplier sync/big|big.md]] (401 turns, 1 speakers, 401 lines)" in text
     assert "line 400" not in text
 
     with pytest.raises(store.VaultError):
-        workflows.attach_transcript(mpath, "Administrator/Follow-ups.md")
+        workflows.attach_transcript(mpath, "Soma/Follow-ups.md")
     with pytest.raises(store.VaultError):
-        workflows.attach_transcript("Administrator/Follow-ups.md", "Administrator/Attachments/2026-08-25 1300 Supplier sync/big.md")
+        workflows.attach_transcript("Soma/Follow-ups.md", "Soma/Attachments/2026-08-25 1300 Supplier sync/big.md")
 
 
 # ------------------------------------------------------------------ fields
@@ -502,7 +502,7 @@ def test_find_and_list_fields(vault):
     person(vault)
     hit = store.find("person", "jane.doe@example.com", fields=["name", "last_contact", "nope"])
     assert hit["frontmatter"] == {"name": "Jane Doe", "last_contact": "2026-08-20T09:00:00+02:00"}
-    assert store.list_notes("person", fields=["email"]) == [{"path": "Administrator/Wiki/People/Jane Doe.md", "frontmatter": {"email": "jane.doe@example.com"}}]
+    assert store.list_notes("person", fields=["email"]) == [{"path": "Soma/Wiki/People/Jane Doe.md", "frontmatter": {"email": "jane.doe@example.com"}}]
     assert "aliases" in store.find("person", "jane.doe@example.com")["frontmatter"]
 
 

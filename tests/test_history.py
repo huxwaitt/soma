@@ -9,21 +9,21 @@ import json
 
 import pytest
 
-from administrator_vault import history, store, workflows
-from administrator_vault.server import build_server
-from administrator_vault.store import VaultError
+from soma_vault import history, store, workflows
+from soma_vault.server import build_server
+from soma_vault.store import VaultError
 
-CB = "administrator/0.4.1"
+CB = "soma/0.4.1"
 NOW = "2026-08-24T09:00:00+02:00"
-STATE = "Administrator/Wiki/_cache/history.json"
+STATE = "Soma/Wiki/_cache/history.json"
 
 
 @pytest.fixture
 def vault(tmp_path, monkeypatch):
     root = tmp_path / "Vault"
     root.mkdir()
-    monkeypatch.setenv("ADMINISTRATOR_VAULT", str(root))
-    monkeypatch.delenv("ADMINISTRATOR_VAULT_NAME", raising=False)
+    monkeypatch.setenv("SOMA_VAULT", str(root))
+    monkeypatch.delenv("SOMA_VAULT_NAME", raising=False)
     store.init(created_by=CB)
     return root
 
@@ -140,7 +140,7 @@ def test_next_hands_out_one_window_per_source_in_order_with_the_call_to_make(vau
     assert "oldest first" in one["note"]
 
     # the window listed one batch: its size stays, and the place is its end
-    run("done", payload=finish(saved=[{"id": f"<m{n}@x>", "path": f"Administrator/Emails/{n}.md", "received": "2026-08-15T10:00:00+02:00"} for n in range(12)],
+    run("done", payload=finish(saved=[{"id": f"<m{n}@x>", "path": f"Soma/Emails/{n}.md", "received": "2026-08-15T10:00:00+02:00"} for n in range(12)],
                                listed=25))
     two = run("next")
     assert two["batch_no"] == 2 and two["source"] == "outlook_inbox"
@@ -167,8 +167,8 @@ def test_next_names_the_ids_of_that_window_already_seen(vault):
     run("plan", since="2026-08-13T00:00:00+02:00")
     run("next")
     run("done", payload=finish(
-        saved=[{"id": "<in@x>", "path": "Administrator/Emails/a.md", "received": "2026-08-14T10:00:00+02:00"},
-               {"id": "<late@x>", "path": "Administrator/Emails/b.md", "received": "2026-08-21T10:00:00+02:00"}],
+        saved=[{"id": "<in@x>", "path": "Soma/Emails/a.md", "received": "2026-08-14T10:00:00+02:00"},
+               {"id": "<late@x>", "path": "Soma/Emails/b.md", "received": "2026-08-21T10:00:00+02:00"}],
         skipped_ids=["<noise@x>"], reached="2026-08-14T12:00:00+02:00", exhausted=False))
 
     again = run("next")
@@ -206,7 +206,7 @@ def test_a_crash_leaves_the_open_window_to_be_handed_out_unchanged(vault):
     assert after["reissued"] is True and after["since"] == one["since"] and after["until"] == one["until"]
     assert after["batch_no"] == one["batch_no"] and after["list_with"] == one["list_with"]
 
-    r = run("done", payload=finish(saved=[{"id": "<a@x>", "path": "Administrator/Emails/a.md", "received": "2026-08-14T09:00:00+02:00"}]))
+    r = run("done", payload=finish(saved=[{"id": "<a@x>", "path": "Soma/Emails/a.md", "received": "2026-08-14T09:00:00+02:00"}]))
     assert r["batch"] == 1 and r["saved"] == 1 and state_of(vault)["current"] is None
 
 
@@ -225,7 +225,7 @@ def test_done_moves_the_place_to_reached_or_to_the_end_of_the_window(vault):
     run("plan", since="2026-08-13T00:00:00+02:00")
     run("next")
     r = run("done", payload=finish(reached="2026-08-16T08:30:00+02:00", exhausted=False,
-                                   saved=[{"id": "<a@x>", "path": "Administrator/Emails/a.md", "received": "2026-08-15T10:00:00+02:00"}],
+                                   saved=[{"id": "<a@x>", "path": "Soma/Emails/a.md", "received": "2026-08-15T10:00:00+02:00"}],
                                    pages=["Wiki/People/Jane Doe", "Wiki/Topics/q3-budget"]))
     assert r["place"] == "2026-08-16T08:30:00+02:00" and r["saved"] == 1 and r["skipped"] == 0
     assert r["source_done"] is False and r["all_done"] is False
@@ -276,11 +276,11 @@ def test_done_counts_a_saved_record_once_per_id_and_keeps_the_pages(vault):
     stamps()
     run("plan", since="2026-08-13T00:00:00+02:00")
     run("next")
-    run("done", payload=finish(saved=[{"id": "<a@x>", "path": "Administrator/Emails/a.md", "received": "2026-08-14T10:00:00+02:00"}],
+    run("done", payload=finish(saved=[{"id": "<a@x>", "path": "Soma/Emails/a.md", "received": "2026-08-14T10:00:00+02:00"}],
                                pages=["Wiki/People/Jane Doe"], calls=6))
     run("next")
-    run("done", payload=finish(saved=[{"id": "<a@x>", "path": "Administrator/Emails/a.md", "received": "2026-08-14T10:00:00+02:00"},
-                                      {"id": "<b@x>", "path": "Administrator/Emails/b.md", "received": "2026-08-21T10:00:00+02:00"}],
+    run("done", payload=finish(saved=[{"id": "<a@x>", "path": "Soma/Emails/a.md", "received": "2026-08-14T10:00:00+02:00"},
+                                      {"id": "<b@x>", "path": "Soma/Emails/b.md", "received": "2026-08-21T10:00:00+02:00"}],
                                pages=["Wiki/People/Jane Doe", "Wiki/Orgs/acme"], calls=4))
     s = run("status")
     assert s["seen_counts"]["outlook"] == 2 and s["records_saved"] == 3
@@ -288,7 +288,7 @@ def test_done_counts_a_saved_record_once_per_id_and_keeps_the_pages(vault):
     assert s["calls"] == 10
     run("next")
     with pytest.raises(VaultError):  # every saved record needs its id
-        run("done", payload=finish(saved=[{"path": "Administrator/Emails/c.md"}]))
+        run("done", payload=finish(saved=[{"path": "Soma/Emails/c.md"}]))
 
 
 def test_yes_to_all_is_kept_with_its_cap_and_the_running_cost(vault):
@@ -336,7 +336,7 @@ def test_status_shows_the_days_left_and_the_records_listed_against_the_ones_save
     stamps()
     run("plan", since="2026-08-13T00:00:00+02:00")
     run("next")
-    run("done", payload=finish(listed=20, saved=[{"id": "<a@x>", "path": "Administrator/Emails/a.md", "received": "2026-08-14T10:00:00+02:00"}],
+    run("done", payload=finish(listed=20, saved=[{"id": "<a@x>", "path": "Soma/Emails/a.md", "received": "2026-08-14T10:00:00+02:00"}],
                                skipped_ids=["<n1@x>", "<n2@x>"]))
     s = run("status")
     assert s["started"] == NOW and s["path"] == STATE
@@ -361,7 +361,7 @@ def test_every_source_finished_reports_the_totals_and_the_lint_line(vault):
         w = run("next")
         seen_sources.append(w["source"])
         last = run("done", payload=finish(
-            saved=[{"id": f"<{w['source']}-{n}@x>", "path": f"Administrator/Emails/{n}.md", "received": "2026-08-14T10:00:00+02:00"}],
+            saved=[{"id": f"<{w['source']}-{n}@x>", "path": f"Soma/Emails/{n}.md", "received": "2026-08-14T10:00:00+02:00"}],
             pages=[f"Wiki/People/P{n}"]))
     assert seen_sources == ["outlook_inbox", "outlook_sent", "teams"]
     assert last["all_done"] is True and last["source_done"] is True
@@ -369,13 +369,13 @@ def test_every_source_finished_reports_the_totals_and_the_lint_line(vault):
     assert last["finished"] == NOW
     assert last["summary"] == (
         "All sources are done: 3 records saved in 3 batches "
-        "(Outlook inbox 1, Outlook sent items 1, Teams chats 1), 3 pages touched. Run /administrator:lint."
+        "(Outlook inbox 1, Outlook sent items 1, Teams chats 1), 3 pages touched. Run /soma:lint."
     )
-    assert last["note"].startswith("Batch 3: 1 saved") and last["note"].endswith("Run /administrator:lint.")
+    assert last["note"].startswith("Batch 3: 1 saved") and last["note"].endswith("Run /soma:lint.")
 
     after = run("next")
     assert after["all_done"] is True and after["batch_no"] is None and after["source"] is None
-    assert after["note"].endswith("Run /administrator:lint.")
+    assert after["note"].endswith("Run /soma:lint.")
     s = run("status")
     assert s["finished"] == NOW and s["left_days"] == {"outlook_inbox": 0, "outlook_sent": 0, "teams": 0}
     # a finished pass is not in the way of the next one
@@ -392,7 +392,7 @@ def test_a_second_pass_keeps_the_ids_of_the_finished_one_and_reset_drops_them(va
     for _ in range(3):
         w = run("next")
         run("done", payload=finish(
-            saved=[{"id": f"<{w['source']}@x>", "path": "Administrator/Emails/a.md", "received": "2026-08-14T10:00:00+02:00"}],
+            saved=[{"id": f"<{w['source']}@x>", "path": "Soma/Emails/a.md", "received": "2026-08-14T10:00:00+02:00"}],
             skipped_ids=[f"<{w['source']}-noise@x>"]))
     assert run("status")["finished"] == NOW
 
@@ -462,7 +462,7 @@ def test_server_load_history_round_trip(vault):
     d = call({
         "action": "done",
         "now": NOW,
-        "payload": {"saved": [{"id": "<a@x>", "path": "Administrator/Emails/a.md", "received": "2026-08-14T10:00:00+02:00"}],
+        "payload": {"saved": [{"id": "<a@x>", "path": "Soma/Emails/a.md", "received": "2026-08-14T10:00:00+02:00"}],
                     "skipped_ids": [], "reached": "2026-08-15T00:00:00+02:00", "exhausted": False,
                     "pages": ["Wiki/People/Jane Doe"], "calls": 3},
     })
@@ -474,7 +474,7 @@ def test_server_load_history_round_trip(vault):
 
 
 def test_a_malformed_open_window_in_the_state_file_is_forgotten(vault):
-    from administrator_vault import history, store
+    from soma_vault import history, store
     history.load_history("plan", now=NOW) if "NOW" in globals() else history.load_history("plan")
     p = store.resolve(vault, history.PATH)
     data = json.loads(p.read_text(encoding="utf-8"))
@@ -487,7 +487,7 @@ def test_a_malformed_open_window_in_the_state_file_is_forgotten(vault):
 
 
 def test_a_place_that_did_not_move_is_said_out_loud(vault):
-    from administrator_vault import history
+    from soma_vault import history
     history.load_history("plan", now=NOW) if "NOW" in globals() else history.load_history("plan")
     nxt = history.load_history("next")
     out = history.load_history("done", payload={"saved": [], "skipped_ids": [], "reached": nxt["since"], "exhausted": False, "pages": [], "calls": 1})

@@ -1,6 +1,6 @@
 filters:
   and:
-    - file.inFolder("Administrator/Emails")
+    - file.inFolder("Soma/Emails")
     - note.type == "email"
 formulas:
   received_date: 'if(note.received.isType("date"), note.received, date(note.received))'

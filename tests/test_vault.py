@@ -1,4 +1,4 @@
-"""administrator_vault: init, slug rules, write modes, identity, tables, listing."""
+"""soma_vault: init, slug rules, write modes, identity, tables, listing."""
 
 from __future__ import annotations
 
@@ -8,19 +8,19 @@ import zipfile
 
 import pytest
 
-from administrator_vault import frontmatter as fmt
-from administrator_vault import notes, store, wiki_lint
-from administrator_vault.server import build_server
+from soma_vault import frontmatter as fmt
+from soma_vault import notes, store, wiki_lint
+from soma_vault.server import build_server
 
-CB = "administrator/0.0.4"
+CB = "soma/0.0.4"
 
 
 @pytest.fixture
 def vault(tmp_path, monkeypatch):
     root = tmp_path / "Vault"
     root.mkdir()
-    monkeypatch.setenv("ADMINISTRATOR_VAULT", str(root))
-    monkeypatch.delenv("ADMINISTRATOR_VAULT_NAME", raising=False)
+    monkeypatch.setenv("SOMA_VAULT", str(root))
+    monkeypatch.delenv("SOMA_VAULT_NAME", raising=False)
     store.init(created_by=CB)
     return root
 
@@ -32,8 +32,8 @@ def legacy_followups(vault):
     done = ["| " + " | ".join(notes.FOLLOWUPS_DONE_HEADER) + " |", cols]
     text = ["---", "type: followups", "source: outlook", "created_by: " + CB, "---", "",
             "# Follow-ups", "", "Things I am waiting on.", "", "## Open", ""] + head + ["", "## Done", ""] + done
-    (vault / "Administrator" / "Follow-ups.md").write_text(chr(10).join(text) + chr(10), encoding="utf-8")
-    return "Administrator/Follow-ups.md"
+    (vault / "Soma" / "Follow-ups.md").write_text(chr(10).join(text) + chr(10), encoding="utf-8")
+    return "Soma/Follow-ups.md"
 
 
 def email_fm(**over):
@@ -97,45 +97,45 @@ def person_fm(**over):
 
 
 def test_status_without_env(monkeypatch):
-    monkeypatch.delenv("ADMINISTRATOR_VAULT", raising=False)
+    monkeypatch.delenv("SOMA_VAULT", raising=False)
     s = store.status()
-    assert s["exists"] is False and s["administrator_dir_exists"] is False
+    assert s["exists"] is False and s["soma_dir_exists"] is False
     assert set(s["folders"]) == set(notes.FOLDERS)
 
 
 def test_init_creates_everything(vault):
     s = store.status()
-    assert s["administrator_dir_exists"]
+    assert s["soma_dir_exists"]
     assert all(s["folders"].values()), s["folders"]
     assert all(s["files"].values()), s["files"]
     assert s["vault_name"] == "Vault"
-    views = {p.name for p in (vault / "Administrator" / "_views").glob("*.base")}
+    views = {p.name for p in (vault / "Soma" / "_views").glob("*.base")}
     assert views == {"People.base", "Follow-ups.base", "Meetings.base", "Emails.base", "Wiki.base"}
-    wiki_dir = vault / "Administrator" / "Wiki"
+    wiki_dir = vault / "Soma" / "Wiki"
     assert {p.name for p in wiki_dir.glob("*.md")} == {"Index.md", "Log.md", "Review.md", "Wiki.md", "Questions.md"}
     schema_text = (wiki_dir / "Wiki.md").read_text(encoding="utf-8")
     assert "type: wiki-schema" in schema_text and "# The wiki — how pages work" in schema_text and "## Your notes on this schema" in schema_text
     assert all((wiki_dir / f).is_dir() for f in ("People", "Orgs", "Topics", "Howto"))
-    fu = (vault / "Administrator" / "Follow-ups.md").read_text(encoding="utf-8")
+    fu = (vault / "Soma" / "Follow-ups.md").read_text(encoding="utf-8")
     assert "type: followups" in fu
     assert "## Open" in fu and "## Done" in fu
     assert "| Since | Who | What | Email | Last checked |" in fu
-    pref = fmt.split_note((vault / "Administrator" / "Preferences.md").read_text(encoding="utf-8"))[0]
+    pref = fmt.split_note((vault / "Soma" / "Preferences.md").read_text(encoding="utf-8"))[0]
     assert pref["work_start"] == "09:00" and pref["buffer_minutes"] == 15
     assert pref["preferred_days"] == ["Tue", "Wed", "Thu"]
     # second run: nothing created, everything skipped
     again = store.init(created_by=CB)
     assert again["created"] == []
-    assert "Administrator/Follow-ups.md" in again["skipped"]
+    assert "Soma/Follow-ups.md" in again["skipped"]
 
 
 def test_init_creates_priorities_and_the_planner_preferences(vault):
-    prio = vault / "Administrator" / "Priorities.md"
+    prio = vault / "Soma" / "Priorities.md"
     text = prio.read_text(encoding="utf-8")
-    assert "type: priorities" in text and "source: administrator" in text and "## Priorities" in text
+    assert "type: priorities" in text and "source: soma" in text and "## Priorities" in text
     assert "1. (your first priority" in text and "[[Wiki/Topics/acme-supplier-contract]]" in text
     assert store.status()["files"]["Priorities.md"] is True
-    pref_text = (vault / "Administrator" / "Preferences.md").read_text(encoding="utf-8")
+    pref_text = (vault / "Soma" / "Preferences.md").read_text(encoding="utf-8")
     pref = fmt.split_note(pref_text)[0]
     assert pref["peak_hours"] == ["09:00-12:00"] and pref["focus_block_minutes"] == 90 and pref["focus_blocks_per_day"] == 2
     assert pref["admin_blocks_per_day"] == 2 and pref["admin_block_minutes"] == 45 and pref["collect_folders"] == []
@@ -143,30 +143,30 @@ def test_init_creates_priorities_and_the_planner_preferences(vault):
         assert f"- `{key}`" in pref_text, key  # every key has its one-line explanation
     # read_preferences: the file's values, typed, nothing missing
     r = store.read_preferences()
-    assert r["path"] == "Administrator/Preferences.md" and r["missing"] == []
+    assert r["path"] == "Soma/Preferences.md" and r["missing"] == []
     p = r["preferences"]
     assert p["slack_share"] == 0.2 and p["work_start"] == "09:00" and p["buffer_minutes"] == 15 and p["no_meeting_blocks"] == ["Fri 13:00-17:00"]
     # a 0.2.0 file without the planner keys: defaults filled in, missing listed
-    (vault / "Administrator" / "Preferences.md").write_text("---\ntype: preferences\nwork_start: \"08:00\"\nslack_share: 0.5\nmine: true\n---\n# P\n", encoding="utf-8")
+    (vault / "Soma" / "Preferences.md").write_text("---\ntype: preferences\nwork_start: \"08:00\"\nslack_share: 0.5\nmine: true\n---\n# P\n", encoding="utf-8")
     r = store.read_preferences()
     assert r["preferences"]["work_start"] == "08:00" and r["preferences"]["slack_share"] == 0.5 and r["preferences"]["peak_hours"] == ["09:00-12:00"]
     assert r["preferences"]["focus_block_minutes"] == 90 and r["preferences"]["mine"] is True
     assert "peak_hours" in r["missing"] and "collect_folders" in r["missing"] and "work_start" not in r["missing"] and "slack_share" not in r["missing"]
     # no file at all: every key missing, path None
-    (vault / "Administrator" / "Preferences.md").unlink()
+    (vault / "Soma" / "Preferences.md").unlink()
     r = store.read_preferences()
     assert r["path"] is None and set(r["missing"]) == set(store.PREFERENCE_DEFAULTS) and r["preferences"]["admin_block_minutes"] == 45
     # Priorities.md is the user's: overwrite=true leaves it alone
     prio.write_text("---\ntype: priorities\n---\n# mine\n\n## Priorities\n\n1. [[Wiki/Topics/q3-budget]]\n", encoding="utf-8")
     res = store.init(overwrite=True, created_by=CB)
-    assert "Administrator/Priorities.md" in res["skipped"] and "# mine" in prio.read_text(encoding="utf-8")
+    assert "Soma/Priorities.md" in res["skipped"] and "# mine" in prio.read_text(encoding="utf-8")
 
 
 def test_init_creates_the_questions_file(vault):
-    q = vault / "Administrator" / "Wiki" / "Questions.md"
+    q = vault / "Soma" / "Wiki" / "Questions.md"
     text = q.read_text(encoding="utf-8")
     fm = fmt.split_note(text)[0]
-    assert fm["type"] == "wiki-questions" and fm["source"] == "administrator" and fm["created_by"] == CB
+    assert fm["type"] == "wiki-questions" and fm["source"] == "soma" and fm["created_by"] == CB
     assert "# Questions" in text and "## Questions" in text
     # the two examples sit in a code block above the list, so the list itself is
     # empty and lint proposes no page named "example" on a brand new vault
@@ -178,13 +178,13 @@ def test_init_creates_the_questions_file(vault):
     # the user's own list: a second init, with overwrite, leaves it alone
     q.write_text("---\ntype: wiki-questions\n---\n# mine\n\n## Questions\n\n- mine? → [[Wiki/Topics/q3-budget]]\n", encoding="utf-8")
     res = store.init(overwrite=True, created_by=CB)
-    assert "Administrator/Wiki/Questions.md" in res["skipped"] and "# mine" in q.read_text(encoding="utf-8")
+    assert "Soma/Wiki/Questions.md" in res["skipped"] and "# mine" in q.read_text(encoding="utf-8")
 
 
 def test_chat_and_time_block_note_rules():
     fm = {"type": "chat", "chat_id": "19:abc@thread.v2", "chat_title": "Re: Q3 budget", "date": "2026-08-21"}
     assert notes.base_filename("chat", fm) == "2026-08-21 Q3 budget.md"
-    assert notes.folder_of("chat") == "Administrator/Teams" and notes.folder_of("time-block") == "Administrator/Time-blocks"
+    assert notes.folder_of("chat") == "Soma/Teams" and notes.folder_of("time-block") == "Soma/Time-blocks"
     assert notes.identity_of("chat", fm) == {"chat_id": "19:abc@thread.v2", "date": "2026-08-21"}
     ident = notes.normalize_identity("chat", "19:abc@thread.v2|2026-08-21")
     assert ident == {"chat_id": "19:abc@thread.v2", "date": "2026-08-21"} and notes.matches("chat", fm, ident)
@@ -200,8 +200,8 @@ def test_chat_and_time_block_note_rules():
 
 def test_init_peak_hours(vault):
     res = store.init(overwrite=True, created_by=CB, peak_hours=["08:00-10:30", "14:00-16:00"])
-    assert "Administrator/Preferences.md" in res["created"]
-    pref = fmt.split_note((vault / "Administrator" / "Preferences.md").read_text(encoding="utf-8"))[0]
+    assert "Soma/Preferences.md" in res["created"]
+    pref = fmt.split_note((vault / "Soma" / "Preferences.md").read_text(encoding="utf-8"))[0]
     assert pref["peak_hours"] == ["08:00-10:30", "14:00-16:00"]
     assert store.read_preferences()["preferences"]["peak_hours"] == ["08:00-10:30", "14:00-16:00"]
     with pytest.raises(store.VaultError):
@@ -210,28 +210,28 @@ def test_init_peak_hours(vault):
 
 
 def test_init_overwrite_keeps_followups(vault):
-    fu = vault / "Administrator" / "Follow-ups.md"
+    fu = vault / "Soma" / "Follow-ups.md"
     fu.write_text("---\ntype: followups\n---\n# mine\n", encoding="utf-8")
     res = store.init(work_start="08:00", overwrite=True, created_by=CB)
-    assert "Administrator/Preferences.md" in res["created"]
-    assert "Administrator/Follow-ups.md" in res["skipped"]
+    assert "Soma/Preferences.md" in res["created"]
+    assert "Soma/Follow-ups.md" in res["skipped"]
     assert "# mine" in fu.read_text(encoding="utf-8")
 
 
 def test_init_zips_the_vault_once_before_an_older_wiki_is_read_back(vault):
-    """A vault written before this version keeps a copy of Administrator/ before
+    """A vault written before this version keeps a copy of Soma/ before
     the first writing call reads its pages back and writes them again."""
-    from administrator_vault import wiki_reconcile
+    from soma_vault import wiki_reconcile
 
     assert store.init(created_by=CB)["backup"] is None  # no wiki pages: nothing to keep
-    page = vault / "Administrator" / "Wiki" / "Topics" / "q3-budget.md"
+    page = vault / "Soma" / "Wiki" / "Topics" / "q3-budget.md"
     page.write_text("---\ntype: topic\ntitle: Q3 budget\n---\n\n# Q3 budget\n", encoding="utf-8")
-    cache = vault / "Administrator" / "Wiki" / "_cache"
+    cache = vault / "Soma" / "Wiki" / "_cache"
     cache.mkdir(parents=True, exist_ok=True)
     (cache / "queries.log").write_text("who keeps the ledger\n", encoding="utf-8")
 
     res = store.init(created_by=CB)
-    assert res["backup"].startswith("Administrator/_backup/") and res["backup"].endswith(".zip")
+    assert res["backup"].startswith("Soma/_backup/") and res["backup"].endswith(".zip")
     with zipfile.ZipFile(vault / res["backup"]) as z:
         names = z.namelist()
     assert "Wiki/Topics/q3-budget.md" in names and "Preferences.md" in names
@@ -242,10 +242,10 @@ def test_init_zips_the_vault_once_before_an_older_wiki_is_read_back(vault):
 
 
 def test_vault_root_must_exist(monkeypatch, tmp_path):
-    monkeypatch.setenv("ADMINISTRATOR_VAULT", str(tmp_path / "nope"))
+    monkeypatch.setenv("SOMA_VAULT", str(tmp_path / "nope"))
     with pytest.raises(store.VaultError):
         store.vault_root()
-    monkeypatch.setenv("ADMINISTRATOR_VAULT", "relative/path")
+    monkeypatch.setenv("SOMA_VAULT", "relative/path")
     with pytest.raises(store.VaultError):
         store.vault_root()
 
@@ -352,7 +352,7 @@ def test_replace_keys_only_touches_named_lines():
 def test_create_append_upsert(vault):
     res = store.write("email", email_fm(), "# Re: Budget Q3\n\n## Body\n\nhello", "create")
     assert res == {
-        "path": "Administrator/Emails/2026-08-22 Budget Q3.md",
+        "path": "Soma/Emails/2026-08-22 Budget Q3.md",
         "action": "created",
         "identity": {"internet_message_id": "<abc@example.com>", "entry_id": "00AA"},
     }
@@ -373,13 +373,13 @@ def test_create_append_upsert(vault):
     assert 'subject: "Re: Budget Q3"' in second  # frozen key untouched
     assert "---\n\n# Re: Budget Q3\n" in second  # blank line after the frontmatter kept
     assert "- status: todo → waiting\n" in second
-    assert len(list((vault / "Administrator" / "Emails").glob("*.md"))) == 1
+    assert len(list((vault / "Soma" / "Emails").glob("*.md"))) == 1
 
     res3 = store.write("email", email_fm(), "again", "upsert")
     assert res3["action"] == "appended"
     res4 = store.write("email", email_fm(internet_message_id="<new@example.com>", entry_id="00AB"), "n", "upsert")
     assert res4["action"] == "created"
-    assert res4["path"] == "Administrator/Emails/2026-08-22 Budget Q3 (2).md"
+    assert res4["path"] == "Soma/Emails/2026-08-22 Budget Q3 (2).md"
 
 
 def test_append_requires_existing(vault):
@@ -415,7 +415,7 @@ def test_find_email_by_message_id_then_entry_id(vault):
     assert not store.find("email", {"internet_message_id": "<other>", "entry_id": "00AA"})["found"]
     assert not store.find("email", "nope")["found"]
     hit = store.find("email", "00AA")
-    assert hit["path"] == "Administrator/Emails/2026-08-22 Budget Q3.md"
+    assert hit["path"] == "Soma/Emails/2026-08-22 Budget Q3.md"
     assert hit["frontmatter"]["subject"] == "Re: Budget Q3"
 
 
@@ -429,16 +429,16 @@ def test_find_meeting_by_occurrence_then_global_id(vault):
     res = store.write("meeting", later, "two", "upsert")
     assert res["action"] == "created"  # a new occurrence is not the old note
     by_gid = store.find("meeting", {"global_id": "GID1"})
-    assert by_gid["found"] and by_gid["path"].startswith("Administrator/Meetings/2026-09-01 1300")
+    assert by_gid["found"] and by_gid["path"].startswith("Soma/Meetings/2026-09-01 1300")
     assert len(by_gid["matches"]) == 2
     assert store.find("meeting", "GID1|2026-08-25T13:00:00+02:00")["path"].startswith(
-        "Administrator/Meetings/2026-08-25 1300"
+        "Soma/Meetings/2026-08-25 1300"
     )
 
 
 def test_person_identity_and_alias(vault):
     res = store.write("person", person_fm(), "# Jane Doe")
-    assert res["path"] == "Administrator/Wiki/People/Jane Doe.md"
+    assert res["path"] == "Soma/Wiki/People/Jane Doe.md"
     assert store.find("person", "jane.doe@EXAMPLE.com")["found"]
     assert store.find("person", "JDOE@example.com")["found"]  # alias
     assert not store.find("person", "someone@example.com")["found"]
@@ -454,7 +454,7 @@ def test_person_identity_and_alias(vault):
     assert fm["aliases"] == ["jdoe@example.com", "Doe, Jane"]
     assert fm["last_contact"] == "2026-08-23T10:00:00+02:00"
     assert fm["name"] == "Jane Doe"
-    assert len(list((vault / "Administrator" / "Wiki" / "People").glob("*.md"))) == 1
+    assert len(list((vault / "Soma" / "Wiki" / "People").glob("*.md"))) == 1
     # vault_write("person") goes through the wiki: a draft page following the contract, no "## Update" heading
     text = (vault / res["path"]).read_text(encoding="utf-8")
     assert fm["status"] == "draft" and "## Update" not in text and "seen again" not in text
@@ -468,12 +468,12 @@ def test_daily_and_weekly_identity(vault):
     d = {"type": "daily", "source": "outlook", "date": "2026-08-22", "folder": "inbox",
          "since": "2026-08-21T18:00:00+02:00", "inbox_checked": "2026-08-22T08:31:10+02:00",
          "mails_seen": 23, "status": "todo", "created_by": CB}
-    assert store.write("daily", d, "# 2026-08-22")["path"] == "Administrator/Daily/2026-08-22.md"
+    assert store.write("daily", d, "# 2026-08-22")["path"] == "Soma/Daily/2026-08-22.md"
     r = store.write("daily", dict(d, inbox_checked="2026-08-22T15:40:00+02:00", mails_seen=99), "more", "upsert")
     assert r["action"] == "appended" and set(r["frontmatter_changed"]) == {"inbox_checked", "mails_seen"}
     assert store.find("daily", "2026-08-22")["found"]
     w = {"type": "weekly", "week": "2026-W34", "start": "2026-08-17", "end": "2026-08-23", "created_by": CB}
-    assert store.write("weekly", w, "# Week 34")["path"] == "Administrator/Weekly/2026-W34.md"
+    assert store.write("weekly", w, "# Week 34")["path"] == "Soma/Weekly/2026-W34.md"
     assert store.find("weekly", "2026-W34")["found"]
 
 
@@ -482,9 +482,9 @@ def test_daily_and_weekly_identity(vault):
 
 @pytest.mark.parametrize(
     "bad",
-    ["Notes/x.md", "../x.md", "Administrator/../x.md", "C:/x.md", "/Administrator/x.md", "", "Administrator2/x.md"],
+    ["Notes/x.md", "../x.md", "Soma/../x.md", "C:/x.md", "/Soma/x.md", "", "Soma2/x.md"],
 )
-def test_refuses_paths_outside_administrator(vault, bad):
+def test_refuses_paths_outside_soma(vault, bad):
     with pytest.raises(store.VaultError):
         store.resolve(vault, bad)
     with pytest.raises(store.VaultError):
@@ -492,8 +492,8 @@ def test_refuses_paths_outside_administrator(vault, bad):
 
 
 def test_accepts_backslashes(vault):
-    p = store.resolve(vault, "Administrator\\Follow-ups.md")
-    assert p == vault / "Administrator" / "Follow-ups.md"
+    p = store.resolve(vault, "Soma\\Follow-ups.md")
+    assert p == vault / "Soma" / "Follow-ups.md"
 
 
 # ------------------------------------------------------------------ tables
@@ -525,8 +525,8 @@ def test_append_row_dedupe_and_move(vault):
 
 def test_a_generated_file_takes_no_rows(vault):
     """Follow-ups.md is written from the wiki pages: rows go on the page instead."""
-    path = "Administrator/Follow-ups.md"
-    fm = fmt.split_note((vault / "Administrator" / "Follow-ups.md").read_text(encoding="utf-8"))[0]
+    path = "Soma/Follow-ups.md"
+    fm = fmt.split_note((vault / "Soma" / "Follow-ups.md").read_text(encoding="utf-8"))[0]
     assert fm["generated"] is True and fm["source"] == "wiki"
     with pytest.raises(store.VaultError) as e1:
         store.append_row(path, "Open", ["2026-08-21", "Bob", "x", "", "2026-08-22"], "00AF")
@@ -537,7 +537,7 @@ def test_a_generated_file_takes_no_rows(vault):
 
 def test_append_row_creates_section_and_header(vault):
     store.write("email", email_fm(), "# Note\n\n## Body\n\ntext")
-    path = "Administrator/Emails/2026-08-22 Budget Q3.md"
+    path = "Soma/Emails/2026-08-22 Budget Q3.md"
     with pytest.raises(store.VaultError):
         store.append_row(path, "Related", ["a", "b"])
     r = store.append_row(path, "Related", ["a", "b"], "K1", header=["Left", "Right"], key_label="occurrence_key")
@@ -588,7 +588,7 @@ def test_append_row_into_update_section_dedupes_across_file(vault):
          "since": "x", "inbox_checked": "y", "mails_seen": 1, "status": "todo", "created_by": CB}
     hdr = ["#", "Label", "From", "Subject", "Received", "Why", "Note"]
     store.write("daily", d, "# 2026-08-22\n\n## Inbox\n\n| " + " | ".join(hdr) + " |\n| --- | --- | --- | --- | --- | --- | --- |")
-    path = "Administrator/Daily/2026-08-22.md"
+    path = "Soma/Daily/2026-08-22.md"
     assert store.append_row(path, "Inbox", ["1", "act", "Jane", "Budget", "09:14", "why", ""], "00AA")["appended"]
     heading = store.write("daily", d, "second run", "append")["update_heading"]
     assert store.append_row(path, heading, ["2", "fyi", "Bob", "Hi", "10:00", "why", ""], "00AA", header=hdr)["appended"] is False
@@ -599,12 +599,12 @@ def test_append_row_into_update_section_dedupes_across_file(vault):
 
 
 def test_read(vault):
-    r = store.read("Administrator/Follow-ups.md")
+    r = store.read("Soma/Follow-ups.md")
     assert r["frontmatter"]["type"] == "followups"
     assert r["sections"] == ["Follow-ups", "Open", "Done"]
     assert r["body"].startswith("\n# Follow-ups") or r["body"].startswith("# Follow-ups")
     with pytest.raises(store.VaultError):
-        store.read("Administrator/Missing.md")
+        store.read("Soma/Missing.md")
 
 
 def test_list_ordering_and_since(vault):
@@ -613,7 +613,7 @@ def test_list_ordering_and_since(vault):
     items = store.list_notes("email")
     # m2 is 04:30Z on the 22nd, m1 is 07:14Z on the 22nd: offsets are honoured
     assert [i["frontmatter"]["subject"] for i in items] == ["m1", "m2", "m0"]
-    assert all(i["path"].startswith("Administrator/Emails/") for i in items)
+    assert all(i["path"].startswith("Soma/Emails/") for i in items)
     assert [i["frontmatter"]["subject"] for i in store.list_notes("email", since="2026-08-21")] == ["m1", "m2"]
     assert len(store.list_notes("email", limit=1)) == 1
     assert store.list_notes("weekly") == []
@@ -675,7 +675,7 @@ def test_tool_schemas_stay_under_their_caps():
 
 def test_schema_trim_keeps_every_parameter():
     """Dropping pydantic's "title" metadata must not eat a parameter of that name."""
-    from administrator_vault.server import _drop_titles
+    from soma_vault.server import _drop_titles
 
     # what pydantic hands over for a tool that really does take a "title"
     schema = _drop_titles({
@@ -713,7 +713,7 @@ def test_server_call_round_trip(vault):
     server = build_server()
     out = asyncio.run(server.call_tool("vault_status", {}))
     text = out[0].text if isinstance(out, list) else out[0][0].text
-    assert json.loads(text)["administrator_dir_exists"] is True
+    assert json.loads(text)["soma_dir_exists"] is True
     out = asyncio.run(server.call_tool("vault_write", {"type": "email", "frontmatter": email_fm(), "body": "hi"}))
     text = out[0].text if isinstance(out, list) else out[0][0].text
     assert json.loads(text)["action"] == "created"
@@ -748,9 +748,9 @@ def test_server_call_round_trip(vault):
 
 def test_the_backup_zip_is_made_once_even_before_any_wiki_write(vault):
     """A second setup on an older vault must not zip everything again."""
-    from administrator_vault import store, wiki
+    from soma_vault import store, wiki
     wiki.create("topic", "Old page", created_by=CB)
-    state = vault / "Administrator" / "Wiki" / "_cache" / "state.json"
+    state = vault / "Soma" / "Wiki" / "_cache" / "state.json"
     if state.exists():
         state.unlink()
     first = store.init(created_by=CB)
@@ -759,4 +759,4 @@ def test_the_backup_zip_is_made_once_even_before_any_wiki_write(vault):
         state.unlink()
     second = store.init(created_by=CB)
     assert second["backup"] is None
-    assert len(list((vault / "Administrator" / "_backup").glob("*.zip"))) == 1
+    assert len(list((vault / "Soma" / "_backup").glob("*.zip"))) == 1

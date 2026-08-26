@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Optional
 from xml.etree import ElementTree as ET
 
-from administrator_vault.store import VaultError
+from soma_vault.store import VaultError
 
 # file extension -> the format name written on the record
 FORMATS = {

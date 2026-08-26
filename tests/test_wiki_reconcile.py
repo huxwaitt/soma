@@ -1,4 +1,4 @@
-"""administrator_vault.wiki_reconcile: pages edited by hand in Obsidian read
+"""soma_vault.wiki_reconcile: pages edited by hand in Obsidian read
 back into the wiki — first run, each kind of edit, renames and moves, pages
 written or deleted by hand, and what the tools say about it."""
 
@@ -9,19 +9,19 @@ import time
 
 import pytest
 
-from administrator_vault import frontmatter as fmt
-from administrator_vault import store, wiki, wiki_reconcile, wiki_search
+from soma_vault import frontmatter as fmt
+from soma_vault import store, wiki, wiki_reconcile, wiki_search
 
-CB = "administrator/0.4.1"
-W = "Administrator/Wiki"
+CB = "soma/0.4.1"
+W = "Soma/Wiki"
 
 
 @pytest.fixture
 def vault(tmp_path, monkeypatch):
     root = tmp_path / "Vault"
     root.mkdir()
-    monkeypatch.setenv("ADMINISTRATOR_VAULT", str(root))
-    monkeypatch.delenv("ADMINISTRATOR_VAULT_NAME", raising=False)
+    monkeypatch.setenv("SOMA_VAULT", str(root))
+    monkeypatch.delenv("SOMA_VAULT_NAME", raising=False)
     store.init(created_by=CB)
     wiki_reconcile._STATE.clear()
     wiki_reconcile._MEMO.clear()
@@ -80,7 +80,7 @@ def test_the_first_run_gives_every_page_an_id_and_leaves_the_rest_alone(vault):
         path=path,
         fm={"type": "topic", "title": "Old page", "aliases": [], "summary": "", "status": "active", "created": "2026-08-01",
             "updated": "2026-08-01T09:00:00+02:00", "verified": "2026-08-01", "sources": 1, "open_items": 0, "flags": [],
-            "created_by": "administrator/0.3.0"},
+            "created_by": "soma/0.3.0"},
         title="Old page", lead="A page from before ids.")
     page.facts = [wiki.Fact("abcd", "The rate is 7 percent", "2026-08-01", ["<m1@example.com>"])]
     (vault / path).parent.mkdir(parents=True, exist_ok=True)
@@ -386,7 +386,7 @@ def test_the_search_answers_with_the_text_written_by_hand(vault):
 
 
 def test_lint_reports_the_hand_edits_under_check_zero(vault):
-    from administrator_vault import wiki_lint
+    from soma_vault import wiki_lint
 
     path = topic(vault)
     hand_edit(vault, path, with_bullet(text_of(vault, path), "- The venue is booked for October"))

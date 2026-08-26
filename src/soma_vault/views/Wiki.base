@@ -1,6 +1,6 @@
 filters:
   and:
-    - file.inFolder("Administrator/Wiki")
+    - file.inFolder("Soma/Wiki")
     - note.type != "redirect"
     - note.type != "wiki-index"
     - note.type != "wiki-review"

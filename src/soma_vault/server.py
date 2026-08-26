@@ -1,4 +1,4 @@
-"""FastMCP server ``vault``: the administrator plugin's note writer."""
+"""FastMCP server ``vault``: the soma plugin's note writer."""
 
 from __future__ import annotations
 
@@ -9,16 +9,16 @@ from typing import Annotated, Any, Callable, Optional
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
-from administrator_vault import history, priorities, store, timeblock, wiki, wiki_lint, wiki_migrate, wiki_search, workflows
-from administrator_vault.frontmatter import FrontmatterError
-from administrator_vault.notes import NoteError, SCHEMAS
+from soma_vault import history, priorities, store, timeblock, wiki, wiki_lint, wiki_migrate, wiki_search, workflows
+from soma_vault.frontmatter import FrontmatterError
+from soma_vault.notes import NoteError, SCHEMAS
 
 INSTRUCTIONS = """\
-This server writes the administrator plugin's notes into an Obsidian vault
-(root = the ADMINISTRATOR_VAULT environment variable) in a fixed, checkable
+This server writes the soma plugin's notes into an Obsidian vault
+(root = the SOMA_VAULT environment variable) in a fixed, checkable
 way. Every path in and out is vault-relative with forward slashes, e.g.
-"Administrator/Emails/2026-08-21 Q3 budget.md". Writes outside
-"Administrator/" are refused. Existing body text is never edited: a second
+"Soma/Emails/2026-08-21 Q3 budget.md". Writes outside
+"Soma/" are refused. Existing body text is never edited: a second
 write to the same note appends a "## Update <timestamp>" section.
 
 Note types and identity: email (internet_message_id, else entry_id),
@@ -28,7 +28,7 @@ hash), time-block (week). Every tool returns a JSON string.
 
 Every record — email, meeting, chat, document, daily, weekly — carries the
 same keys after type, written by code: source (outlook | teams | file |
-administrator), record_id (the identity above as one string; a chat's is
+soma), record_id (the identity above as one string; a chat's is
 "<chat_id>|<date>", a document's the first 16 hex of its sha256), title,
 date (YYYY-MM-DD), people (person page links), wiki (the pages it was read
 into), ingested (the date of the last ingest) and created_by, then the
@@ -42,7 +42,7 @@ n-th mail of a thread). The locator is written and kept whole; everything
 that counts sources reads it as the record, so one document cited from
 three pages is one source.
 
-The wiki (Administrator/Wiki/) holds pages the model keeps: person, org,
+The wiki (Soma/Wiki/) holds pages the model keeps: person, org,
 topic, decision, howto, me. A topic with an owner and a due date is a
 project; a decision page (Wiki/Decisions/) records one choice and is added
 to, never rewritten. vault_wiki_search answers a question with ranked facts
@@ -87,9 +87,9 @@ fields: which keys to return per entry; omit for all of them.
 limit: how many entries to return at most.
 since / until: ISO date or datetime bounds, read as local time.
 max_chars: cut the text at that many characters; 0 = no cut.
-path: vault-relative, forward slashes, under Administrator/.
+path: vault-relative, forward slashes, under Soma/.
 A wiki page is named as a path, a stem or a wikilink:
-Administrator/Wiki/Topics/q3-budget.md, Wiki/Topics/q3-budget or
+Soma/Wiki/Topics/q3-budget.md, Wiki/Topics/q3-budget or
 [[Wiki/Topics/q3-budget]].
 src: the source written on wiki facts: 'user' for things the user said in
 chat, else a record id.
@@ -112,7 +112,7 @@ files includes Wiki/Questions.md, the user's list of questions the wiki
 should answer.
 
 ## vault_init
-Creates Administrator/ with its folders (Wiki/ with People, Orgs, Topics,
+Creates Soma/ with its folders (Wiki/ with People, Orgs, Topics,
 Howto and an empty Index.md / Log.md / Review.md), Follow-ups.md,
 Preferences.md (from the given work hours and peak hours; peak_hours
 defaults to ["09:00-12:00"]), Wiki/Questions.md (the user's questions and
@@ -122,7 +122,7 @@ overwrite=true; Follow-ups.md, Rules.md, Priorities.md, Questions.md and the
 Wiki files are always kept. overwrite rewrites Preferences.md and the
 _views/*.base files only. work_start / work_end are HH:MM and
 buffer_minutes the free minutes kept around existing meetings. backup in the
-answer is a zip of Administrator/ under Administrator/_backup/<stamp>.zip,
+answer is a zip of Soma/ under Soma/_backup/<stamp>.zip,
 made once when the vault already holds wiki pages this version has never
 read back (_cache/ and _backup/ are left out), else null.
 
@@ -168,7 +168,7 @@ document record is read part by part. The newest part with that locator
 wins, so an updated document answers with its current text.
 
 ## vault_rules
-The rules of Administrator/Rules.md (created when missing) plus the built-in
+The rules of Soma/Rules.md (created when missing) plus the built-in
 ones: a List-Unsubscribe header -> fyi; auto-submitted, an 'Automatic reply'
 subject and meeting responses -> noise; noreply senders -> fyi; a sender
 with a person note of status fyi -> fyi. get: {path, labels, never_save,
@@ -188,7 +188,7 @@ labels: one object per mail the model labelled, {entry_id, label
 (act/reply/waiting/fyi/noise), reason (under 80 characters)}; mails a rule
 labelled may be left out. events: outlook_list_events items for the day
 (occurrence_key, subject, start, end, location, organizer, all_day), empty
-for /administrator:inbox. watch_out: extra 'Watch out' bullets; clashes and
+for /soma:inbox. watch_out: extra 'Watch out' bullets; clashes and
 missing prep notes are added in code. since: the lower bound of the inbox
 window, as used for outlook_list_mails. inbox_checked: the time of that
 call (ISO), defaults to now. folder: the folder that was read, 'inbox'
@@ -210,7 +210,7 @@ recipients[], received, attachments[], body / body_trimmed (body_trimmed is
 used when present). summary: one line, 25 words or fewer. action_items:
 lines like 'Send Q3 numbers by 2026-08-29 — owner: me', empty when the mail
 asks for nothing. attachments_saved: paths from outlook_save_attachments
-(absolute, or vault-relative under Administrator/Attachments/). msg_file:
+(absolute, or vault-relative under Soma/Attachments/). msg_file:
 the path from outlook_save_mail_as. status: todo / waiting / done / fyi —
 the default is todo with action items, fyi without, waiting when the mail is
 from self_addresses and has action items. self_addresses: the user's own
@@ -258,7 +258,7 @@ you need with vault_read(path, section=<locator>) and cite them as
 "<record_id>#<locator>".
 
 kind=transcript. transcript_path is vault-relative, under
-Administrator/Attachments/, and meeting_path names the meeting note. The
+Soma/Attachments/, and meeting_path names the meeting note. The
 Copilot scaffolding is dropped, turns and speakers are counted, and
 '### Transcript' is appended under '## Update' on the meeting note, with
 speakers linked to attendee person notes and a collapsed callout up to 400
@@ -402,7 +402,7 @@ Returns {keep, drop, redirect, facts_added, facts_confirmed, facts_refused,
 relinked, review_closed, sizes}.
 
 action=migrate. dry_run=true returns the plan and writes nothing; false does it with a
-backup. Three parts. people: Administrator/People/*.md move to Wiki/People/
+backup. Three parts. people: Soma/People/*.md move to Wiki/People/
 as person pages following the page contract (old Emails / Meetings lines
 become Records, a 'Voice with this person:' block and other user text go
 under Notes), [[People/...]] links are rewritten to [[Wiki/People/...]]
@@ -411,7 +411,7 @@ followups: the Open rows of Follow-ups.md become open items on the person
 page the Who names (an unknown name lands on Wiki/Me.md with the name in the
 text) and the Done rows become History lines, after which the file is
 written from the pages. views: the .base views are brought up to date. A
-copy of what is replaced is kept under Administrator/_backup/<stamp>/.
+copy of what is replaced is kept under Soma/_backup/<stamp>/.
 Returns the plan ({needed, parts: {people, followups, views}, people, links,
 views, followups: {open, done, count, backup}, left, backup}) plus, after a
 real run, {moved, skipped, links_rewritten, followups_moved: {open, done},
@@ -439,12 +439,12 @@ until one run has both numbers), last}.
 changed: the markdown notes modified after since (required), oldest first,
 with an excerpt each. folders: vault-relative folders to read instead of the
 default set
-(Administrator/Meetings, Emails, Daily, Weekly plus the collect_folders of
+(Soma/Meetings, Emails, Daily, Weekly plus the collect_folders of
 Preferences.md). Returns {since, count, total, capped, folders, skipped,
 missing, notes: [{path, type, modified, ingested (a wiki key is present),
 excerpt (the last '## Update' section when there is one, else the body),
 from_update, truncated}]}, oldest first. Wiki/, Attachments/, _views/,
-_backup/ and dot-folders are never read; folders outside Administrator/ are
+_backup/ and dot-folders are never read; folders outside Soma/ are
 only read, never written; paths outside the vault are refused.
 The answer also carries documents: [{path, kind: 'document', modified, size,
 format}] — the files in the document_folders of Preferences.md (vault-
@@ -483,7 +483,7 @@ all_done, totals, next_hint, auto, cap, cost, note}
 — the ids are recorded as seen, the place moves (to until when the window
 was exhausted, else to reached), the window is halved or doubled to fit the
 batch size (1 to 30 days), and when every source is finished the answer
-holds a summary that ends with 'Run /administrator:lint.'. The state is
+holds a summary that ends with 'Run /soma:lint.'. The state is
 Wiki/_cache/history.json and is written after plan and after every done, so
 a crash costs at most one window. The collect stamps are only read, never
 moved.
@@ -519,7 +519,7 @@ create results merged in — occurrence_key and entry_id from
 outlook_create_event; existing blocks may be passed too. The note holds a
 '## Plan' table (Day | Start | End | Kind | Subject | Priority, with a
 hidden occurrence_key per row), an empty '## Held' table (Day | Block |
-Result | Note, which /administrator:collect-information fills with
+Result | Note, which /soma:collect-information fills with
 vault_row, dedupe_key = occurrence_key, key_label = occurrence_key)
 and '## Notes'. A re-plan of the same week appends the new table under
 '## Update'. Returns {path, action, week, blocks, planned}.
@@ -548,7 +548,7 @@ wiki topics, soonest due first then most open items, at most 10), followups:
 latest weekly note's week, at most 5), current: [the numbered lines now in
 Priorities.md]}. write (only after the user confirmed the list): replaces
 the numbered list under '## Priorities' (the placeholder or the previous
-list) with lines plus a '<!-- suggested by administrator, confirmed <date>
+list) with lines plus a '<!-- suggested by soma, confirmed <date>
 -->' comment and the note as a second comment; frontmatter, the text above
 the heading and every other section are kept byte for byte; a missing file
 is created first. Returns {path, action: 'written', lines, previous}.
@@ -723,12 +723,12 @@ def register(mcp: FastMCP) -> None:
     )
     @_guard
     def vault_status() -> str:
-        """Report where the vault is and which Administrator/ folders and files exist. Never fails on a missing vault; read the flags."""
+        """Report where the vault is and which Soma/ folders and files exist. Never fails on a missing vault; read the flags."""
         return _json(store.status())
 
     @mcp.tool(
         name="vault_init",
-        annotations={"title": "Create the Administrator/ tree", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+        annotations={"title": "Create the Soma/ tree", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
     )
     @_guard
     def vault_init(
@@ -736,10 +736,10 @@ def register(mcp: FastMCP) -> None:
         work_end: WorkEnd = "17:00",
         buffer_minutes: BufferMinutes = 15,
         overwrite: Overwrite = False,
-        created_by: CreatedBy = "administrator-vault",
+        created_by: CreatedBy = "soma-vault",
         peak_hours: PeakHours = None,
     ) -> str:
-        """Create the Administrator/ tree: its folders, Follow-ups.md, Preferences.md, Wiki/Questions.md and the _views/*.base files. Returns what was created and what was kept."""
+        """Create the Soma/ tree: its folders, Follow-ups.md, Preferences.md, Wiki/Questions.md and the _views/*.base files. Returns what was created and what was kept."""
         return _json(store.init(work_start, work_end, buffer_minutes, overwrite, created_by, peak_hours))
 
     @mcp.tool(
@@ -802,21 +802,21 @@ def register(mcp: FastMCP) -> None:
     )
     @_guard
     def vault_read(path: VaultPath, section: SectionRef = None) -> str:
-        """Read one note under Administrator/: {path, frontmatter, body, sections (heading texts)}. With section, the body is left out and one part comes back instead: {path, frontmatter, section: {locator, heading, text, chars}, sections} — that is how a long document record is read part by part."""
+        """Read one note under Soma/: {path, frontmatter, body, sections (heading texts)}. With section, the body is left out and one part comes back instead: {path, frontmatter, section: {locator, heading, text, chars}, sections} — that is how a long document record is read part by part."""
         return _json(store.read(path, section))
 
     # ---------------------------------------------------------------- v0.5 helpers
 
     @mcp.tool(
         name="vault_rules",
-        annotations={"title": "Read or apply Administrator/Rules.md", "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+        annotations={"title": "Read or apply Soma/Rules.md", "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
     )
     @_guard
     def vault_rules(
         action: Annotated[str, Field(description="get or match.")] = "get",
         items: Optional[Items] = None,
     ) -> str:
-        """Read the labelling rules of Administrator/Rules.md plus the built-in ones, or apply them to mail items. get returns the parsed rules; match returns one result per item plus kept (the items left to read), dropped ({entry_id, why}) for bulk mail and never-save rules, and counts."""
+        """Read the labelling rules of Soma/Rules.md plus the built-in ones, or apply them to mail items. get returns the parsed rules; match returns one result per item plus kept (the items left to read), dropped ({entry_id, why}) for bulk mail and never-save rules, and counts."""
         if action == "get":
             return _json(workflows.rules_get())
         if action == "match":

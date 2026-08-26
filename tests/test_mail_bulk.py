@@ -246,7 +246,7 @@ def test_asking_for_bulk_alone_leaves_the_reason_behind():
 def test_the_load_history_window_is_listed_with_both_keys():
     """The call vault_load_history hands the model runs vault_rules on its
     answer, so the fields it names carry the flag and the reason."""
-    from administrator_vault.history import MAIL_FIELDS
+    from soma_vault.history import MAIL_FIELDS
 
     assert "bulk" in MAIL_FIELDS and "bulk_why" in MAIL_FIELDS
 

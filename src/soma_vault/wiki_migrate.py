@@ -2,9 +2,9 @@
 
 ``migrate(dry_run=True)`` returns the plan and writes nothing. ``dry_run=False``
 does it under the wiki lock, keeping a copy of everything it replaces under
-``Administrator/_backup/<stamp>/``:
+``Soma/_backup/<stamp>/``:
 
-* **people** — every note of a 0.1.0 ``Administrator/People/`` rewritten to the
+* **people** — every note of a 0.1.0 ``Soma/People/`` rewritten to the
   page contract under ``Wiki/People/``, ``[[People/…]]`` links rewritten to
   ``[[Wiki/People/…]]`` in every other note (frontmatter included), and the old
   folder removed when it is empty;
@@ -25,11 +25,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from administrator_vault import frontmatter as fmt
-from administrator_vault import store, wiki
-from administrator_vault.notes import ADMIN_DIR
-from administrator_vault.store import read_text, rel
-from administrator_vault.wiki import Page, _Ctx, _atomic_write, _finalize, _log, _s, _wiki_lock, _write_index, format_page, measure
+from soma_vault import frontmatter as fmt
+from soma_vault import store, wiki
+from soma_vault.notes import ADMIN_DIR
+from soma_vault.store import read_text, rel
+from soma_vault.wiki import Page, _Ctx, _atomic_write, _finalize, _log, _s, _wiki_lock, _write_index, format_page, measure
 
 OLD_DIR = f"{ADMIN_DIR}/People"
 NEW_DIR = f"{wiki.WIKI_DIR}/People"
@@ -155,7 +155,7 @@ def _views_plan(root: Path) -> list[dict[str, Any]]:
             if p.name in ("People.base", "Wiki.base") and p.name in shipped:
                 if text != shipped[p.name].read_text(encoding="utf-8"):
                     out.append({"path": rel(root, p), "action": "replace with the shipped view"})
-            elif 'Administrator/People"' in text or "note.company" in text:
+            elif 'Soma/People"' in text or "note.company" in text:
                 out.append({"path": rel(root, p), "action": "rewrite folder filter and company column"})
     if "Wiki.base" in shipped and not (views / "Wiki.base").is_file():
         out.append({"path": rel(root, views / "Wiki.base"), "action": "install"})
@@ -169,14 +169,14 @@ def _apply_views(root: Path, plan: list[dict[str, Any]]) -> None:
         if p.name in shipped and item["action"] != "rewrite folder filter and company column":
             _atomic_write(p, shipped[p.name].read_text(encoding="utf-8"))
         else:
-            text = read_text(p).replace('Administrator/People"', 'Administrator/Wiki/People"').replace("note.company", "note.org")
+            text = read_text(p).replace('Soma/People"', 'Soma/Wiki/People"').replace("note.company", "note.org")
             _atomic_write(p, text)
 
 
 def _followups_tables(root: Path) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     """The Open and Done rows of a Follow-ups.md the user still keeps by hand.
     A file the code already writes gives nothing back."""
-    from administrator_vault import workflows  # imported here: it reads wiki, this module is a tool
+    from soma_vault import workflows  # imported here: it reads wiki, this module is a tool
 
     p = root / FOLLOWUPS_PATH
     if not p.is_file():
@@ -291,7 +291,7 @@ def _apply_followups(root: Path, plan: dict[str, Any], created_by: str) -> dict[
             _finalize(page, ctx)
             wiki._write_page(page, ctx)
             done_n += 1
-    from administrator_vault import followups  # the file becomes the view of the pages
+    from soma_vault import followups  # the file becomes the view of the pages
 
     _atomic_write(root / FOLLOWUPS_PATH, followups.text(root, created_by))
     return {"open": len(plan["open"]), "done": done_n}

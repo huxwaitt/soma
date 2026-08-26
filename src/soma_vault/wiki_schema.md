@@ -1,12 +1,12 @@
 # The wiki — how pages work
 
-This file is the schema for `Administrator/Wiki/`. The vault server writes a copy of it into the vault as `Wiki/Wiki.md` when it creates the wiki, and never rewrites it afterwards: you may add notes at the bottom, and `/administrator:wiki` reads them when you ask it to. The same text is what the model reads, so you and it follow one contract.
+This file is the schema for `Soma/Wiki/`. The vault server writes a copy of it into the vault as `Wiki/Wiki.md` when it creates the wiki, and never rewrites it afterwards: you may add notes at the bottom, and `/soma:wiki` reads them when you ask it to. The same text is what the model reads, so you and it follow one contract.
 
 ## What the wiki is
 
 Your records — saved emails, meeting notes, Teams chats, documents read into the vault, daily and weekly notes — are never edited. They are what happened. The wiki is what is *currently true* about the people, organisations, topics and procedures those records mention: one page per subject, a short lead, a list of dated facts, and links back to the records each fact came from. When a fact changes, the old one is kept in the page's History with the date and the record that changed it. Nothing is deleted.
 
-`Administrator/Follow-ups.md` is written from the wiki too: it is the view of what other people owe you (see "Commitments").
+`Soma/Follow-ups.md` is written from the wiki too: it is the view of what other people owe you (see "Commitments").
 
 The model reads a record, compares it with the facts already on the matching pages, and sends a short list of operations (add, update, supersede, confirm, retire, contest). Code applies them, keeps the frontmatter, regenerates the index, and writes the log. Anything code cannot decide — two records that disagree, two pages that may be one thing, a page that has gone stale — goes into `Wiki/Review.md` for you.
 
@@ -16,7 +16,7 @@ A record is one thing that happened, written once and never edited: a saved emai
 
 | Key | What it holds |
 | --- | --- |
-| `source` | `outlook`, `teams`, `file` or `administrator` |
+| `source` | `outlook`, `teams`, `file` or `soma` |
 | `record_id` | the identity as one string: an email's `internet_message_id` (else its `entry_id`), a meeting's `occurrence_key`, a chat's `<chat_id>|<date>`, a document's first 16 hex of the file's sha256, a daily note's date, a weekly note's week. It never holds a `#`, and it never changes — a document read again after the file changed keeps the id it was born with. |
 | `title` | the subject, the chat title or the file name |
 | `date` | `YYYY-MM-DD` |
@@ -43,7 +43,7 @@ Chats and meetings have no locator: the bare record id is the source. Write the 
 ## Layout
 
 ```
-Administrator/Wiki/
+Soma/Wiki/
   Index.md          generated: one line per page, grouped by type — the home page
   Log.md            generated, append-only: one line per change
   Review.md         generated: open questions for you
@@ -61,7 +61,7 @@ Administrator/Wiki/
       state.json        the pages as code last wrote them, so your edits are visible
       prev/<page>.md.prev  each page's text before the last write, one copy per page (not a note, so Obsidian does not list it)
       queries.log       every question asked of the wiki, newest last
-      history.json      where /administrator:load-history got to in each source, and the ids it has read
+      history.json      where /soma:load-history got to in each source, and the ids it has read
       (topic candidates and the last lint report live here too)
 ```
 
@@ -110,7 +110,7 @@ verified: 2026-08-22
 sources: 3
 open_items: 1
 flags: []
-created_by: administrator/0.4.1
+created_by: soma/0.4.1
 ---
 
 # Q3 budget
@@ -254,7 +254,7 @@ One line is one thing somebody owes somebody, on the page of the thing it is abo
 
 `vault_wiki_search(open_items=true, owner="me"|"others", due_before, page, include_done)` reads them back, oldest first: `[{page, stem, type, title, owner_name, id, text, owner, due, since, src, record, done}]`.
 
-**`Administrator/Follow-ups.md` is generated** from these lines: `## Open` is what other people owe you (`owner` is not `me`), `## Done` the newest 50 `done` lines out of the pages' History, in the five columns the file has always had. It is rewritten after every wiki write, so it never disagrees with the pages. Edit or tick the item **on its page** (or say "done" in chat); `vault_row` refuses the file.
+**`Soma/Follow-ups.md` is generated** from these lines: `## Open` is what other people owe you (`owner` is not `me`), `## Done` the newest 50 `done` lines out of the pages' History, in the five columns the file has always had. It is rewritten after every wiki write, so it never disagrees with the pages. Edit or tick the item **on its page** (or say "done" in chat); `vault_row` refuses the file.
 
 ### Projects — the extra ops on a topic
 
@@ -359,7 +359,7 @@ How well a fact is backed comes with it: `streams` is how many kinds of source s
 
 **`Wiki/Log.md`** is append-only: `- [2026-08-22T09:40:00+02:00] ingest | Wiki/Topics/q3-budget | [[Emails/2026-08-22 Budget Q3]] | add 2, supersede 1`. One line per page per ingest (`ingest`), per chat change (`apply`), per page created (`create`), per person page touched by a saved mail (`record`), per resolved review item (`review`), per page read back after you edited it in Obsidian (`adopt`), one per lint run (`lint`), merge (`merge`), migration (`migrate`), write that did not come back as written (`restore`) and index put right (`index-repaired`). At 500 lines it rolls over to `Wiki/_history/Log-YYYY.md`.
 
-**`Wiki/Review.md`** is the checklist of what code could not decide, under `## Open` (resolved lines move to `## Done`): contradictions, decisions written from a record and not yet confirmed, items of your own past their due date, pages that may be duplicates ("merge A into B?"), stale pages, two pages that disagree about each other, projects with no update in 90 days, pages still on one record after 60 days, refused supersedes and refused changes to your facts. Topic proposals from candidates are not written here; `vault_wiki_search(pages=true)`, a write with a record and lint check 12 report them. Every line links the page. `/administrator:weekly` lists the open count; `/administrator:lint` adds to it.
+**`Wiki/Review.md`** is the checklist of what code could not decide, under `## Open` (resolved lines move to `## Done`): contradictions, decisions written from a record and not yet confirmed, items of your own past their due date, pages that may be duplicates ("merge A into B?"), stale pages, two pages that disagree about each other, projects with no update in 90 days, pages still on one record after 60 days, refused supersedes and refused changes to your facts. Topic proposals from candidates are not written here; `vault_wiki_search(pages=true)`, a write with a record and lint check 12 report them. Every line links the page. `/soma:weekly` lists the open count; `/soma:lint` adds to it.
 
 **`_views/Wiki.base`** gives you Obsidian tables over the wiki: projects (topics with a due date), decisions, active topics by `verified`, stale pages, the review queue (pages with flags), people by organisation. Bases read frontmatter, which is exactly what code maintains, so the views are never stale.
 
@@ -380,7 +380,7 @@ Check 21 reads the other side of the same coin: the questions the wiki was actua
 
 ## Lint
 
-`/administrator:lint` (and `weekly`, with `fix`) runs a fixed list. Flags (`orphan`, `stale`, `oversized`, `possible-duplicate`) and Review lines are written in both modes; the fixes in the last column only with `fix`. Everything else is reported.
+`/soma:lint` (and `weekly`, with `fix`) runs a fixed list. Flags (`orphan`, `stale`, `oversized`, `possible-duplicate`) and Review lines are written in both modes; the fixes in the last column only with `fix`. Everything else is reported.
 
 | # | Check | With `fix` |
 | --- | --- | --- |
@@ -417,4 +417,4 @@ Edit a page file directly; set a code-owned key; delete a fact; overwrite a newe
 
 ## Your notes on this schema
 
-Add anything below this line. `/administrator:wiki` reads it when you ask ("what does my Wiki.md say"); no other command does.
+Add anything below this line. `/soma:wiki` reads it when you ask ("what does my Wiki.md say"); no other command does.

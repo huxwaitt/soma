@@ -219,20 +219,20 @@ Installing the [plugin](#option-1--agent-plugin-recommended) auto-loads this ski
 
 ---
 
-## administrator-vault
+## soma-vault
 
-A second, much smaller MCP server ships in the same package: `administrator-vault`
-(package `src/administrator_vault/`, server name `vault`). It is the note writer
-for the [administrator plugin](https://github.com/huxwaitt/administrator), which
+A second, much smaller MCP server ships in the same package: `soma-vault`
+(package `src/soma_vault/`, server name `vault`). It is the note writer
+for the [soma plugin](https://github.com/huxwaitt/soma), which
 keeps the paper trail of an Outlook mailbox as markdown notes in an Obsidian
 vault. It has no Outlook dependency and runs on any platform.
 
-- Root: the `ADMINISTRATOR_VAULT` environment variable (absolute path of the
-  vault, must exist). Optional `ADMINISTRATOR_VAULT_NAME` for the
+- Root: the `SOMA_VAULT` environment variable (absolute path of the
+  vault, must exist). Optional `SOMA_VAULT_NAME` for the
   `obsidian://` links the plugin prints.
 - Every path in and out is vault-relative with forward slashes
-  (`Administrator/Emails/2026-08-21 Q3 budget.md`). Writes outside
-  `Administrator/` are refused; `.obsidian/` and the rest of the vault are never touched.
+  (`Soma/Emails/2026-08-21 Q3 budget.md`). Writes outside
+  `Soma/` are refused; `.obsidian/` and the rest of the vault are never touched.
 - Notes are identified by frontmatter, not filename: email by
   `internet_message_id` (else `entry_id`), meeting by `occurrence_key` (else
   `global_id`), person by `email` (also `aliases`), daily by `date`, weekly by `week`.
@@ -240,14 +240,14 @@ vault. It has no Outlook dependency and runs on any platform.
 
 | Tool | What it does |
 | --- | --- |
-| `vault_status` | Where the vault is, which `Administrator/` folders and files exist |
+| `vault_status` | Where the vault is, which `Soma/` folders and files exist |
 | `vault_init` | Creates the folder tree, `Follow-ups.md`, `Preferences.md` (from work hours) and `_views/*.base` |
 | `vault_find` | Finds a note of a type by identity, or lists the type's notes newest first when no identity is given |
 | `vault_write` | Creates a note (schema-checked frontmatter, slug and filename rules, ` (2)` on clashes) or appends to it (`create` / `append` / `upsert`) |
 | `vault_row` | Appends a markdown table row under a `## Section`, with a hidden `<!-- entry_id: … -->` comment as the duplicate check, or moves a row between sections (`Follow-ups.md` Open → Done) |
 | `vault_read` | Frontmatter, body and heading list of one note |
 
-Run it with `uv run administrator-vault` (stdio). Tests: `tests/test_vault.py`.
+Run it with `uv run soma-vault` (stdio). Tests: `tests/test_vault.py`.
 
 ---
 

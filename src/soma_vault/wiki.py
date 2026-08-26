@@ -1,7 +1,7 @@
-"""The wiki: pages the model keeps next to the records (``Administrator/Wiki/``).
+"""The wiki: pages the model keeps next to the records (``Soma/Wiki/``).
 
 Python form of PLAN-wiki.md §2–§7 and ``skills/wiki/references/wiki.md`` in the
-administrator plugin. Six page types (person, org, topic, decision, howto, me), one
+soma plugin. Six page types (person, org, topic, decision, howto, me), one
 fixed section contract, facts as keyed bullets with a hidden comment, four
 fact operations plus page operations, size caps that refuse writes, a
 generated Index.md / Log.md / Review.md, one write lock, atomic writes.
@@ -22,12 +22,12 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Optional
 
-from administrator_vault import frontmatter as fmt
-from administrator_vault import notes, store
-from administrator_vault.notes import ADMIN_DIR
-from administrator_vault.store import VaultError, read_text, rel, resolve
+from soma_vault import frontmatter as fmt
+from soma_vault import notes, store
+from soma_vault.notes import ADMIN_DIR
+from soma_vault.store import VaultError, read_text, rel, resolve
 
-CREATED_BY = "administrator/0.4.1"
+CREATED_BY = "soma/0.4.1"
 WIKI_DIR = f"{ADMIN_DIR}/Wiki"
 INDEX_PATH = f"{WIKI_DIR}/Index.md"
 LOG_PATH = f"{WIKI_DIR}/Log.md"
@@ -234,7 +234,7 @@ def _content_tokens(text: str) -> set[str]:
 
 
 def _stem(path: str) -> str:
-    """``Administrator/Wiki/Topics/x.md`` -> ``Wiki/Topics/x`` (the wikilink target)."""
+    """``Soma/Wiki/Topics/x.md`` -> ``Wiki/Topics/x`` (the wikilink target)."""
     p = path[len(ADMIN_DIR) + 1 :] if path.startswith(ADMIN_DIR + "/") else path
     return p[:-3] if p.endswith(".md") else p
 
@@ -283,7 +283,7 @@ def new_page_id() -> str:
 
 def _reconcile() -> Any:
     """The two-way editing module, imported late: it reads this one."""
-    from administrator_vault import wiki_reconcile
+    from soma_vault import wiki_reconcile
 
     return wiki_reconcile
 
@@ -840,7 +840,7 @@ def _write_index(root: Path, touched: Any = ()) -> dict[str, Any]:
 
 def _followups() -> Any:
     """The Follow-ups view, imported late: it reads this module."""
-    from administrator_vault import followups
+    from soma_vault import followups
 
     return followups
 
@@ -960,7 +960,7 @@ def init_files(root: Path, created_by: str = CREATED_BY) -> list[str]:
         # the page contract shipped with the package (a copy of the plugin's skills/wiki/references/wiki.md)
         shipped = Path(__file__).with_name("wiki_schema.md")
         body = shipped.read_text(encoding="utf-8") if shipped.is_file() else (
-            "# The wiki — how pages work\n\nThe page contract lives in the administrator plugin "
+            "# The wiki — how pages work\n\nThe page contract lives in the soma plugin "
             "(skills/wiki/references/wiki.md); this copy was not shipped with the server.\n"
         )
         _atomic_write(root / SCHEMA_PATH, fmt.format_frontmatter({"type": "wiki-schema", "created_by": created_by}) + "\n" + body)
@@ -1973,7 +1973,7 @@ def _create_page(
 
 
 def match(text: str, people: Optional[list[str]] = None, domains: Optional[list[str]] = None, limit: int = 8) -> dict[str, Any]:
-    from administrator_vault import wiki_search  # imported here: the engine imports this module
+    from soma_vault import wiki_search  # imported here: the engine imports this module
 
     root = store.vault_root()
     hand = _hand_edit_count(root)
@@ -2209,7 +2209,7 @@ def prep_pages(root: Path, person_paths: list[str], subject: str, people: Option
     seen: set[str] = set()
     paths = [p for p in person_paths if p and p.startswith(WIKI_DIR + "/")]
     if _s(subject).strip():
-        from administrator_vault import wiki_search  # imported here: the engine imports this module
+        from soma_vault import wiki_search  # imported here: the engine imports this module
 
         named = wiki_search.page_candidates(subject, root)
         topics = [(p, fm) for p, fm in _all_pages(root) if fm.get("type") in ("topic", "decision") and _stem(p) in named]

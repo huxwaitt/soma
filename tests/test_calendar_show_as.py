@@ -126,9 +126,9 @@ def test_create_event_accepts_case_and_dash_variants():
 
 def test_create_event_writes_categories():
     appt = FakeAppt()
-    out = _create(appt, show_as="free", categories="Administrator, Focus")
-    assert appt.Categories == "Administrator, Focus"
-    assert out["categories"] == "Administrator, Focus"
+    out = _create(appt, show_as="free", categories="Soma, Focus")
+    assert appt.Categories == "Soma, Focus"
+    assert out["categories"] == "Soma, Focus"
     assert out["show_as"] == "free"
     # written before Save, so the values land in the saved item
     assert appt.writes == ["BusyStatus", "Categories"] and appt.saved == 1
@@ -167,8 +167,8 @@ def test_update_event_writes_show_as_and_categories():
     from outlook_mcp.client import calendar as c
 
     appt = FakeAppt(busy_status=2, categories="Old")
-    c.update_event(None, FakeNamespace(appt), entry_id="E1", show_as="oof", categories="Administrator")
-    assert appt.BusyStatus == 3 and appt.Categories == "Administrator"
+    c.update_event(None, FakeNamespace(appt), entry_id="E1", show_as="oof", categories="Soma")
+    assert appt.BusyStatus == 3 and appt.Categories == "Soma"
     assert appt.saved == 1 and appt.sent == 0
 
 
@@ -196,17 +196,17 @@ def test_update_event_rejects_unknown_show_as_before_saving():
 def test_event_summary_has_busy_status_categories_count_and_is_meeting():
     from outlook_mcp.client.calendar import _event_full, _event_summary
 
-    appt = FakeAppt(meeting_status=0, busy_status=2, categories="Administrator")
+    appt = FakeAppt(meeting_status=0, busy_status=2, categories="Soma")
     s = _event_summary(appt)
     assert s["busy_status"] == "busy"
-    assert s["categories"] == "Administrator"
+    assert s["categories"] == "Soma"
     assert s["attendee_count"] == 0
     assert s["is_meeting"] is False
     # previous keys intact
     for key in ("entry_id", "global_id", "occurrence_key", "subject", "start", "end", "attendees", "preview"):
         assert key in s
     f = _event_full(appt)
-    assert f["categories"] == "Administrator" and "body" in f and "reminder_minutes" in f
+    assert f["categories"] == "Soma" and "body" in f and "reminder_minutes" in f
 
 
 def test_event_summary_counts_attendees_and_flags_meetings():
@@ -241,7 +241,7 @@ def test_event_summary_missing_busy_status_defaults_to_busy():
 def test_list_events_fields_filter_keeps_new_keys():
     from outlook_mcp.client.calendar import list_events
 
-    appt = FakeAppt(meeting_status=1, busy_status=3, categories="Administrator")
+    appt = FakeAppt(meeting_status=1, busy_status=3, categories="Soma")
     appt.Recipients.Add("bob@example.com")
 
     class Items:
@@ -270,7 +270,7 @@ def test_list_events_fields_filter_keeps_new_keys():
         "entry_id": "E1",
         "subject": "",
         "busy_status": "oof",
-        "categories": "Administrator",
+        "categories": "Soma",
         "attendee_count": 1,
         "is_meeting": True,
     }

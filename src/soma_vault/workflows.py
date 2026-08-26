@@ -1,4 +1,4 @@
-"""v0.5 helpers: the parts of the administrator workflows that only move,
+"""v0.5 helpers: the parts of the soma workflows that only move,
 compare or format data, done in code so the model never reads them.
 
 Every function takes the JSON the model already got from the outlook tools
@@ -16,20 +16,20 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
-from administrator_vault import frontmatter as fmt
-from administrator_vault import notes, store, wiki
-from administrator_vault.notes import ADMIN_DIR, NoteError
-from administrator_vault.store import VaultError, read_text, rel, resolve, write_text
+from soma_vault import frontmatter as fmt
+from soma_vault import notes, store, wiki
+from soma_vault.notes import ADMIN_DIR, NoteError
+from soma_vault.store import VaultError, read_text, rel, resolve, write_text
 
-CREATED_BY = "administrator/0.4.1"
+CREATED_BY = "soma/0.4.1"
 RULES_PATH = f"{ADMIN_DIR}/Rules.md"
 FOLLOWUPS_PATH = f"{ADMIN_DIR}/Follow-ups.md"
 CACHE_DIR = f"{ADMIN_DIR}/Attachments/_cache"
 COLLECT_PATH = f"{wiki.CACHE_DIR}/collect.json"
 COLLECT_SOURCES = ("teams", "outlook", "notes")
 COLLECT_ASK_HOURS = 24
-COLLECT_DEFAULT_FOLDERS = ("Meetings", "Emails", "Daily", "Weekly")  # under Administrator/
-COLLECT_NEVER_READ = ("Wiki", "Attachments", "_views", "_backup")  # under Administrator/
+COLLECT_DEFAULT_FOLDERS = ("Meetings", "Emails", "Daily", "Weekly")  # under Soma/
+COLLECT_NEVER_READ = ("Wiki", "Attachments", "_views", "_backup")  # under Soma/
 TOKENS_PATH = f"{wiki.CACHE_DIR}/tokens.json"
 TOKEN_COMMANDS = ("collect-information", "load-history")
 TOKEN_RUNS = 20  # the runs kept per command; older ones fall off the front
@@ -93,7 +93,7 @@ def _received_cell(received: Any, note_date: str) -> str:
 
 
 def _stem(path: str) -> str:
-    """``Administrator/Emails/x.md`` -> ``Emails/x`` (the wikilink target)."""
+    """``Soma/Emails/x.md`` -> ``Emails/x`` (the wikilink target)."""
     p = path[len(ADMIN_DIR) + 1 :] if path.startswith(ADMIN_DIR + "/") else path
     return p[:-3] if p.endswith(".md") else p
 
@@ -197,7 +197,7 @@ def _week_of(d: date) -> tuple[date, date]:
 
 
 def rules_template(created_by: str = CREATED_BY) -> str:
-    fm = fmt.format_frontmatter({"type": "rules", "source": "administrator", "created_by": created_by})
+    fm = fmt.format_frontmatter({"type": "rules", "source": "soma", "created_by": created_by})
     return fm + (
         "\n# Rules\n\n"
         "Rules the inbox applies before the model reads a mail. Edit the tables; the plugin only reads this file.\n"
@@ -208,7 +208,7 @@ def rules_template(created_by: str = CREATED_BY) -> str:
         "| Match | Field | Label |\n| --- | --- | --- |\n\n"
         "## Never save\n\n"
         "Mail that never goes into a daily note (left out before labelling). The same rows also keep it "
-        "out of `/administrator:collect-information` and `/administrator:load-history`.\n\n"
+        "out of `/soma:collect-information` and `/soma:load-history`.\n\n"
         "| Match | Field |\n| --- | --- |\n\n"
         "## Fyi senders\n\n"
         "One address or domain per line; mail from these is always `fyi`.\n\n"
@@ -842,7 +842,7 @@ def save_email(
             lines.append("**Cc:** " + ", ".join(f"{r['name']} <{r['address']}>" if r["address"] and r["name"] else (r["address"] or r["name"]) for r in cc_list))
         lines += [f"**Received:** {_date_of(received)} {_hhmm(received)}", ""]
     else:
-        lines = ["Saved again via /administrator:save.", ""]
+        lines = ["Saved again via /soma:save.", ""]
     lines += ["## Summary" if not existing["found"] else "### Summary", "", _s(summary).strip() or "(no summary)", ""]
     lines += ["## Action items" if not existing["found"] else "### Action items", ""]
     lines += [a if a.lstrip().startswith("- ") else f"- [ ] {a.strip()}" for a in action_items] or ["- none"]
@@ -973,12 +973,12 @@ def save_document(
     from_email: Optional[str] = None,
     created_by: str = CREATED_BY,
 ) -> dict[str, Any]:
-    """Read a file into ``Administrator/Documents/<date> <slug>.md``.
+    """Read a file into ``Soma/Documents/<date> <slug>.md``.
 
     The same file again (same hash) is left alone; the same path with new
     content gets an '## Update' with the parts that are there now. With
     ``from_email`` the two records link to each other."""
-    from administrator_vault import documents
+    from soma_vault import documents
 
     root = store.vault_root()
     p = _document_file(root, path)
@@ -1254,7 +1254,7 @@ def weekly_facts(week: str, today: Optional[str] = None) -> dict[str, Any]:
             quiet.append({"name": _s(fm.get("name")), "email": _s(fm.get("email")), "path": path, "last_contact": lc, "days": days})
     quiet.sort(key=lambda q: q["last_contact"])
 
-    from administrator_vault import wiki_lint  # local import: wiki_lint imports wiki, which workflows already loads
+    from soma_vault import wiki_lint  # local import: wiki_lint imports wiki, which workflows already loads
 
     return {
         "week": week,
@@ -1325,7 +1325,7 @@ def attach_transcript(meeting_path: str, transcript_path: str, created_by: str =
     speaker_cells = [f"[[{by_name[s.lower()]}]]" if s.lower() in by_name else s for s in speakers]
 
     head = [
-        "Transcript added via /administrator:notes.",
+        "Transcript added via /soma:notes.",
         "",
         "### Transcript",
         "",
@@ -1695,7 +1695,7 @@ def changed_documents(root: Path, since_dt: datetime, folders: list[str], limit:
 
     Nothing is read out of them here: a file becomes a record only when
     vault_save(kind="document") is called on it."""
-    from administrator_vault import documents
+    from soma_vault import documents
 
     found: list[tuple[datetime, dict[str, Any]]] = []
     checked: list[str] = []
@@ -1747,7 +1747,7 @@ def _last_update(body: str) -> tuple[str, bool]:
 
 def changed_notes(since: str, folders: Optional[list[str]] = None, max_chars: int = 1200, limit: int = 20) -> dict[str, Any]:
     """Markdown notes modified after ``since``, oldest first, from
-    Administrator/Meetings, Emails, Daily, Weekly and the ``collect_folders``
+    Soma/Meetings, Emails, Daily, Weekly and the ``collect_folders``
     of Preferences.md (or the given ``folders``). Wiki/, Attachments/,
     _views/, _backup/ and dot-folders are never read.
 

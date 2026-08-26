@@ -10,19 +10,19 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from administrator_vault import documents, notes, store, wiki, wiki_lint, workflows
-from administrator_vault.server import build_server
-from administrator_vault.store import VaultError
+from soma_vault import documents, notes, store, wiki, wiki_lint, workflows
+from soma_vault.server import build_server
+from soma_vault.store import VaultError
 
-CB = "administrator/0.4.1"
-A = "Administrator"
+CB = "soma/0.4.1"
+A = "Soma"
 
 
 @pytest.fixture
 def vault(tmp_path, monkeypatch):
     root = tmp_path / "Vault"
     root.mkdir()
-    monkeypatch.setenv("ADMINISTRATOR_VAULT", str(root))
+    monkeypatch.setenv("SOMA_VAULT", str(root))
     store.init(created_by=CB)
     return root
 
@@ -463,7 +463,7 @@ def test_every_record_kind_carries_the_core_keys_in_one_order(vault):
         doc["path"]: ("file", doc["record_id"], "notes", datetime.now().date().isoformat(), []),
         meeting["path"]: ("outlook", "G1|2026-08-20T13:00:00+02:00", "Budget review", "2026-08-20",
                           ["[[Wiki/People/Jane Doe]]", "[[Wiki/People/Hux]]"]),
-        weekly["path"]: ("administrator", "2026-W34", "2026-W34", "2026-08-17", []),
+        weekly["path"]: ("soma", "2026-W34", "2026-W34", "2026-08-17", []),
     }
     for path, (source, record_id, title, day, people) in expect.items():
         fm = fm_of(vault, path)
@@ -547,7 +547,7 @@ def test_a_fact_citing_a_part_counts_as_one_source_with_the_records_line(vault):
 
 
 def test_the_search_reads_a_document_source_as_its_own_kind(vault):
-    from administrator_vault import wiki_search
+    from soma_vault import wiki_search
 
     assert wiki_search._stream_of("a1b2c3d4e5f60718#s2") == "file"
     assert wiki_search._stream_of("<7f3a9c@example.com>#m2") == "mail"
@@ -669,7 +669,7 @@ def test_one_record_adds_one_open_item_however_many_parts_it_cites(vault):
 
 
 def test_a_sheet_name_holding_a_dash_reads_back(vault):
-    from administrator_vault import store
+    from soma_vault import store
     assert store._split_heading("Sales — EU — Sales — EU") == ("Sales — EU", "Sales — EU")
     assert store._split_heading("s2 — Roadmap — the plan") == ("s2", "Roadmap — the plan")
     assert store._split_heading("Just a heading") == ("", "Just a heading")

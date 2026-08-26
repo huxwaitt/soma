@@ -1,4 +1,4 @@
-"""administrator_vault.wiki_lint: the checks on a seeded vault, fix=true, merge with redirect."""
+"""soma_vault.wiki_lint: the checks on a seeded vault, fix=true, merge with redirect."""
 
 from __future__ import annotations
 
@@ -8,20 +8,20 @@ from datetime import date, timedelta
 
 import pytest
 
-from administrator_vault import frontmatter as fmt
-from administrator_vault import store, wiki, wiki_lint, wiki_search, workflows
-from administrator_vault.server import build_server
+from soma_vault import frontmatter as fmt
+from soma_vault import store, wiki, wiki_lint, wiki_search, workflows
+from soma_vault.server import build_server
 
-CB = "administrator/0.4.1"
-W = "Administrator/Wiki"
+CB = "soma/0.4.1"
+W = "Soma/Wiki"
 
 
 @pytest.fixture
 def vault(tmp_path, monkeypatch):
     root = tmp_path / "Vault"
     root.mkdir()
-    monkeypatch.setenv("ADMINISTRATOR_VAULT", str(root))
-    monkeypatch.delenv("ADMINISTRATOR_VAULT_NAME", raising=False)
+    monkeypatch.setenv("SOMA_VAULT", str(root))
+    monkeypatch.delenv("SOMA_VAULT_NAME", raising=False)
     store.init(created_by=CB)
     return root
 
@@ -118,7 +118,7 @@ def test_lint_report_hits_every_check(vault):
     assert pairs == {("Wiki/Topics/budget-q3", "Wiki/Topics/q3-budget"), ("Wiki/People/J Doe", "Wiki/People/Jane Doe")}
     assert any('shared name "budget q3"' in l for l in r["review_added"]) and any('email "jane.doe@example.com"' in l for l in r["review_added"])
     # 11 un-ingested
-    assert c["11"]["count"] == 1 and c["11"]["records"] == ["Administrator/Emails/2026-08-21 Offsite venue.md"]
+    assert c["11"]["count"] == 1 and c["11"]["records"] == ["Soma/Emails/2026-08-21 Offsite venue.md"]
     # 12 candidates
     assert [x["subject"] for x in c["12"]["items"]] == ["Offsite venue"]
     # 13 rotation
@@ -344,8 +344,8 @@ def test_check_19_asks_about_the_users_own_items_past_their_due_date(vault):
 
 
 def questions_file(vault, *lines):
-    p = vault / "Administrator" / "Wiki" / "Questions.md"
-    p.write_text("---\ntype: wiki-questions\nsource: administrator\n---\n# Questions\n\nMine.\n\n## Questions\n\n"
+    p = vault / "Soma" / "Wiki" / "Questions.md"
+    p.write_text("---\ntype: wiki-questions\nsource: soma\n---\n# Questions\n\nMine.\n\n## Questions\n\n"
                  + "".join(l + "\n" for l in lines), encoding="utf-8")
     return p
 

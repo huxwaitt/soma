@@ -1,8 +1,8 @@
 """The vault on disk: root lookup, path rules, and every read/write the tools do.
 
 All paths that go in or come out are vault-relative with forward slashes,
-for example ``Administrator/Emails/2026-08-21 Q3 budget.md``. Every write is
-refused outside ``Administrator/``.
+for example ``Soma/Emails/2026-08-21 Q3 budget.md``. Every write is
+refused outside ``Soma/``.
 """
 
 from __future__ import annotations
@@ -14,9 +14,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from administrator_vault import frontmatter as fmt
-from administrator_vault import notes
-from administrator_vault.notes import ADMIN_DIR, NoteError
+from soma_vault import frontmatter as fmt
+from soma_vault import notes
+from soma_vault.notes import ADMIN_DIR, NoteError
 
 VIEWS_DIR = Path(__file__).with_name("views")
 
@@ -32,22 +32,22 @@ class VaultError(ValueError):
 
 
 def vault_root() -> Path:
-    raw = os.environ.get("ADMINISTRATOR_VAULT", "").strip()
+    raw = os.environ.get("SOMA_VAULT", "").strip()
     if not raw:
         raise VaultError(
-            "ADMINISTRATOR_VAULT is not set. Set it to the absolute path of your "
+            "SOMA_VAULT is not set. Set it to the absolute path of your "
             "Obsidian vault (for example C:\\Users\\you\\Documents\\Vault) and start a new session."
         )
     p = Path(raw)
     if not p.is_absolute():
-        raise VaultError(f"ADMINISTRATOR_VAULT must be an absolute path, got {raw!r}.")
+        raise VaultError(f"SOMA_VAULT must be an absolute path, got {raw!r}.")
     if not p.is_dir():
-        raise VaultError(f"ADMINISTRATOR_VAULT points to {raw!r}, which is not a directory.")
+        raise VaultError(f"SOMA_VAULT points to {raw!r}, which is not a directory.")
     return p
 
 
 def vault_name(root: Path) -> str:
-    return os.environ.get("ADMINISTRATOR_VAULT_NAME", "").strip() or root.name
+    return os.environ.get("SOMA_VAULT_NAME", "").strip() or root.name
 
 
 def under_user_profile(root: Path) -> bool:
@@ -65,7 +65,7 @@ def rel(root: Path, path: Path) -> str:
 
 def resolve(root: Path, relative: str) -> Path:
     """Turn a vault-relative path into an absolute one, refusing anything
-    outside ``Administrator/``."""
+    outside ``Soma/``."""
     raw = (relative or "").strip().replace("\\", "/")
     if not raw:
         raise VaultError("Path is empty.")
@@ -103,7 +103,7 @@ def now_iso() -> str:
 
 
 def status() -> dict[str, Any]:
-    raw = os.environ.get("ADMINISTRATOR_VAULT", "").strip()
+    raw = os.environ.get("SOMA_VAULT", "").strip()
     p = Path(raw) if raw else None
     exists = bool(p and p.exists())
     is_dir = bool(p and p.is_dir())
@@ -112,7 +112,7 @@ def status() -> dict[str, Any]:
         "vault": raw,
         "exists": exists,
         "is_dir": is_dir,
-        "administrator_dir_exists": bool(admin and admin.is_dir()),
+        "soma_dir_exists": bool(admin and admin.is_dir()),
         "folders": {f: bool(admin and (admin / f).is_dir()) for f in notes.FOLDERS},
         "files": {f: bool(admin and (admin / f).is_file()) for f in notes.FILES},
         "old_people_dir": bool(admin and (admin / "People").is_dir()),  # a 0.1.0 vault: offer vault_wiki_keep(migrate)
@@ -150,7 +150,7 @@ def preferences_template(work_start: str, work_end: str, buffer_minutes: int, cr
     fm = fmt.format_frontmatter(
         {
             "type": "preferences",
-            "source": "administrator",
+            "source": "soma",
             "work_start": work_start,
             "work_end": work_end,
             "timezone": "local — the timezone Outlook reports in outlook_whoami; all times in this file are in it",
@@ -193,11 +193,11 @@ def preferences_template(work_start: str, work_end: str, buffer_minutes: int, cr
         "- `admin_block_minutes` — length of one admin block.\n"
         "- `slack_share` — the share of the work day left unbooked for what comes up: `0.2` keeps a fifth free. "
         "Days where meetings already eat past this share get no blocks.\n"
-        "- `collect_folders` — extra folders /administrator:collect-information reads for changed notes, "
+        "- `collect_folders` — extra folders /soma:collect-information reads for changed notes, "
         "as paths relative to the vault root (`\"Projects\"`, `\"Journal/2026\"`). They are only read, never written. "
-        "An empty list `[]` means only the Administrator/ notes.\n"
+        "An empty list `[]` means only the Soma/ notes.\n"
         "- `document_folders` — folders whose files (pdf, docx, pptx, xlsx, txt, md, csv) "
-        "/administrator:collect-information offers to read into the vault as document records. "
+        "/soma:collect-information offers to read into the vault as document records. "
         "Relative to the vault root, or a full path anywhere on the machine "
         "(`\"C:/Users/you/Documents/Contracts\"`). They are only read, never written. "
         "An empty list `[]` means no folder is watched.\n\n"
@@ -207,10 +207,10 @@ def preferences_template(work_start: str, work_end: str, buffer_minutes: int, cr
 
 
 def priorities_template(created_by: str) -> str:
-    fm = fmt.format_frontmatter({"type": "priorities", "source": "administrator", "created_by": created_by})
+    fm = fmt.format_frontmatter({"type": "priorities", "source": "soma", "created_by": created_by})
     return fm + (
         "\n# Priorities\n\n"
-        "What matters most right now, ranked. /administrator:time-block reads this list when it plans focus blocks: "
+        "What matters most right now, ranked. /soma:time-block reads this list when it plans focus blocks: "
         "rank 1 gets every other block, the rest follow in order. Keep it to three to five lines. "
         "A line is a wiki topic page link or plain words. This file is yours: the plugin only replaces the numbered list, "
         "and only after you confirm a suggestion.\n\n"
@@ -223,7 +223,7 @@ QUESTIONS_PATH = f"{ADMIN_DIR}/Wiki/Questions.md"
 
 
 def questions_template(created_by: str) -> str:
-    fm = fmt.format_frontmatter({"type": "wiki-questions", "source": "administrator", "created_by": created_by})
+    fm = fmt.format_frontmatter({"type": "wiki-questions", "source": "soma", "created_by": created_by})
     return fm + (
         "\n# Questions\n\n"
         "The questions you want the wiki to answer, and the page that should answer each one. "
@@ -232,7 +232,7 @@ def questions_template(created_by: str) -> str:
         "and never rewrites it — the one thing it changes here is a link that followed a page you renamed.\n\n"
         "One line per question under the heading below: the question, an arrow, and a link to the page "
         "that holds the answer. Put `f:<id>` after the link when one particular fact is the answer — the "
-        "fact ids are shown by /administrator:wiki and by the search. A line whose page does not exist "
+        "fact ids are shown by /soma:wiki and by the search. A line whose page does not exist "
         "yet is listed and not counted. Like this:\n\n"
         "```markdown\n"
         "- When are the Q3 numbers due? → [[Wiki/Topics/example]]\n"
@@ -320,15 +320,15 @@ BACKUP_SKIP = ("_cache", "_backup")  # the caches and the earlier copies are not
 
 
 def backup_zip(root: Path) -> Optional[str]:
-    """A copy of Administrator/ before this version reads the wiki back for the
+    """A copy of Soma/ before this version reads the wiki back for the
     first time, or None when there is nothing to keep.
 
     A vault written by an older version holds pages the two-way pass has never
     seen: the first writing call reads them all in and writes them again. The
     zip is made once — when there are wiki pages and no Wiki/_cache/state.json
-    yet — and holds every file under Administrator/ apart from _cache/ and
+    yet — and holds every file under Soma/ apart from _cache/ and
     _backup/."""
-    from administrator_vault import wiki_reconcile, wiki_search  # local imports: both read this module
+    from soma_vault import wiki_reconcile, wiki_search  # local imports: both read this module
 
     admin = root / ADMIN_DIR
     if not admin.is_dir() or (root / wiki_reconcile.STATE_PATH).is_file():
@@ -361,14 +361,14 @@ def init(
     work_end: str = "17:00",
     buffer_minutes: int = 15,
     overwrite: bool = False,
-    created_by: str = "administrator-vault",
+    created_by: str = "soma-vault",
     peak_hours: Optional[list[str]] = None,
 ) -> dict[str, Any]:
-    """Create the Administrator/ tree, Follow-ups.md, Preferences.md,
+    """Create the Soma/ tree, Follow-ups.md, Preferences.md,
     Priorities.md, Wiki/Questions.md and the _views/*.base files. ``overwrite``
     re-writes Preferences.md and the views; Follow-ups.md, Priorities.md and
     Questions.md are never overwritten (they hold the user's data). ``backup``
-    in the answer is the zip of Administrator/ kept before this version reads
+    in the answer is the zip of Soma/ kept before this version reads
     an older vault's pages back, or None when there was nothing to keep."""
     for t in (work_start, work_end):
         if not re.match(r"^\d{2}:\d{2}$", t):
@@ -408,7 +408,7 @@ def init(
         write_text(prio, priorities_template(created_by))
         created.append(rel(root, prio))
 
-    from administrator_vault.workflows import rules_template  # local import: workflows imports store
+    from soma_vault.workflows import rules_template  # local import: workflows imports store
 
     rules = admin / "Rules.md"
     if rules.exists():
@@ -424,7 +424,7 @@ def init(
         write_text(questions, questions_template(created_by))
         created.append(rel(root, questions))
 
-    from administrator_vault import wiki  # local import: wiki imports store
+    from soma_vault import wiki  # local import: wiki imports store
 
     created.extend(wiki.init_files(root, created_by))
 
@@ -577,7 +577,7 @@ def write(note_type: str, frontmatter: dict[str, Any], body: str, mode: str = "c
         raise NoteError(f"{note_type} note has no identity ({', '.join(ident)} all empty).")
 
     if note_type == "person":
-        from administrator_vault import wiki  # local import: wiki imports store
+        from soma_vault import wiki  # local import: wiki imports store
 
         return wiki.person_write(fm, body, mode)  # person notes are wiki pages; the wiki keeps their shape
     hit = find(note_type, ident)

@@ -16,11 +16,11 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Optional
 
-from administrator_vault import frontmatter as fmt
-from administrator_vault import store, timeblock, wiki, workflows
-from administrator_vault.store import VaultError, read_text
-from administrator_vault.timeblock import PRIORITIES_PATH, _numbered_lines
-from administrator_vault.workflows import CREATED_BY, _s
+from soma_vault import frontmatter as fmt
+from soma_vault import store, timeblock, wiki, workflows
+from soma_vault.store import VaultError, read_text
+from soma_vault.timeblock import PRIORITIES_PATH, _numbered_lines
+from soma_vault.workflows import CREATED_BY, _s
 
 SECTION = "Priorities"
 MAX_LINES = 7
@@ -28,7 +28,7 @@ MAX_CHARS = 120
 TOPIC_LIMIT = 10
 FOLLOWUP_LIMIT = 5
 WEEKLY_LIMIT = 5
-STAMP = "suggested by administrator, confirmed"
+STAMP = "suggested by soma, confirmed"
 
 _STAMP_RE = re.compile(rf"^<!--\s*{re.escape(STAMP)} \d{{4}}-\d{{2}}-\d{{2}}\s*-->$")
 _COMMENT_LINE_RE = re.compile(r"^<!--.*-->$")

@@ -1,6 +1,6 @@
 filters:
   and:
-    - file.inFolder("Administrator")
+    - file.inFolder("Soma")
     - or:
         - note.type == "email"
         - note.type == "meeting"

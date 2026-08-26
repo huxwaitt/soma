@@ -156,7 +156,7 @@ def register(mcp, bridge) -> None:
         ] = "busy",
         categories: Annotated[
             Optional[str],
-            Field(description="Comma-separated category names (e.g. 'Administrator'). Omit for none."),
+            Field(description="Comma-separated category names (e.g. 'Soma'). Omit for none."),
         ] = None,
     ) -> str:
         """Create a calendar event or meeting invite. Without attendees nothing is sent to anyone."""

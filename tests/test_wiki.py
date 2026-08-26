@@ -1,4 +1,4 @@
-"""administrator_vault.wiki: page contract, fact ops and refusals, caps,
+"""soma_vault.wiki: page contract, fact ops and refusals, caps,
 index / log / review generation, lock, record two-way link, candidates."""
 
 from __future__ import annotations
@@ -11,20 +11,20 @@ import time
 
 import pytest
 
-from administrator_vault import frontmatter as fmt
-from administrator_vault import store, wiki, workflows
-from administrator_vault.server import build_server
+from soma_vault import frontmatter as fmt
+from soma_vault import store, wiki, workflows
+from soma_vault.server import build_server
 
-CB = "administrator/0.4.1"
-W = "Administrator/Wiki"
+CB = "soma/0.4.1"
+W = "Soma/Wiki"
 
 
 @pytest.fixture
 def vault(tmp_path, monkeypatch):
     root = tmp_path / "Vault"
     root.mkdir()
-    monkeypatch.setenv("ADMINISTRATOR_VAULT", str(root))
-    monkeypatch.delenv("ADMINISTRATOR_VAULT_NAME", raising=False)
+    monkeypatch.setenv("SOMA_VAULT", str(root))
+    monkeypatch.delenv("SOMA_VAULT_NAME", raising=False)
     store.init(created_by=CB)
     return root
 
@@ -347,7 +347,7 @@ def test_ingest_records_history_two_way_link_and_candidates(vault):
     assert r["pages"][1]["created"] is False and r["pages"][1]["reason"] == "exists"
     assert fm_of(vault, rec)["wiki"] == ["[[Wiki/Topics/q3-budget]]", "[[Wiki/Orgs/example-gmbh]]"]
     with pytest.raises(store.VaultError):
-        wiki.ingest("Administrator/Follow-ups.md", [])
+        wiki.ingest("Soma/Follow-ups.md", [])
     with pytest.raises(store.VaultError):
         wiki.ingest(rec, [{"new": {"type": "topic", "title": "X", "sources": 9}}])
 
@@ -471,7 +471,7 @@ def test_match_and_read(vault):
     small = wiki.read(t, ["lead", "facts"], max_chars=300)
     assert small.get("facts") == [] or "facts_truncated" in small or len(json.dumps(small)) <= 300
     with pytest.raises(store.VaultError):
-        wiki.read("Administrator/Follow-ups.md")
+        wiki.read("Soma/Follow-ups.md")
     with pytest.raises(store.VaultError):
         wiki.read("Wiki/Topics/nope")
 
@@ -542,7 +542,7 @@ def test_save_email_person_page_follows_contract(vault):
     fm = fmt.split_note(text)[0]
     assert fm["status"] == "draft" and fm["org"] == "Example GmbH" and fm["email"] == "jane.doe@example.com" and fm["last_contact"] == "2026-08-22T09:14:00+02:00"
     assert all(k in fm for k in ("name", "aliases", "created", "updated", "verified", "sources", "open_items", "flags", "created_by"))
-    assert fm["created_by"] == "administrator/0.4.1"
+    assert fm["created_by"] == "soma/0.4.1"
     assert "# Jane Doe\n\nJane Doe (jane.doe@example.com) — Example GmbH.\n\n## Facts\n\n## Topics\n\n## Open\n\n## Records\n\n- 2026-08-22 — [[Emails/2026-08-22 Budget Q3]] — Jane asks for the Q3 numbers by Friday.\n\n## Related\n\n## History\n\n- " in text
     assert fm_of(vault, res["path"])["from_link"] == "[[Wiki/People/Jane Doe]]" and fm_of(vault, res["path"])["wiki"] == ["[[Wiki/People/Jane Doe]]"]
     assert "- [[Wiki/People/Jane Doe]] · Example GmbH · " in text_of(vault, f"{W}/Index.md")
@@ -618,7 +618,7 @@ def test_server_wiki_tools_round_trip(vault):
     with pytest.raises(Exception):
         asyncio.run(server.call_tool("vault_wiki_keep", {"action": "nope"}))
     with pytest.raises(Exception):
-        asyncio.run(server.call_tool("vault_wiki_read", {"path": "Administrator/Follow-ups.md"}))
+        asyncio.run(server.call_tool("vault_wiki_read", {"path": "Soma/Follow-ups.md"}))
 
 
 # ------------------------------------------------------------------ verified / sources
@@ -895,7 +895,7 @@ def test_commitments_filters(vault):
 
 
 def test_follow_ups_is_written_from_the_pages(vault):
-    fu = "Administrator/Follow-ups.md"
+    fu = "Soma/Follow-ups.md"
     head = fm_of(vault, fu)
     assert head["type"] == "followups" and head["source"] == "wiki" and head["generated"] is True
     jane = wiki.create("person", "Jane Doe", extra={"email": "jane.doe@example.com"})["path"]
@@ -1076,7 +1076,7 @@ def test_decisions_and_people_link_through_topics_and_people(vault):
 
 
 def test_a_decision_is_never_merged(vault):
-    from administrator_vault import wiki_lint
+    from soma_vault import wiki_lint
 
     jane(vault)
     path = decision(vault)

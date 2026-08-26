@@ -1,6 +1,6 @@
 """Wiki lint and merge: PLAN-wiki.md §8 / §8.1.
 
-``lint(fix)`` runs the checks over ``Administrator/Wiki/`` — 0 to 21. Checks
+``lint(fix)`` runs the checks over ``Soma/Wiki/`` — 0 to 21. Checks
 1–13 and 15 to 21 are decided in code; check 14 (contradictions) only returns the
 pages touched since the last lint so the model can read their Facts. Flags
 (``orphan``, ``stale``, ``oversized``, ``possible-duplicate``) and Review
@@ -22,11 +22,11 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
-from administrator_vault import frontmatter as fmt
-from administrator_vault import store, wiki, wiki_search
-from administrator_vault.notes import ADMIN_DIR
-from administrator_vault.store import VaultError, read_text, rel
-from administrator_vault.wiki import (
+from soma_vault import frontmatter as fmt
+from soma_vault import store, wiki, wiki_search
+from soma_vault.notes import ADMIN_DIR
+from soma_vault.store import VaultError, read_text, rel
+from soma_vault.wiki import (
     CAP_HINT, HISTORY_MAX, ITEM_SECTIONS, LIVE_STATUSES, LOG_MAX, SECTIONS, TYPES, WIKI_DIR, Fact, Page, _Ctx, _LINK_RE, _LOG_RE,
     _add_alias, _aliases, _all_pages, _atomic_write, _candidates_over, _finalize, _history, _link_target, _load, _log, _norm, _norm_name,
     _put_link, _RECORD_RE, _review_add, _review_text, _s, _statuses, _stem, _today, _write_index, _write_page, _wiki_lock,
@@ -105,7 +105,7 @@ def _link_targets(text: str) -> list[str]:
 
 
 class _Resolver:
-    """Does a wikilink target point at a file? Full paths under Administrator/,
+    """Does a wikilink target point at a file? Full paths under Soma/,
     vault-root paths, and Obsidian's shortest-name form are all accepted."""
 
     def __init__(self, root: Path) -> None:
@@ -289,7 +289,7 @@ def lint(fix: bool = False, items: bool = False, created_by: str = wiki.CREATED_
     root = store.vault_root()
     today = date.today()
     today_s = today.isoformat()
-    from administrator_vault import wiki_reconcile  # imported here: that module reads this one
+    from soma_vault import wiki_reconcile  # imported here: that module reads this one
 
     with _wiki_lock(root):
         started = store.now_iso()
@@ -781,7 +781,7 @@ def merge(keep: str, drop: str, created_by: str = wiki.CREATED_BY) -> dict[str, 
     keep_path, drop_path = page_path(keep), page_path(drop)
     if keep_path == drop_path:
         raise VaultError("keep and drop are the same page.")
-    from administrator_vault import wiki_reconcile  # imported here: that module reads this one
+    from soma_vault import wiki_reconcile  # imported here: that module reads this one
 
     with _wiki_lock(root):
         adopted = wiki_reconcile.reconcile(root, lock_held=True)["adopted"]

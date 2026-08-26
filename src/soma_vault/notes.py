@@ -1,7 +1,7 @@
 """Note types: required frontmatter keys, identity rules, slug and filename rules.
 
-This is the Python form of ``skills/administrator/references/vault.md`` and
-``skills/meetings/references/meeting-note.md`` in the administrator plugin.
+This is the Python form of ``skills/soma/references/vault.md`` and
+``skills/meetings/references/meeting-note.md`` in the soma plugin.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-ADMIN_DIR = "Administrator"
+ADMIN_DIR = "Soma"
 
 FOLDERS = (
     "Daily", "Emails", "Meetings", "Attachments", "Weekly", "Teams", "Time-blocks", "Documents", "_views",
@@ -25,10 +25,10 @@ RECORD_TYPES = ("email", "meeting", "chat", "document", "daily", "weekly")
 CORE_KEYS = ("source", "record_id", "title", "date", "people", "wiki", "ingested", "created_by")
 DEFAULT_SOURCE = {
     "email": "outlook", "meeting": "outlook", "daily": "outlook",
-    "chat": "teams", "document": "file", "weekly": "administrator",
+    "chat": "teams", "document": "file", "weekly": "soma",
 }
 
-# type -> (folder under Administrator/, required frontmatter keys, date key)
+# type -> (folder under Soma/, required frontmatter keys, date key)
 SCHEMAS: dict[str, dict[str, Any]] = {
     "email": {
         "folder": "Emails",
@@ -225,7 +225,7 @@ def with_core_keys(note_type: str, frontmatter: dict[str, Any]) -> dict[str, Any
     if note_type not in RECORD_TYPES:
         return fm
     core: dict[str, Any] = {
-        "source": str(fm.get("source") or "").strip() or DEFAULT_SOURCE.get(note_type, "administrator"),
+        "source": str(fm.get("source") or "").strip() or DEFAULT_SOURCE.get(note_type, "soma"),
         "record_id": str(fm.get("record_id") or "").strip() or record_id_of(note_type, fm),
         "title": record_title(note_type, fm),
         "date": record_date(note_type, fm),

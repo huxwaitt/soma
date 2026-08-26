@@ -1,4 +1,4 @@
-"""administrator_vault.wiki_migrate: a 0.1.0 vault (People/ next to the records)
+"""soma_vault.wiki_migrate: a 0.1.0 vault (People/ next to the records)
 moves into Wiki/People/ with every link rewritten, a backup, and a dry run first."""
 
 from __future__ import annotations
@@ -9,13 +9,13 @@ import re
 
 import pytest
 
-from administrator_vault import frontmatter as fmt
-from administrator_vault import notes, store, wiki, wiki_migrate, workflows
-from administrator_vault.server import build_server
+from soma_vault import frontmatter as fmt
+from soma_vault import notes, store, wiki, wiki_migrate, workflows
+from soma_vault.server import build_server
 
-OLD = "administrator/0.1.0"
-CB = "administrator/0.4.1"
-A = "Administrator"
+OLD = "soma/0.1.0"
+CB = "soma/0.4.1"
+A = "Soma"
 LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:[#|][^\]]*)?\]\]")
 
 
@@ -48,8 +48,8 @@ def old_vault(tmp_path, monkeypatch):
     """3 people (one with a Voice block), 5 emails, 2 meetings, Follow-ups rows, a daily and a weekly note, all linking People/."""
     root = tmp_path / "Vault"
     root.mkdir()
-    monkeypatch.setenv("ADMINISTRATOR_VAULT", str(root))
-    monkeypatch.delenv("ADMINISTRATOR_VAULT_NAME", raising=False)
+    monkeypatch.setenv("SOMA_VAULT", str(root))
+    monkeypatch.delenv("SOMA_VAULT_NAME", raising=False)
     store.init(created_by=OLD)
     for f in ("Wiki", ):
         pass
@@ -61,7 +61,7 @@ def old_vault(tmp_path, monkeypatch):
     (people / "Bob Lee.md").write_text(person_note("Bob Lee", "bob.lee@example.com", "", [("2026-08-17", "Mail 3", "fyi"), ("2026-08-16", "Sync with Bob", "upcoming")], extra_text="Knows the Leipzig site well."), encoding="utf-8")
     (people / "Carol Ng.md").write_text(person_note("Carol Ng", "carol@partner.example", "Partner AG", [("2026-08-15", "Mail 4", "waiting")]), encoding="utf-8")
     # the People.base view of 0.1.0
-    (root / A / "_views" / "People.base").write_text('filters:\n  and:\n    - file.inFolder("Administrator/People")\n    - note.type == "person"\nproperties:\n  note.company:\n    displayName: Company\nviews:\n  - type: table\n    name: People\n    order:\n      - file.name\n      - note.company\n', encoding="utf-8")
+    (root / A / "_views" / "People.base").write_text('filters:\n  and:\n    - file.inFolder("Soma/People")\n    - note.type == "person"\nproperties:\n  note.company:\n    displayName: Company\nviews:\n  - type: table\n    name: People\n    order:\n      - file.name\n      - note.company\n', encoding="utf-8")
     (root / A / "_views" / "Wiki.base").unlink()
     for n, (day, subj, who, link) in enumerate([("2026-08-20", "Mail 1", "jane.doe@example.com", "Jane Doe"), ("2026-08-19", "Mail 2", "jane.doe@example.com", "Jane Doe"),
                                                   ("2026-08-17", "Mail 3", "bob.lee@example.com", "Bob Lee"), ("2026-08-15", "Mail 4", "carol@partner.example", "Carol Ng"),
@@ -224,7 +224,7 @@ def test_migrate_moves_people_and_rewrites_every_link(old_vault):
     assert sorted(p.name for p in (backups[0] / "People").iterdir()) == ["Bob Lee.md", "Carol Ng.md", "Jane Doe.md", "notes.txt"]
     assert "Voice with this person:" in (backups[0] / "People" / "Jane Doe.md").read_text(encoding="utf-8")
     pb = (root / A / "_views" / "People.base").read_text(encoding="utf-8")
-    assert 'file.inFolder("Administrator/Wiki/People")' in pb and "note.company" not in pb and pb == (store.VIEWS_DIR / "People.base").read_text(encoding="utf-8")
+    assert 'file.inFolder("Soma/Wiki/People")' in pb and "note.company" not in pb and pb == (store.VIEWS_DIR / "People.base").read_text(encoding="utf-8")
     assert (root / A / "_views" / "Wiki.base").read_text(encoding="utf-8") == (store.VIEWS_DIR / "Wiki.base").read_text(encoding="utf-8")
     log = wiki.log()["lines"]
     assert log[0].endswith("migrate | Wiki/People | - | 3 people, 35 links")

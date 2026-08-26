@@ -19,11 +19,11 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
-from administrator_vault import frontmatter as fmt
-from administrator_vault import store, wiki, workflows
-from administrator_vault.notes import ADMIN_DIR, NoteError
-from administrator_vault.store import VaultError, read_text, resolve
-from administrator_vault.workflows import CREATED_BY, _iso_week, _s
+from soma_vault import frontmatter as fmt
+from soma_vault import store, wiki, workflows
+from soma_vault.notes import ADMIN_DIR, NoteError
+from soma_vault.store import VaultError, read_text, resolve
+from soma_vault.workflows import CREATED_BY, _iso_week, _s
 
 PRIORITIES_PATH = f"{ADMIN_DIR}/Priorities.md"
 FOCUS_PREFIX = "[Focus]"
@@ -610,7 +610,7 @@ def write(week: str, blocks: list[dict[str, Any]], created_by: str = CREATED_BY)
     existing = store.find("time-block", {"week": week})
     fm: dict[str, Any] = {
         "type": "time-block",
-        "source": "administrator",
+        "source": "soma",
         "week": week,
         "start": start.isoformat(),
         "end": end.isoformat(),
@@ -628,7 +628,7 @@ def write(week: str, blocks: list[dict[str, Any]], created_by: str = CREATED_BY)
         lines = [
             f"# Time blocks — {week}",
             "",
-            f"Week of {_day_label(start)} to {_day_label(end)}. Planned by /administrator:time-block; "
+            f"Week of {_day_label(start)} to {_day_label(end)}. Planned by /soma:time-block; "
             "the appointments live in Outlook, this note keeps the plan and how it went.",
             "",
             "## Plan",

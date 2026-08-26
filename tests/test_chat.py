@@ -1,4 +1,4 @@
-"""administrator_vault.workflows.save_chat: one record per chat per day, re-run dedupe,
+"""soma_vault.workflows.save_chat: one record per chat per day, re-run dedupe,
 several days split, person match by name / alias without creating pages."""
 
 from __future__ import annotations
@@ -8,20 +8,20 @@ import json
 
 import pytest
 
-from administrator_vault import frontmatter as fmt
-from administrator_vault import notes, store, wiki, workflows
-from administrator_vault.server import build_server
+from soma_vault import frontmatter as fmt
+from soma_vault import notes, store, wiki, workflows
+from soma_vault.server import build_server
 
-CB = "administrator/0.4.1"
-W = "Administrator/Wiki"
+CB = "soma/0.4.1"
+W = "Soma/Wiki"
 
 
 @pytest.fixture
 def vault(tmp_path, monkeypatch):
     root = tmp_path / "Vault"
     root.mkdir()
-    monkeypatch.setenv("ADMINISTRATOR_VAULT", str(root))
-    monkeypatch.delenv("ADMINISTRATOR_VAULT_NAME", raising=False)
+    monkeypatch.setenv("SOMA_VAULT", str(root))
+    monkeypatch.delenv("SOMA_VAULT_NAME", raising=False)
     store.init(created_by=CB)
     return root
 
@@ -59,7 +59,7 @@ def test_save_chat_writes_the_day_record_and_dedupes_on_rerun(vault):
         ["Hux"],
         created_by=CB,
     )
-    assert res["path"] == "Administrator/Teams/2026-08-21 Q3 budget.md" and res["action"] == "created"
+    assert res["path"] == "Soma/Teams/2026-08-21 Q3 budget.md" and res["action"] == "created"
     assert res["added"] == 2 and res["skipped_duplicates"] == 0 and res["messages"] == 2 and res["date"] == "2026-08-21"
     assert res["record_id"] == "19:abc@thread.v2|2026-08-21"
     fm = fm_of(vault, res["path"])
@@ -105,13 +105,13 @@ def test_save_chat_writes_the_day_record_and_dedupes_on_rerun(vault):
 def test_save_chat_splits_messages_over_several_days(vault):
     res = workflows.save_chat(chat(), [msg(2, "2026-08-21T09:00:00+02:00"), msg(1, "2026-08-20T17:00:00+02:00", text="Late one")], ["Hux"], created_by=CB)
     assert isinstance(res, list) and [r["date"] for r in res] == ["2026-08-20", "2026-08-21"]
-    assert [r["path"] for r in res] == ["Administrator/Teams/2026-08-20 Q3 budget.md", "Administrator/Teams/2026-08-21 Q3 budget.md"]
+    assert [r["path"] for r in res] == ["Soma/Teams/2026-08-20 Q3 budget.md", "Soma/Teams/2026-08-21 Q3 budget.md"]
     assert all(r["action"] == "created" and r["added"] == 1 for r in res)
     assert "<!-- id: m1 -->" in text_of(vault, res[0]["path"]) and "<!-- id: m2 -->" not in text_of(vault, res[0]["path"])
     assert fm_of(vault, res[1]["path"])["record_id"] == "19:abc@thread.v2|2026-08-21"
     # a 1:1 chat without a title falls back to the id; a message without a time is skipped and counted
     res = workflows.save_chat(chat(id="19:x_y", title=""), [msg(5, "2026-08-21T09:00:00+02:00"), {"id": "m6", "sender": "Jane Doe", "text": "no time"}], created_by=CB)
-    assert res["path"] == "Administrator/Teams/2026-08-21 19_x_y.md" and res["skipped_no_time"] == 1 and res["added"] == 1
+    assert res["path"] == "Soma/Teams/2026-08-21 19_x_y.md" and res["skipped_no_time"] == 1 and res["added"] == 1
 
 
 def test_save_chat_matches_people_by_name_or_alias_and_never_creates_pages(vault):
@@ -137,7 +137,7 @@ def test_save_chat_matches_people_by_name_or_alias_and_never_creates_pages(vault
     assert "- 2026-08-21 — [[Teams/2026-08-21 Q3 budget]] — Q3 budget: Numbers by Friday?" in text_of(vault, jane)
     assert "- 2026-08-21 — [[Teams/2026-08-21 Q3 budget]] — Q3 budget: I can help" in text_of(vault, bob)
     assert text_of(vault, jane).count("[[Teams/2026-08-21 Q3 budget]]") == 1  # one Records line for two messages
-    stems = [p[len("Administrator/") : -3] for p in (jane, bob)]
+    stems = [p[len("Soma/") : -3] for p in (jane, bob)]
     assert fm_of(vault, res["path"])["wiki"] == [f"[[{s}]]" for s in stems]
     # a later message from Jane the same day: one more line in the record, no second Records line, last_contact forward
     res2 = workflows.save_chat(chat(), [msg(6, "2026-08-21T15:00:00+02:00", "Jane Doe", "Sent.")], ["Hux"], created_by=CB)
@@ -161,5 +161,5 @@ def test_server_save_chat_round_trip(vault):
     out = asyncio.run(server.call_tool("vault_save", {"kind": "chat", "chat": chat(), "messages": [msg(1, "2026-08-21T09:14:00+02:00")], "self_names": ["Hux"]}))
     text = out[0].text if isinstance(out, list) else out[0][0].text
     res = json.loads(text)
-    assert res["action"] == "created" and res["path"] == "Administrator/Teams/2026-08-21 Q3 budget.md" and res["unknown_people"] == ["Jane Doe"]
-    assert fm_of(vault, res["path"])["created_by"] == "administrator/0.4.1"
+    assert res["action"] == "created" and res["path"] == "Soma/Teams/2026-08-21 Q3 budget.md" and res["unknown_people"] == ["Jane Doe"]
+    assert fm_of(vault, res["path"])["created_by"] == "soma/0.4.1"

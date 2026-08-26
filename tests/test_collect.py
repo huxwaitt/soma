@@ -10,21 +10,21 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from administrator_vault import frontmatter as fmt
-from administrator_vault import store, wiki, workflows
-from administrator_vault.server import build_server
-from administrator_vault.store import VaultError
+from soma_vault import frontmatter as fmt
+from soma_vault import store, wiki, workflows
+from soma_vault.server import build_server
+from soma_vault.store import VaultError
 
-CB = "administrator/0.4.1"
-W = "Administrator/Wiki"
+CB = "soma/0.4.1"
+W = "Soma/Wiki"
 
 
 @pytest.fixture
 def vault(tmp_path, monkeypatch):
     root = tmp_path / "Vault"
     root.mkdir()
-    monkeypatch.setenv("ADMINISTRATOR_VAULT", str(root))
-    monkeypatch.delenv("ADMINISTRATOR_VAULT_NAME", raising=False)
+    monkeypatch.setenv("SOMA_VAULT", str(root))
+    monkeypatch.delenv("SOMA_VAULT_NAME", raising=False)
     store.init(created_by=CB)
     return root
 
@@ -157,16 +157,16 @@ def test_changed_notes_defaults_excerpt_and_caps(vault):
     # never read: wiki pages, attachments, views, backups
     wiki.create("topic", "Q3 budget", lead="Numbers.", summary="Numbers.")
     for extra in ("Attachments/x.md", "_views/y.md", "_backup/z.md"):
-        (vault / "Administrator" / extra).parent.mkdir(parents=True, exist_ok=True)
-        (vault / "Administrator" / extra).write_text("# never\n", encoding="utf-8")
-    (vault / "Administrator" / "Daily").mkdir(exist_ok=True)
-    (vault / "Administrator" / "Daily" / "2026-08-22.md").write_text("---\ntype: daily\n---\n# 2026-08-22\n\nA plain day.\n", encoding="utf-8")
+        (vault / "Soma" / extra).parent.mkdir(parents=True, exist_ok=True)
+        (vault / "Soma" / extra).write_text("# never\n", encoding="utf-8")
+    (vault / "Soma" / "Daily").mkdir(exist_ok=True)
+    (vault / "Soma" / "Daily" / "2026-08-22.md").write_text("---\ntype: daily\n---\n# 2026-08-22\n\nA plain day.\n", encoding="utf-8")
 
     r = workflows.changed_notes(since)
     paths = [n["path"] for n in r["notes"]]
-    assert paths == [fresh, updated, "Administrator/Daily/2026-08-22.md"]  # oldest first; the old one is out
+    assert paths == [fresh, updated, "Soma/Daily/2026-08-22.md"]  # oldest first; the old one is out
     assert r["count"] == 3 and r["total"] == 3 and r["capped"] is False
-    assert r["folders"] == ["Administrator/Meetings", "Administrator/Emails", "Administrator/Daily", "Administrator/Weekly"] and r["skipped"] == [] and r["missing"] == []
+    assert r["folders"] == ["Soma/Meetings", "Soma/Emails", "Soma/Daily", "Soma/Weekly"] and r["skipped"] == [] and r["missing"] == []
     n_fresh, n_upd, n_daily = r["notes"]
     assert n_fresh["type"] == "email" and n_fresh["ingested"] is True and n_fresh["from_update"] is False and n_fresh["truncated"] is False
     assert n_fresh["excerpt"].startswith("# Fresh one\n\n## Summary\n\nJane asks for numbers.") and n_fresh["modified"].startswith(str(now.year))
@@ -195,8 +195,8 @@ def test_changed_notes_collect_folders_skip_list_and_refusals(vault):
     (vault / "Projects" / "notes.txt").write_text("not markdown", encoding="utf-8")
     (vault / ".obsidian").mkdir()
     (vault / ".obsidian" / "hidden.md").write_text("# hidden\n", encoding="utf-8")
-    pref = vault / "Administrator" / "Preferences.md"
-    pref.write_text(text_of(vault, "Administrator/Preferences.md").replace("collect_folders: []", "collect_folders:\n  - Projects\n  - Missing"), encoding="utf-8")
+    pref = vault / "Soma" / "Preferences.md"
+    pref.write_text(text_of(vault, "Soma/Preferences.md").replace("collect_folders: []", "collect_folders:\n  - Projects\n  - Missing"), encoding="utf-8")
     assert store.read_preferences()["preferences"]["collect_folders"] == ["Projects", "Missing"]
 
     r = workflows.changed_notes(since)
@@ -210,15 +210,15 @@ def test_changed_notes_collect_folders_skip_list_and_refusals(vault):
     assert not (vault / "Projects" / "plan.md").read_text(encoding="utf-8").startswith("---")
 
     # explicit folders replace the default set; the never-read folders are skipped with a reason
-    r = workflows.changed_notes(since, folders=["Projects", "Administrator/Wiki", "Administrator/Attachments", "Administrator/_views", "Administrator/_backup", "Administrator/Emails"])
-    assert r["folders"] == ["Projects", "Administrator/Emails"]
-    assert [s["folder"] for s in r["skipped"]] == ["Administrator/Wiki", "Administrator/Attachments", "Administrator/_views", "Administrator/_backup"]
+    r = workflows.changed_notes(since, folders=["Projects", "Soma/Wiki", "Soma/Attachments", "Soma/_views", "Soma/_backup", "Soma/Emails"])
+    assert r["folders"] == ["Projects", "Soma/Emails"]
+    assert [s["folder"] for s in r["skipped"]] == ["Soma/Wiki", "Soma/Attachments", "Soma/_views", "Soma/_backup"]
     assert all(s["reason"] == "never read" for s in r["skipped"])
     # the whole vault as a folder still skips the never-read list and dot-folders
     r = workflows.changed_notes(since, folders=["."])
     paths = [n["path"] for n in r["notes"]]
-    assert "Projects/plan.md" in paths and not any(p.startswith(("Administrator/Wiki/", ".obsidian")) for p in paths)
-    assert not any("Preferences.md" in p for p in paths) or "Administrator/Preferences.md" in paths  # user files under Administrator/ are fine to list
+    assert "Projects/plan.md" in paths and not any(p.startswith(("Soma/Wiki/", ".obsidian")) for p in paths)
+    assert not any("Preferences.md" in p for p in paths) or "Soma/Preferences.md" in paths  # user files under Soma/ are fine to list
 
     for bad in (["../elsewhere"], ["C:/Users/x"], ["/abs"], ["Projects/../../out"]):
         with pytest.raises(VaultError):
@@ -244,7 +244,7 @@ def test_server_collect_tools_round_trip(vault):
     since = (datetime.now().astimezone() - timedelta(hours=1)).isoformat(timespec="seconds")
     email(1)
     r = call("vault_collect", {"action": "changed", "since": since, "max_chars": 20})
-    assert r["count"] == 1 and r["notes"][0]["path"] == "Administrator/Emails/2026-08-22 Budget Q3.md" and r["notes"][0]["truncated"] is True
+    assert r["count"] == 1 and r["notes"][0]["path"] == "Soma/Emails/2026-08-22 Budget Q3.md" and r["notes"][0]["truncated"] is True
     with pytest.raises(Exception):
         call("vault_collect", {"action": "changed", "since": since, "folders": ["../x"]})
     with pytest.raises(Exception):

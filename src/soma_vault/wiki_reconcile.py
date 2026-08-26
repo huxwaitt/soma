@@ -27,10 +27,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from administrator_vault import frontmatter as fmt
-from administrator_vault import store, wiki, wiki_lint, wiki_migrate, wiki_search
-from administrator_vault.store import read_text, rel
-from administrator_vault.wiki import CACHE_DIR, PREV_DIR, TYPE_FOLDER, TYPES, WIKI_DIR, _Ctx, _s, _stem
+from soma_vault import frontmatter as fmt
+from soma_vault import store, wiki, wiki_lint, wiki_migrate, wiki_search
+from soma_vault.store import read_text, rel
+from soma_vault.wiki import CACHE_DIR, PREV_DIR, TYPE_FOLDER, TYPES, WIKI_DIR, _Ctx, _s, _stem
 
 STATE_PATH = f"{CACHE_DIR}/state.json"
 SCHEMA = 1

@@ -1,4 +1,4 @@
-"""``Administrator/Follow-ups.md``, written from the wiki pages.
+"""``Soma/Follow-ups.md``, written from the wiki pages.
 
 The file used to be kept row by row. From 0.4.0 it is a view: ``## Open`` holds
 the open items the wiki pages say someone else owes the user, ``## Done`` the
@@ -14,11 +14,11 @@ import re
 from pathlib import Path
 from typing import Any
 
-from administrator_vault import frontmatter as fmt
-from administrator_vault import notes, store, wiki
-from administrator_vault.notes import ADMIN_DIR
-from administrator_vault.store import read_text
-from administrator_vault.wiki import _atomic_write, _s, _today
+from soma_vault import frontmatter as fmt
+from soma_vault import notes, store, wiki
+from soma_vault.notes import ADMIN_DIR
+from soma_vault.store import read_text
+from soma_vault.wiki import _atomic_write, _s, _today
 
 PATH = f"{ADMIN_DIR}/Follow-ups.md"
 NOTE = (

@@ -1,6 +1,6 @@
 filters:
   and:
-    - file.inFolder("Administrator/Meetings")
+    - file.inFolder("Soma/Meetings")
     - note.type == "meeting"
 formulas:
   start_date: 'if(note.start.isType("date"), note.start, date(note.start))'

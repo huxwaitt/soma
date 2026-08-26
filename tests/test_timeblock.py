@@ -1,4 +1,4 @@
-"""administrator_vault.timeblock: the planner on a fixed week (budget rule,
+"""soma_vault.timeblock: the planner on a fixed week (budget rule,
 peak placement, existing blocks, priorities from file and wiki), the plan
 note, and the audit with Held rows."""
 
@@ -10,13 +10,13 @@ from datetime import date
 
 import pytest
 
-from administrator_vault import frontmatter as fmt
-from administrator_vault import store, timeblock, wiki
-from administrator_vault.server import build_server
-from administrator_vault.store import VaultError
+from soma_vault import frontmatter as fmt
+from soma_vault import store, timeblock, wiki
+from soma_vault.server import build_server
+from soma_vault.store import VaultError
 
-CB = "administrator/0.4.1"
-W = "Administrator/Wiki"
+CB = "soma/0.4.1"
+W = "Soma/Wiki"
 WEEK = "2026-W35"  # Mon 24 Aug - Sun 30 Aug 2026
 TODAY = date(2026, 8, 24)
 
@@ -43,8 +43,8 @@ PRIORITIES = [
 def vault(tmp_path, monkeypatch):
     root = tmp_path / "Vault"
     root.mkdir()
-    monkeypatch.setenv("ADMINISTRATOR_VAULT", str(root))
-    monkeypatch.delenv("ADMINISTRATOR_VAULT_NAME", raising=False)
+    monkeypatch.setenv("SOMA_VAULT", str(root))
+    monkeypatch.delenv("SOMA_VAULT_NAME", raising=False)
     store.init(created_by=CB)
     return root
 
@@ -192,9 +192,9 @@ def test_priorities_from_file_then_pressing_wiki_topics(vault):
     wiki.create("person", "Jane Doe", extra={"email": "jane@example.com"})
     assert int(fmt.split_note(text_of(vault, opened))[0]["open_items"]) == 1
 
-    pri = vault / "Administrator" / "Priorities.md"
+    pri = vault / "Soma" / "Priorities.md"
     pri.write_text(
-        text_of(vault, "Administrator/Priorities.md").replace(
+        text_of(vault, "Soma/Priorities.md").replace(
             "1. (your first priority — a topic page link such as [[Wiki/Topics/acme-supplier-contract]] or plain words)",
             "1. [[Wiki/Topics/acme-contract]]\n2. Hiring a PM <!-- hire by October -->\n3. [[Wiki/Topics/not-a-page|Something new]]\n\n- not a numbered line\n",
         ),
@@ -231,7 +231,7 @@ def test_write_then_audit_with_held_rows(vault):
             b["occurrence_key"], b["entry_id"] = f"NEW{n}|{b['start']}", f"E{n}"
         blocks.append(b)
     res = timeblock.write(WEEK, blocks, CB)
-    path = f"Administrator/Time-blocks/{WEEK}.md"
+    path = f"Soma/Time-blocks/{WEEK}.md"
     assert res == {"path": path, "action": "created", "week": WEEK, "blocks": 15, "planned": 15}
     text = text_of(vault, path)
     fm, _b, body = fmt.split_note(text)
@@ -313,7 +313,7 @@ def test_server_time_block_tools_round_trip(vault):
     assert plan["days"][0]["blocks"][0]["subject"] == "[Focus] Deep work"
     blocks = [dict(b, occurrence_key=f"K{i}", entry_id=f"E{i}") for i, b in enumerate(b for d in plan["days"] for b in d["blocks"])]
     w = call("vault_time_block", {"action": "write", "week": WEEK, "blocks": blocks})
-    assert w["action"] == "created" and w["path"] == f"Administrator/Time-blocks/{WEEK}.md"
+    assert w["action"] == "created" and w["path"] == f"Soma/Time-blocks/{WEEK}.md"
     assert fmt.split_note(text_of(vault, w["path"]))[0]["created_by"] == CB
     a = call("vault_time_block", {"action": "audit", "week": WEEK, "events": week_events()})
     assert a["blocks"]["planned"] == 1 and a["hours"]["meeting"] == 8.3 and len(a["lines"]) == 3

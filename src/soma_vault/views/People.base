@@ -1,6 +1,6 @@
 filters:
   and:
-    - file.inFolder("Administrator/Wiki/People")
+    - file.inFolder("Soma/Wiki/People")
     - note.type == "person"
 formulas:
   linked_notes: "file.links.length"

@@ -30,9 +30,9 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
-from administrator_vault import frontmatter as fmt
-from administrator_vault import store, wiki
-from administrator_vault.wiki import (
+from soma_vault import frontmatter as fmt
+from soma_vault import store, wiki
+from soma_vault.wiki import (
     CACHE_DIR, TYPE_FOLDER, TYPES, WIKI_DIR, _LINK_RE, _RECORD_RE, _STOP, _aliases, _link_sections,
     _link_target, _norm_name, _record_src_id, _s, _stem, _unquote, src_record,
 )
@@ -922,7 +922,7 @@ def search_tool(
     read in. When there are any, the list answers come back as
     ``{hits, hand_edits}`` and the brief gains a ``hand_edits`` key, so the
     model can say so in one line; the next writing call takes them over."""
-    from administrator_vault import wiki_reconcile  # imported here: that module reads this one
+    from soma_vault import wiki_reconcile  # imported here: that module reads this one
 
     root = store.vault_root()
     hand = wiki_reconcile.detect(root)

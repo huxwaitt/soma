@@ -1,4 +1,4 @@
-"""administrator_vault.priorities: the candidates for a ranked suggestion and
+"""soma_vault.priorities: the candidates for a ranked suggestion and
 the write that replaces only the numbered list of Priorities.md."""
 
 from __future__ import annotations
@@ -10,23 +10,23 @@ from datetime import date
 
 import pytest
 
-from administrator_vault import frontmatter as fmt
-from administrator_vault import priorities, store, timeblock, wiki
-from administrator_vault.server import build_server
-from administrator_vault.store import VaultError
+from soma_vault import frontmatter as fmt
+from soma_vault import priorities, store, timeblock, wiki
+from soma_vault.server import build_server
+from soma_vault.store import VaultError
 
-CB = "administrator/0.4.1"
-PATH = "Administrator/Priorities.md"
+CB = "soma/0.4.1"
+PATH = "Soma/Priorities.md"
 TODAY = "2026-08-24"
-STAMP_RE = re.compile(r"<!-- suggested by administrator, confirmed \d{4}-\d{2}-\d{2} -->")
+STAMP_RE = re.compile(r"<!-- suggested by soma, confirmed \d{4}-\d{2}-\d{2} -->")
 
 
 @pytest.fixture
 def vault(tmp_path, monkeypatch):
     root = tmp_path / "Vault"
     root.mkdir()
-    monkeypatch.setenv("ADMINISTRATOR_VAULT", str(root))
-    monkeypatch.delenv("ADMINISTRATOR_VAULT_NAME", raising=False)
+    monkeypatch.setenv("SOMA_VAULT", str(root))
+    monkeypatch.delenv("SOMA_VAULT_NAME", raising=False)
     store.init(created_by=CB)
     return root
 
@@ -80,7 +80,7 @@ def test_candidates_topics_followups_weekly_and_current(vault):
 
     # an empty vault: nothing to suggest from, no weekly note
     (vault / PATH).unlink()
-    for p in (vault / "Administrator" / "Weekly").glob("*.md"):
+    for p in (vault / "Soma" / "Weekly").glob("*.md"):
         p.unlink()
     e = priorities.candidates(TODAY)
     assert e["weekly_open"] == [] and e["current"] == []
@@ -96,14 +96,14 @@ def test_write_replaces_the_placeholder_and_keeps_the_rest(vault):
     res = priorities.write(["[[Wiki/Topics/acme-contract]]", "Hiring a PM", "3. Offsite"], today=TODAY)
     assert res == {"path": PATH, "action": "written", "lines": ["[[Wiki/Topics/acme-contract]]", "Hiring a PM", "Offsite"], "previous": []}
     after = text_of(vault)
-    assert section(after, "Priorities") == "\n1. [[Wiki/Topics/acme-contract]]\n2. Hiring a PM\n3. Offsite\n<!-- suggested by administrator, confirmed 2026-08-24 -->\n\n"
+    assert section(after, "Priorities") == "\n1. [[Wiki/Topics/acme-contract]]\n2. Hiring a PM\n3. Offsite\n<!-- suggested by soma, confirmed 2026-08-24 -->\n\n"
     assert "1. (your first priority" not in after
     # everything outside the numbered list is byte for byte the same
     head, _sep, _rest = before.partition("## Priorities\n")
     assert after.startswith(head + "## Priorities\n")
     assert section(after, "Notes") == section(before, "Notes") == "\nMy own words stay here.\n"
     assert fmt.split_note(after)[0] == fmt.split_note(before)[0]
-    assert not (vault / "Administrator" / "Priorities.md.tmp").exists()
+    assert not (vault / "Soma" / "Priorities.md.tmp").exists()
     # the planner reads the new list
     assert [(x["rank"], x["name"], x["page"]) for x in timeblock.read_priorities(vault, date(2026, 8, 24))] == [(1, "acme-contract", "[[Wiki/Topics/acme-contract]]"), (2, "Hiring a PM", None), (3, "Offsite", None)]
 
@@ -119,8 +119,8 @@ def test_second_write_replaces_the_list_and_keeps_user_text(vault):
     res = priorities.write(["Offsite", "Acme contract"], today="2026-08-31")
     assert res["previous"] == ["Acme contract", "Hiring a PM"] and res["lines"] == ["Offsite", "Acme contract"]
     after = text_of(vault)
-    assert section(after, "Priorities") == "\n1. Offsite\n2. Acme contract\n<!-- suggested by administrator, confirmed 2026-08-31 -->\n\nThe offsite waits until October.\n"
-    assert after.count("suggested by administrator") == 1 and "follow-ups" not in after and "Hiring a PM" not in after
+    assert section(after, "Priorities") == "\n1. Offsite\n2. Acme contract\n<!-- suggested by soma, confirmed 2026-08-31 -->\n\nThe offsite waits until October.\n"
+    assert after.count("suggested by soma") == 1 and "follow-ups" not in after and "Hiring a PM" not in after
     assert [x["name"] for x in timeblock.read_priorities(vault, date(2026, 8, 31))] == ["Offsite", "Acme contract"]
     assert priorities.candidates("2026-08-31")["current"] == ["Offsite", "Acme contract"]
 
@@ -132,7 +132,7 @@ def test_write_creates_a_missing_file_and_a_missing_heading(vault):
     assert res["previous"] == [] and p.is_file()
     text = text_of(vault)
     assert fmt.split_note(text)[0]["type"] == "priorities" and fmt.split_note(text)[0]["created_by"] == CB
-    assert section(text, "Priorities") == "\n1. Only one\n<!-- suggested by administrator, confirmed 2026-08-24 -->\n"
+    assert section(text, "Priorities") == "\n1. Only one\n<!-- suggested by soma, confirmed 2026-08-24 -->\n"
     # no '## Priorities' heading at all: the section is added at the end
     p.write_text("---\ntype: priorities\n---\n\n# Priorities\n\nJust my words.\n", encoding="utf-8")
     priorities.write(["A", "B"], today=TODAY)

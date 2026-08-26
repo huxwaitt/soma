@@ -43,7 +43,7 @@ teams = ["ccl_chromium_reader @ git+https://github.com/cclgroupltd/ccl_chromium_
 
 [project.scripts]
 outlook-mcp = "outlook_mcp.entrypoint:main"
-administrator-vault = "administrator_vault.entrypoint:main"
+soma-vault = "soma_vault.entrypoint:main"
 local-ms-teams = "local_ms_teams.entrypoint:main"
 
 [project.urls]
@@ -55,7 +55,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "outlook_mcp.ui" = ["*.html"]
-"administrator_vault" = ["views/*.base", "wiki_schema.md"]
+"soma_vault" = ["views/*.base", "wiki_schema.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
