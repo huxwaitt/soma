@@ -31,13 +31,21 @@ On a yes: `vault_load_history(action="plan", since=<ISO date, or left out for 90
 
 ### 3. The window to list
 
-`vault_load_history(action="next")` → `{batch_no, source, since, until, expected, skip_ids, list_with, reissued, issued, note}`. Make the call in `list_with` as it stands — it is `outlook_list_mails(folder="inbox" | "sent", since, until, limit=100, preview_chars=80, fields=[…])` or `teams_list_chats(since, until, include_messages=true, per_chat=20, max_chars=300, limit=15)`, with the window, the limit and the fields already in it. Change nothing in it; the one thing to add is `response_format="json"` on the mail call, which the text leaves out and which every other skill passes. Then:
+`vault_load_history(action="next")` → `{batch_no, source, since, until, expected, skip_ids, list_with, reissued, issued, note}`. Make the call in `list_with` as it stands — it is `outlook_list_mails(folder="inbox" | "sent", since, until, limit=100, preview_chars=80, fields=[…])` or `teams_list_chats(since, until, include_messages=true, per_chat=12, max_chars=200, limit=15)`, with the window, the limit and the fields already in it. Change nothing in it; the one thing to add is `response_format="json"` on the mail call, which the text leaves out and which every other skill passes. Then:
 
 - turn the list round so the **oldest** record is first;
 - drop every id in `skip_ids` (already read by an earlier batch) and every plainly automated mail (no-reply senders, newsletters, meeting responses, out-of-office) without opening it;
 - work on the first `expected` of what is left.
 
 `reissued: true` means this window was handed out before and never reported — the same window, unchanged; nothing new was started. Report it with `done` before asking for another.
+
+### 3b. Expected cost
+
+The window is listed and nothing has been opened yet. Work the batch out first (tokens = chars ÷ 4):
+
+> in ≈ Teams min(total_messages, chats × per_chat) × (max_chars × 0.6 + 40) ÷ 4 + Outlook listed × 60 + opened × 900 + notes count × max_chars ÷ 4 + records × 3 × 200 (page reads); out ≈ ops × 45 + records × 60 + bullets × 25 + 300
+
+A mail window has no Teams part and a Teams window no Outlook part; there are no notes here, and `records` is what survived `skip_ids`, at most `expected`. One `vault_collect_sources(action="read")` per session — it reads, it never moves a stamp — carries `tokens: {"load-history": {runs, ratio_in, ratio_out}}`, the last 20 batches measured against their estimates: when `runs` is 3 or more, multiply `in` by `ratio_in` and `out` by `ratio_out`. Show one line before anything is opened: "Expected ~N in / ~M out for this run". When the host shows the turn's token count, end the batch with `vault_collect_sources(action="tokens", payload={"command": "load-history", "predicted_in": N, "predicted_out": M, "actual_in": <in>, "actual_out": <out>})` and one line "Cost: N in / M out (expected N'/M')"; when it does not, skip the call.
 
 ### 4. The batch
 

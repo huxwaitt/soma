@@ -11,7 +11,7 @@ Once per session: `vault_status` (any folder or file flag false → `vault_init(
 
 ## Caps (fixed, say when one is hit)
 
-Teams: 15 chats, 20 messages each at 300 characters; at most 3 chats read in full with `teams_read_chat` (100 messages). Outlook: 50 mails per folder (Inbox, Sent), 80-character previews, at most 8 mails opened and saved. Notes: 20 changed notes at 1200 characters. Wiki: at most 3 pages read per record (for a chat, the reads of step 3 are those). Everything else waits for the next run; the stamps still advance, so say what was left out.
+Teams: 15 chats, 12 messages each at 200 characters; at most 3 chats read in full with `teams_read_chat` (100 messages). Outlook: 50 mails per folder (Inbox, Sent), 80-character previews, at most 8 mails opened and saved. Notes: 20 changed notes at 1200 characters. Wiki: at most 3 pages read per record (for a chat, the reads of step 3 are those). Everything else waits for the next run; the stamps still advance, so say what was left out.
 
 ## Steps
 
@@ -24,7 +24,7 @@ Teams: 15 chats, 20 messages each at 300 characters; at most 3 chats read in ful
 Skip when there are no `teams_*` tools; say "Teams: not set up (no local-ms-teams server)" in one line. Otherwise `teams_status()` → skip with its `hint` in one line when `cache_found` or `reader_installed` is false. Then:
 
 ```
-teams_list_chats(since=<since>, include_messages=true, per_chat=20, max_chars=300, limit=15)
+teams_list_chats(since=<since>, include_messages=true, per_chat=12, max_chars=200, limit=15)
 ```
 
 → `{chats: [{id, title, type, members, count, last_time, last_sender, preview, account, messages: [{id, time, sender, sender_org, is_self, text, truncated}], truncated}], total_messages, capped}`. A chat whose `truncated` is above 0 may be read whole with `teams_read_chat(chat_id=<id>, since=<since>, limit=100, max_chars=600)` — at most 3 chats, the busiest first. Meeting chats (`type: meeting`) and channels count like any other chat.
@@ -40,11 +40,19 @@ outlook_list_mails(folder="inbox", since=<since>, limit=50, preview_chars=80, re
                    fields=["entry_id","internet_message_id","subject","from","from_address","to","received","preview"])
 ```
 
-and the same with `folder="sent"`. For each mail that is not plainly automated (no-reply senders, newsletters, meeting responses, out-of-office — skip those without a call): `vault_wiki_match(text=<subject + preview>, people=[<from_address>], domains=[<its domain>], limit=3)`. Keep the mails with a `pages` hit or a `candidates` entry, highest score first, newest first within a score, and open at most 8 of them with the `save` skill's `outlook_get_mail(..., trim_quoted=true, fields=[...])` call. For each: one `vault_save_email(mail, summary, action_items, self_addresses, created_by="administrator/0.4.0")` (an existing note gets an `## Update`, `action: appended`). Mails without a match are counted, not saved; name up to 3 of them the user may want to `/administrator:save` by hand.
+and the same with `folder="sent"`. For each mail that is not plainly automated (no-reply senders, newsletters, meeting responses, out-of-office — skip those without a call): `vault_wiki_match(text=<subject + preview>, people=[<from_address>], domains=[<its domain>], limit=3)`. Keep the mails with a `pages` hit or a `candidates` entry, highest score first, newest first within a score, and open at most 8 of them — after the cost line of step 5b — with the `save` skill's `outlook_get_mail(..., trim_quoted=true, fields=[...])` call. For each: one `vault_save_email(mail, summary, action_items, self_addresses, created_by="administrator/0.4.0")` (an existing note gets an `## Update`, `action: appended`). Mails without a match are counted, not saved; name up to 3 of them the user may want to `/administrator:save` by hand.
 
 ### 5. Notes
 
 `vault_changed_notes(since=<since>)` → `{count, total, capped, folders, skipped, missing, notes: [{path, type, modified, ingested, excerpt, from_update, truncated}]}`. The default folders are `Administrator/Meetings`, `Emails`, `Daily`, `Weekly` plus `collect_folders` from `Preferences.md`; the tool never reads `Wiki/`, `Attachments/`, `_views/`, `_backup/`. Emails this run just saved are in the list too — ingest each record once; the chat records from step 6 are not listed (`Teams/` is not a default folder) and are ingested from the `vault_save_chat` results. A note of type `email`, `meeting` or `chat` is a record for `vault_wiki_ingest`; a daily, weekly or user-folder note is not: a fact worth keeping from one of those becomes a `vault_wiki_apply(path, ops, src="user")` line in the proposal, and only when the excerpt states it plainly.
+
+### 5b. Expected cost
+
+The three listings are in; nothing has been opened yet — no `outlook_get_mail`, no `teams_read_chat`, no wiki page read. Work the run out first (tokens = chars ÷ 4):
+
+> in ≈ Teams min(total_messages, chats × per_chat) × (max_chars × 0.6 + 40) ÷ 4 + Outlook listed × 60 + opened × 900 + notes count × max_chars ÷ 4 + records × 3 × 200 (page reads); out ≈ ops × 45 + records × 60 + bullets × 25 + 300
+
+`vault_collect_sources(action="read")` in step 1 carries `tokens: {"collect-information": {runs, ratio_in, ratio_out}}` — the last 20 runs measured against their estimates. When `runs` is 3 or more, multiply `in` by `ratio_in` and `out` by `ratio_out`; below that use the numbers as they are. Show one line, then go on: "Expected ~N in / ~M out for this run". When the host shows the turn's token count, the run ends with `vault_collect_sources(action="tokens", payload={"command": "collect-information", "predicted_in": N, "predicted_out": M, "actual_in": <in>, "actual_out": <out>})` and one line "Cost: N in / M out (expected N'/M')"; when it does not, skip the call and say nothing about it.
 
 ### 6. Records first, then the proposal
 
@@ -84,7 +92,7 @@ vault_append_row(path="Administrator/Time-blocks/<week>.md", section="Held",
 
 ### 10. Report
 
-Six lines at most: Teams (chats, messages, records created / appended, unknown people, then "N chats skipped: no work content — <titles>"), Outlook (mails seen, saved, the 3 worth saving by hand), Notes (changed, ingested), pages changed with one `obsidian://open` link each, Review count when it grew, and "Last collected: <now as Thu 21 Aug 18:10>". When the host shows the turn's token count, end with `Tokens this turn: <n>`.
+Six lines at most: Teams (chats, messages, records created / appended, unknown people, then "N chats skipped: no work content — <titles>"), Outlook (mails seen, saved, the 3 worth saving by hand), Notes (changed, ingested), pages changed with one `obsidian://open` link each, Review count when it grew, and "Last collected: <now as Thu 21 Aug 18:10>". Then the cost line of step 5b when the host shows the turn's token count.
 
 ## Chronology
 

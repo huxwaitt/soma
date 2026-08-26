@@ -187,3 +187,25 @@ Later, when the user says "yes, that one stands": `vault_wiki_review(action="res
 - Sends `supersede` for an older record, or resolves a contradiction without the user.
 - Writes below `## Notes`, or touches a wiki page with `vault_write` or the host file tools.
 - Rewrites a decision page, or writes a row into `Follow-ups.md`: what somebody owes is an `open` op on the page it is about.
+
+## Example 5 — one open item, one `conflicts-with`, one unconfirmed fact
+
+Three short pieces the skill file points at.
+
+**An open item on a person page.** What Jane owes, opened from the mail that asked for it (the `## Open` line format itself is in `wiki.md`):
+
+```
+vault_wiki_apply(path="Wiki/People/Jane Doe", ops=[{"op": "open", "text": "Send the signed contract", "owner": "[[Wiki/People/Jane Doe]]", "due": "2026-09-02", "since": "2026-08-25", "src": "<7f3a9c@example.com>"}], src="<7f3a9c@example.com>")
+```
+
+Closing it later is `{"op": "done", "id": <the item's `o:` id>, "src": "user"}`, a new date `{"op": "reschedule", "id": …, "due": "2026-09-09", "src": …}`. `Administrator/Follow-ups.md` is written from these lines and refuses rows.
+
+**A `conflicts-with` refusal.** The record says the numbers are due on 2 September; the page already holds "Deadline for the user's numbers is 2026-08-29". The `add` comes back:
+
+```json
+{"op": "add", "reason": "conflicts-with", "id": "m4rt", "current": "Deadline for the user's numbers is 2026-08-29", "since": "2026-08-22"}
+```
+
+Only that op was dropped; the rest of the call went through. Decide which one holds and resend the single op — never the whole call. The record is the newer one → `{"op": "supersede", "id": "m4rt", "text": <your text>, "since": …, "src": …}`. The record is older, same-day, or you are unsure → `{"op": "contest", "id": "m4rt", "text": …, "src": …}`, which puts both sides in Review. Two genuinely different things (the refusal is a rule, not a reading) → `contest` as well, and the Review line sorts it out. Say in one line which you chose.
+
+**An unconfirmed fact in an answer.** A `brief=true` line ending `(one source, unconfirmed since 2026-01-14)` is never stated flat. Say where it stands — "one mail from January says the deadline is 29 August — worth checking" — or ask the user, or read the record it came from. In a draft, hedge it or leave it out.

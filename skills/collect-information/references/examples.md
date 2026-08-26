@@ -23,7 +23,7 @@ vault_collect_sources(action="read")
 2. Teams. `teams_status()` → `{"reader_installed": true, "cache_found": true, "accounts": [{"key": "…:…", "label": "Example GmbH"}], "chats": 41, "messages": 1180, "newest": "2026-08-25T17:31:04+02:00", "hint": null}`.
 
 ```
-teams_list_chats(since="2026-08-21T18:10:00+02:00", include_messages=true, per_chat=20, max_chars=300, limit=15)
+teams_list_chats(since="2026-08-21T18:10:00+02:00", include_messages=true, per_chat=12, max_chars=200, limit=15)
 ```
 
 ```json
