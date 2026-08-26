@@ -6,6 +6,12 @@ already covers, and hands the model one window of days at a time. Nothing here
 reads mail or chats: ``next`` returns the exact call the model makes, and the
 model reports back with ``done``.
 
+The user is asked once per batch whether to carry on. "Yes to all" sets
+``auto`` in the state, with an optional ``cap`` on the tokens the whole pass
+may spend; ``next`` and ``done`` then answer ``auto``, ``cap`` and the running
+``cost``, and the model runs the rest without asking until the cap is in
+reach, a batch is refused, or Review needs the user.
+
 The state lives in ``Administrator/Wiki/_cache/history.json`` — the place each
 source got to, the ids already seen, the totals, and the window that is open
 right now. It is written after ``plan`` and after every ``done``, so a crash
@@ -38,7 +44,11 @@ SOURCE_WORDS = {"outlook_inbox": "Outlook inbox", "outlook_sent": "Outlook sent 
 STREAM = {"outlook_inbox": "outlook", "outlook_sent": "outlook", "teams": "teams"}  # where the seen ids are kept
 STAMP = {"outlook_inbox": "outlook", "outlook_sent": "outlook", "teams": "teams"}  # the collect stamp that bounds it
 FOLDER = {"outlook_inbox": "inbox", "outlook_sent": "sent"}
-MAIL_FIELDS = ("entry_id", "internet_message_id", "subject", "from", "from_address", "to", "received", "preview")
+# bulk / bulk_why are in the list because the batch runs vault_rules(action="match")
+# on it before a preview is read; without them every automated mail comes back as
+# one to judge, and the drop reason has nothing to name.
+MAIL_FIELDS = ("entry_id", "internet_message_id", "subject", "from", "from_address", "to", "received",
+               "bulk", "bulk_why", "preview")
 DEFAULT_DAYS = 90
 DEFAULT_BATCH = 25
 BATCH_MAX = 100
@@ -96,6 +106,10 @@ def _blank(since: datetime, batch: int, until_max: dict[str, str], started: date
         "until_max": until_max,
         "sources": {s: {"place": None, "done": False, "listed": 0, "saved": 0} for s in SOURCES},
         "current": None,
+        "auto": False,  # "yes to all": run the rest without asking after every batch
+        "cap": None,    # tokens the whole pass may spend in auto mode, or None for no cap
+        "tokens_in": 0,
+        "tokens_out": 0,
         "batches_done": 0,
         "records_saved": 0,
         "pages_touched": [],
@@ -126,6 +140,7 @@ def read_state(root: Path) -> Optional[dict[str, Any]]:
     for key, default in (
         ("batch", DEFAULT_BATCH), ("window_days", DEFAULT_WINDOW), ("batches_done", 0),
         ("records_saved", 0), ("calls", 0), ("started", ""), ("finished", None),
+        ("auto", False), ("cap", None), ("tokens_in", 0), ("tokens_out", 0),
     ):
         data.setdefault(key, default)
     for source in SOURCES:
@@ -290,6 +305,7 @@ def status(root: Path, now: datetime) -> dict[str, Any]:
     }
     out["totals"] = _totals(state)
     out["next_hint"] = _next_hint(state)
+    out.update(_mode(state))
     if state.get("finished"):
         out["note"] = _summary(state)
     elif state.get("current"):
@@ -360,6 +376,7 @@ def plan(root: Path, since: Any, batch: int, reset: bool, now: datetime) -> dict
         "started_over": bool(old is not None and reset),
         "kept_ids": kept_ids,
         "next_hint": _next_hint(state),
+        **_mode(state),
     }
     parts = [
         f"Reading {SOURCE_WORDS['outlook_inbox']}, {SOURCE_WORDS['outlook_sent']} and {SOURCE_WORDS['teams']} "
@@ -399,6 +416,7 @@ def next_batch(root: Path, now: datetime) -> dict[str, Any]:
             "list_with": _list_with(current["source"], since, until),
             "reissued": True,
             "issued": current.get("issued"),
+            **_mode(state),
             "note": (
                 f"Batch {current['n']} is still open, so this is the same window again. "
                 "Report it with action='done' before asking for another one."
@@ -413,6 +431,7 @@ def next_batch(root: Path, now: datetime) -> dict[str, Any]:
             "all_done": True,
             "finished": state.get("finished"),
             "totals": _totals(state),
+            **_mode(state),
             "note": _summary(state),
         }
     since, until = _window(state, source)
@@ -436,9 +455,12 @@ def next_batch(root: Path, now: datetime) -> dict[str, Any]:
         "list_with": _list_with(source, since, until),
         "reissued": False,
         "issued": state["current"]["issued"],
+        **_mode(state),
         "note": (
             f"{SOURCE_WORDS[source]}, {_day(since)}–{_day(until)}: list it with the call above, turn the list "
             f"oldest first, drop skip_ids and automated mail, and work on the first {state['batch']}."
+            + (f" Running cost {_cost(state)['total']} tokens of the {state['cap']} the user allowed."
+               if state.get("auto") and state.get("cap") else "")
         ),
     }
 
@@ -482,8 +504,52 @@ def _adapt(window_days: int, listed: int, batch: int) -> int:
     return window_days
 
 
+def _cost(state: dict[str, Any]) -> dict[str, int]:
+    """What the pass has spent so far, as the model reported it batch by batch."""
+    got_in, got_out = int(state.get("tokens_in") or 0), int(state.get("tokens_out") or 0)
+    return {"in": got_in, "out": got_out, "total": got_in + got_out}
+
+
+def _mode(state: dict[str, Any]) -> dict[str, Any]:
+    """The three keys every next/done answer carries: the mode, the cap and the
+    running cost, so a run that says "yes to all" knows when to stop."""
+    return {"auto": bool(state.get("auto")), "cap": state.get("cap"), "cost": _cost(state)}
+
+
+def _set_mode(state: dict[str, Any], payload: dict[str, Any]) -> None:
+    """"yes to all" and the cap the user named, as the model passes them on."""
+    if "auto" in payload:
+        state["auto"] = bool(payload.get("auto"))
+    if "cap" in payload:
+        raw = payload.get("cap")
+        if raw is None or raw is False or raw == "":  # "no cap"; 0 is a number and is refused below
+            state["cap"] = None
+        else:
+            try:
+                cap = int(raw)
+            except (TypeError, ValueError):
+                raise VaultError(f"payload['cap'] must be a whole number of tokens or null, got {raw!r}.") from None
+            if cap <= 0:
+                raise VaultError(f"payload['cap'] must be more than 0 tokens, got {cap}.")
+            state["cap"] = cap
+    spent = payload.get("tokens")
+    if spent in (None, ""):
+        return
+    if not isinstance(spent, dict):
+        raise VaultError("payload['tokens'] must be {in, out}, the tokens this batch cost.")
+    for key, field in (("in", "tokens_in"), ("out", "tokens_out")):
+        try:
+            state[field] = int(state.get(field) or 0) + max(0, int(spent.get(key) or 0))
+        except (TypeError, ValueError):
+            raise VaultError(f"payload['tokens'][{key!r}] must be a whole number.") from None
+
+
 def done(root: Path, payload: Any, now: datetime) -> dict[str, Any]:
-    """Record what the model saved, move the place, and hand back the totals."""
+    """Record what the model saved, move the place, and hand back the totals.
+
+    The payload may also carry ``auto`` ("yes to all": run the rest without
+    asking), ``cap`` (the tokens the whole pass may spend, or null) and
+    ``tokens`` ({in, out}) — what this batch cost, added to the running one."""
     state = _need_state(root, "done")
     current = state.get("current")
     if not current:
@@ -492,6 +558,7 @@ def done(root: Path, payload: Any, now: datetime) -> dict[str, Any]:
         payload = {}
     if not isinstance(payload, dict):
         raise VaultError("'payload' must be an object with saved, skipped_ids, reached, exhausted, pages and calls.")
+    _set_mode(state, payload)
     source = _s(current["source"])
     stream = STREAM[source]
     since, until = _s(current["since"]), _s(current["until"])
@@ -558,6 +625,7 @@ def done(root: Path, payload: Any, now: datetime) -> dict[str, Any]:
         "totals": _totals(state),
         "next_hint": hint,
         "stalled": stalled,
+        **_mode(state),
     }
     line = f"Batch {out['batch']}: {len(saved)} saved"
     if stalled:
@@ -572,7 +640,13 @@ def done(root: Path, payload: Any, now: datetime) -> dict[str, Any]:
         parts = [line]
         if source_done:
             parts.append(f"{SOURCE_WORDS[source]} is done")
-        parts.append(f"next window {_day(hint['since'])}–{_day(hint['until'])} ({SOURCE_WORDS[hint['source']]}) — continue?")
+        window = f"next window {_day(hint['since'])}–{_day(hint['until'])} ({SOURCE_WORDS[hint['source']]})"
+        if state.get("auto"):
+            spent = _cost(state)["total"]
+            room = f", {spent} tokens spent of {state['cap']}" if state.get("cap") else ""
+            parts.append(f"{window} — carrying on{room}")
+        else:
+            parts.append(f"{window} — continue?")
         out["note"] = "; ".join(parts)
     return out
 

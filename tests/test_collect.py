@@ -1,4 +1,4 @@
-"""vault_collect_sources (stamps, ask rule, never backwards) and vault_changed_notes
+"""vault_collect: the stamps (ask rule, never backwards), the token runs and changed
 (default folders, last Update excerpt, collect_folders, the never-read list, refusals)."""
 
 from __future__ import annotations
@@ -232,18 +232,20 @@ def test_server_collect_tools_round_trip(vault):
         out = asyncio.run(server.call_tool(name, args))
         return json.loads(out[0].text if isinstance(out, list) else out[0][0].text)
 
-    r = call("vault_collect_sources", {"action": "read", "now": "2026-08-22T09:00:00+02:00"})
+    r = call("vault_collect", {"action": "read", "now": "2026-08-22T09:00:00+02:00"})
     assert r["ask"] is True and r["last_collected"] == "never"
-    a = call("vault_collect_sources", {"action": "advance", "source": "teams", "at": "2026-08-22T08:00:00+02:00"})
+    a = call("vault_collect", {"action": "advance", "source": "teams", "at": "2026-08-22T08:00:00+02:00"})
     assert a["advanced"] == ["teams"]
-    t = call("vault_collect_sources", {"action": "tokens", "payload": {
+    t = call("vault_collect", {"action": "tokens", "payload": {
         "command": "collect-information", "predicted_in": 8000, "predicted_out": 1000, "actual_in": 9600, "actual_out": 900}})
     assert t["runs"] == 1 and t["ratio_in"] == 1.2 and t["ratio_out"] == 0.9
-    assert call("vault_collect_sources", {"action": "read", "now": "2026-08-22T09:00:00+02:00"})["tokens"] == {
+    assert call("vault_collect", {"action": "read", "now": "2026-08-22T09:00:00+02:00"})["tokens"] == {
         "collect-information": {"runs": 1, "ratio_in": 1.2, "ratio_out": 0.9}}
     since = (datetime.now().astimezone() - timedelta(hours=1)).isoformat(timespec="seconds")
     email(1)
-    r = call("vault_changed_notes", {"since": since, "max_chars": 20})
+    r = call("vault_collect", {"action": "changed", "since": since, "max_chars": 20})
     assert r["count"] == 1 and r["notes"][0]["path"] == "Administrator/Emails/2026-08-22 Budget Q3.md" and r["notes"][0]["truncated"] is True
     with pytest.raises(Exception):
-        call("vault_changed_notes", {"since": since, "folders": ["../x"]})
+        call("vault_collect", {"action": "changed", "since": since, "folders": ["../x"]})
+    with pytest.raises(Exception):
+        call("vault_collect", {"action": "changed"})  # changed needs since

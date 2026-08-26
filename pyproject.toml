@@ -36,7 +36,10 @@ search = [
     "openpyxl>=3.1.5",
     "pypdf>=6.16.1",
 ]
-teams = ["ccl_chromium_reader @ git+https://github.com/cclgroupltd/ccl_chromium_reader@master"]
+# ccl_chromium_reader has no release on PyPI, so it is pinned to the commit this
+# was built and tested against. To move it: check the upstream history, put the new
+# commit hash after the @, run `uv sync --extra teams` and `uv run pytest -q tests/test_teams.py`.
+teams = ["ccl_chromium_reader @ git+https://github.com/cclgroupltd/ccl_chromium_reader@ef840de30221c4d65bc96d2f4d9057e9ef2f526d"]
 
 [project.scripts]
 outlook-mcp = "outlook_mcp.entrypoint:main"

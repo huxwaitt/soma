@@ -50,7 +50,7 @@ List mail items from a folder, newest first. Read-only.
 | `preview_chars`  | int 0–5000| `200`       | Length of `preview`; `0` leaves it out. |
 | `response_format`| `markdown`/`json` | `markdown` | Use `json` to extract `entry_id`s. |
 
-**Returns** (`json` shape): `{ folder, count, offset, limit, items: [...], has_more, next_offset }`. Each item has: `entry_id, internet_message_id, subject, from, from_address, to, received, unread, flagged, has_attachments, importance, preview` (body excerpt of `preview_chars`). `from_address` is always a real SMTP address when Outlook can resolve one.
+**Returns** (`json` shape): `{ folder, count, offset, limit, items: [...], has_more, next_offset }`. Each item has: `entry_id, internet_message_id, subject, from, from_address, to, received, unread, flagged, has_attachments, importance, bulk, bulk_why, preview` (body excerpt of `preview_chars`). `from_address` is always a real SMTP address when Outlook can resolve one. `bulk` is true when a machine wrote the mail — a `List-Unsubscribe`, `Precedence: bulk / list / junk`, `Auto-Submitted` other than `no` or `X-Auto-Response-Suppress` header, a no-reply / newsletter / marketing / alerts sender, or the message class of a meeting response, read receipt or out-of-office reply — and `bulk_why` names the signal that decided it (`""` when it is not bulk). The headers behind it cost one read per mail, so they are only read when `bulk` is among `fields` (or no `fields` were given); ask for it whenever a run should leave machine mail unread. `outlook_get_mail` has no such field.
 
 ### `outlook_search_mails`
 
@@ -69,7 +69,7 @@ Search a single folder by subject/body, subject-only, sender, or raw DASL. Read-
 | `preview_chars`  | int      | `200`            | `0` = no preview. |
 | `response_format`| str      | `markdown`       | |
 
-**Returns**: `{ query, scope, folder, count, items: [...] }`. Items have the same summary shape as `list_mails`.
+**Returns**: `{ query, scope, folder, count, items: [...] }`. Items have the same summary shape as `list_mails`, `bulk` / `bulk_why` included.
 
 Multi-word queries match items containing **all** the words (not the exact phrase), so `"teams not working"` finds "MESP-1 teams is not working". `scope='from'` matches display name, raw address, **and** the real SMTP address (works for Exchange senders too).
 
@@ -88,7 +88,7 @@ Find mails by **attachment filename** ("the spreadsheet Sam sent", "that PDF abo
 | `include_subfolders` | bool      | `true`    | Walk every folder below `folder` too. |
 | `fields`             | string[]  | `null`    | Keep only these keys per item (`matches` and `folder` count as keys). |
 
-**Returns** (always JSON): `{ query, folder, folders_searched, count, truncated, items: [...] }`. Each item is the `list_mails` summary shape plus `folder` (the folder it sits in) and `matches: [{index, filename, size_bytes}]` — only the attachments that matched. `index` is 1-based and goes straight into `save_attachments` or `extract_attachment_text`. Inline images (hidden attachments such as signature logos) never match. Newest first across all folders searched.
+**Returns** (always JSON): `{ query, folder, folders_searched, count, truncated, items: [...] }`. Each item is the `list_mails` summary shape without `bulk` / `bulk_why`, plus `folder` (the folder it sits in) and `matches: [{index, filename, size_bytes}]` — only the attachments that matched. `index` is 1-based and goes straight into `save_attachments` or `extract_attachment_text`. Inline images (hidden attachments such as signature logos) never match. Newest first across all folders searched.
 
 ### `outlook_advanced_search`
 
@@ -103,7 +103,7 @@ Search **every folder of every store at once** through Outlook's Windows Search 
 | `timeout_sec` | int 1–55  | `20`    | How long to wait for the index. What has arrived by then is returned with `timed_out: true`. |
 | `fields`      | string[]  | `null`  | Keep only these keys per item. |
 
-**Returns** (always JSON): `{ query, scope, filter, count, total_found, timed_out, items: [...] }`. Items are the `list_mails` summary shape plus `folder`. `filter` is the `@SQL=` string that was run (useful when nothing comes back). The index returns results in no particular order; the server sorts by `ReceivedTime` newest-first before applying `limit`.
+**Returns** (always JSON): `{ query, scope, filter, count, total_found, timed_out, items: [...] }`. Items are the `list_mails` summary shape plus `folder`, without `bulk` / `bulk_why` (only `list_mails` and `search_mails` work those out). `filter` is the `@SQL=` string that was run (useful when nothing comes back). The index returns results in no particular order; the server sorts by `ReceivedTime` newest-first before applying `limit`.
 
 Needs Outlook's indexing to be on (see gotchas). `count: 0` with `timed_out: false` on an unindexed store means "not indexed", not "no such mail" — fall back to `search_mails` per folder or `search_attachments`.
 

@@ -291,9 +291,9 @@ def test_server_lint_and_merge_tools(vault):
         return json.loads(out[0].text if isinstance(out, list) else out[0][0].text)
 
     seed(vault)
-    r = call("vault_wiki_lint", {"fix": True})
+    r = call("vault_wiki_keep", {"action": "lint", "fix": True})
     assert r["fix"] is True and set(r["checks"]) == {str(i) for i in range(0, 22)}  # 0 = the hand-edit pass
-    m = call("vault_wiki_merge", {"keep": "Wiki/Topics/q3-budget", "drop": "Wiki/Topics/budget-q3"})
+    m = call("vault_wiki_keep", {"action": "merge", "keep": "Wiki/Topics/q3-budget", "drop": "Wiki/Topics/budget-q3"})
     assert m["redirect"] == "[[Wiki/Topics/q3-budget]]"
     assert fm_of(vault, f"{W}/Topics/budget-q3.md")["type"] == "redirect"
 

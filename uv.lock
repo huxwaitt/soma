@@ -128,7 +128,7 @@ wheels = [
 [[package]]
 name = "ccl-chromium-reader"
 version = "0.3.18"
-source = { git = "https://github.com/cclgroupltd/ccl_chromium_reader?rev=master#ef840de30221c4d65bc96d2f4d9057e9ef2f526d" }
+source = { git = "https://github.com/cclgroupltd/ccl_chromium_reader?rev=ef840de30221c4d65bc96d2f4d9057e9ef2f526d#ef840de30221c4d65bc96d2f4d9057e9ef2f526d" }
 dependencies = [
     { name = "brotli" },
     { name = "ccl-simplesnappy" },
@@ -761,7 +761,7 @@ teams = [
 [package.metadata]
 requires-dist = [
     { name = "build", marker = "extra == 'dev'", specifier = ">=1.0" },
-    { name = "ccl-chromium-reader", marker = "extra == 'teams'", git = "https://github.com/cclgroupltd/ccl_chromium_reader?rev=master" },
+    { name = "ccl-chromium-reader", marker = "extra == 'teams'", git = "https://github.com/cclgroupltd/ccl_chromium_reader?rev=ef840de30221c4d65bc96d2f4d9057e9ef2f526d" },
     { name = "mcp", specifier = "<=1.29" },
     { name = "openpyxl", marker = "extra == 'search'", specifier = ">=3.1.5" },
     { name = "pydantic", specifier = ">=2.6" },

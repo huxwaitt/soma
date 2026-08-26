@@ -308,17 +308,19 @@ def test_server_time_block_tools_round_trip(vault):
         out = asyncio.run(server.call_tool(name, args))
         return json.loads(out[0].text if isinstance(out, list) else out[0][0].text)
 
-    plan = call("vault_time_block_plan", {"week": WEEK, "events": week_events(), "today": "2026-08-24"})
+    plan = call("vault_time_block", {"action": "plan", "week": WEEK, "events": week_events(), "today": "2026-08-24"})
     assert plan["priorities"] == [] and [d["date"] for d in plan["days"]] == ["2026-08-24", "2026-08-25", "2026-08-27", "2026-08-28"]
     assert plan["days"][0]["blocks"][0]["subject"] == "[Focus] Deep work"
     blocks = [dict(b, occurrence_key=f"K{i}", entry_id=f"E{i}") for i, b in enumerate(b for d in plan["days"] for b in d["blocks"])]
-    w = call("vault_time_block_write", {"week": WEEK, "blocks": blocks})
+    w = call("vault_time_block", {"action": "write", "week": WEEK, "blocks": blocks})
     assert w["action"] == "created" and w["path"] == f"Administrator/Time-blocks/{WEEK}.md"
     assert fmt.split_note(text_of(vault, w["path"]))[0]["created_by"] == CB
-    a = call("vault_time_audit", {"week": WEEK, "events": week_events()})
+    a = call("vault_time_block", {"action": "audit", "week": WEEK, "events": week_events()})
     assert a["blocks"]["planned"] == 1 and a["hours"]["meeting"] == 8.3 and len(a["lines"]) == 3
     with pytest.raises(Exception):
-        call("vault_time_block_plan", {"week": "nope", "events": []})
+        call("vault_time_block", {"action": "plan", "week": "nope", "events": []})
+    with pytest.raises(Exception):
+        call("vault_time_block", {"action": "nope", "week": WEEK})
 
 
 def test_peak_hours_override_is_used_once_and_never_written(vault):
@@ -332,7 +334,7 @@ def test_peak_hours_override_is_used_once_and_never_written(vault):
     with pytest.raises(VaultError):
         timeblock.time_block_plan(WEEK, week_events(), "2026-08-24", peak_hours=["afternoon"])
     server = build_server()
-    out = asyncio.run(server.call_tool("vault_time_block_plan", {"week": WEEK, "events": [], "today": "2026-08-24", "peak_hours": ["14:00-17:00"]}))
+    out = asyncio.run(server.call_tool("vault_time_block", {"action": "plan", "week": WEEK, "events": [], "today": "2026-08-24", "peak_hours": ["14:00-17:00"]}))
     got = json.loads(out[0].text if isinstance(out, list) else out[0][0].text)
     assert got["preferences_used"]["peak_hours"] == ["14:00-17:00"]
 

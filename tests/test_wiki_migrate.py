@@ -251,10 +251,10 @@ def test_migrate_removes_the_old_folder_and_keeps_a_clashing_page(old_vault):
 
 def test_server_migrate_tool(old_vault):
     server = build_server()
-    out = asyncio.run(server.call_tool("vault_wiki_migrate", {}))
+    out = asyncio.run(server.call_tool("vault_wiki_keep", {"action": "migrate"}))
     plan = json.loads(out[0].text if isinstance(out, list) else out[0][0].text)
     assert plan["dry_run"] is True and len(plan["people"]) == 3
     assert (old_vault / A / "People" / "Jane Doe.md").is_file()
-    out = asyncio.run(server.call_tool("vault_wiki_migrate", {"dry_run": False}))
+    out = asyncio.run(server.call_tool("vault_wiki_keep", {"action": "migrate", "dry_run": False}))
     res = json.loads(out[0].text if isinstance(out, list) else out[0][0].text)
     assert res["old_folder_removed"] is True and len(res["moved"]) == 3

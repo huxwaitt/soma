@@ -289,9 +289,17 @@ def _reconcile() -> Any:
 
 
 def _hand_edits(root: Path, lock_held: bool = False) -> list[dict[str, str]]:
-    """Take over what the user changed by hand before the tool does its work.
-    The answer is the pages that changed, for the tool to pass on."""
+    """Take over what the user changed by hand before the tool writes. The
+    answer is the pages that changed, for the tool to pass on. Only the tools
+    that write call this."""
     return _reconcile().reconcile(root, lock_held)["adopted"]
+
+
+def _hand_edit_count(root: Path) -> int:
+    """How many pages the user changed by hand, without taking any of them over:
+    what a read tool answers as ``hand_edits``. The next writing call adopts
+    them."""
+    return _reconcile().detect(root)
 
 
 def _file_sig(p: Path) -> tuple[int, int]:
@@ -792,7 +800,7 @@ def _write_index(root: Path, touched: Any = ()) -> dict[str, Any]:
                 lines.append(line)
             hidden = max(0, closed_seen - CLOSED_SHOWN)
             if hidden:
-                lines.append(f"- … {hidden} more closed pages (vault_list / find)")
+                lines.append(f"- … {hidden} more closed pages (vault_find)")
             groups.append((name, [f"## {name} ({len(pairs)})", ""] + lines + [""]))
         if split and folder:
             sub = root / WIKI_DIR / folder / "Index.md"
@@ -1935,7 +1943,7 @@ def match(text: str, people: Optional[list[str]] = None, domains: Optional[list[
     from administrator_vault import wiki_search  # imported here: the engine imports this module
 
     root = store.vault_root()
-    adopted = _hand_edits(root)
+    hand = _hand_edit_count(root)
     pages = _all_pages(root)
     named = wiki_search.page_candidates(text, root)  # the alias (4) and word (2) rules
     addrs = {_s(a).strip().lower() for a in (people or []) if _s(a).strip()}
@@ -1965,14 +1973,14 @@ def match(text: str, people: Optional[list[str]] = None, domains: Optional[list[
         "pages": [{"path": p, "line": _index_line(p, fm), "score": s, "why": why} for s, _v, p, fm, why in scored[: max(1, int(limit or 8))]],
         "candidates": _candidates_over(root, pages),
     }
-    if adopted:
-        out["adopted"] = adopted
+    if hand:
+        out["hand_edits"] = hand
     return out
 
 
 def read(path: str, sections: Optional[list[str]] = None, max_chars: int = 2000) -> dict[str, Any]:
     root = store.vault_root()
-    adopted = _hand_edits(root)
+    hand = _hand_edit_count(root)
     page = _load(root, page_path(path))
     redirected = None
     if page.type == "redirect" and _s(page.fm.get("redirect")):  # a merged page: follow it
@@ -1980,8 +1988,8 @@ def read(path: str, sections: Optional[list[str]] = None, max_chars: int = 2000)
         page = _load(root, page_path(_s(page.fm.get("redirect"))))
     wanted = [s.strip().lower() for s in (sections or ["lead", "facts"]) if _s(s).strip()]
     out: dict[str, Any] = {"path": page.path, "title": page.title, "frontmatter": page.fm}
-    if adopted:
-        out["adopted"] = adopted
+    if hand:
+        out["hand_edits"] = hand
     if redirected:
         out["redirected_from"] = redirected
     for s in wanted:
@@ -2093,7 +2101,7 @@ def apply(path: str, ops: list[dict[str, Any]], created_by: str = CREATED_BY, sr
 
 def log(since: Optional[str] = None, page: Optional[str] = None, limit: int = 50) -> dict[str, Any]:
     root = store.vault_root()
-    adopted = _hand_edits(root)
+    hand = _hand_edit_count(root)
     p = root / LOG_PATH
     lines = [l for l in read_text(p).split("\n") if l.startswith("- [")] if p.is_file() else []
     if since:
@@ -2102,19 +2110,19 @@ def log(since: Optional[str] = None, page: Optional[str] = None, limit: int = 50
         want = _link_target(page).lower()
         lines = [l for l in lines if (m := _LOG_RE.match(l)) and want in m.group(3).lower()]
     out = {"path": LOG_PATH, "total": len(lines), "lines": lines[-max(1, int(limit or 50)) :]}
-    if adopted:
-        out["adopted"] = adopted
+    if hand:
+        out["hand_edits"] = hand
     return out
 
 
 def review(action: str = "list", item: Optional[str] = None, resolution_ops: Optional[list[dict[str, Any]]] = None, created_by: str = CREATED_BY) -> dict[str, Any]:
     root = store.vault_root()
-    adopted = _hand_edits(root) if action == "list" else []
     open_lines, done_lines = _review_text(root)
     if action == "list":
         out = {"path": REVIEW_PATH, "open": [{"n": i + 1, "text": l} for i, l in enumerate(open_lines)], "done": len(done_lines)}
-        if adopted:
-            out["adopted"] = adopted
+        hand = _hand_edit_count(root)  # a listing only says how many; resolve is what adopts them
+        if hand:
+            out["hand_edits"] = hand
         return out
     if action != "resolve":
         raise VaultError("action must be 'list' or 'resolve'.")

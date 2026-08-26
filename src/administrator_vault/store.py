@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import re
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -114,7 +115,7 @@ def status() -> dict[str, Any]:
         "administrator_dir_exists": bool(admin and admin.is_dir()),
         "folders": {f: bool(admin and (admin / f).is_dir()) for f in notes.FOLDERS},
         "files": {f: bool(admin and (admin / f).is_file()) for f in notes.FILES},
-        "old_people_dir": bool(admin and (admin / "People").is_dir()),  # a 0.1.0 vault: offer vault_wiki_migrate
+        "old_people_dir": bool(admin and (admin / "People").is_dir()),  # a 0.1.0 vault: offer vault_wiki_keep(migrate)
         "under_user_profile": bool(p and is_dir and under_user_profile(p)),
         "vault_name": vault_name(p) if p else "",
     }
@@ -307,6 +308,47 @@ def read_preferences() -> dict[str, Any]:
     return {"path": PREFERENCES_PATH if p.is_file() else None, "preferences": prefs, "missing": missing}
 
 
+BACKUP_DIR = f"{ADMIN_DIR}/_backup"
+BACKUP_SKIP = ("_cache", "_backup")  # the caches and the earlier copies are not worth keeping
+
+
+def backup_zip(root: Path) -> Optional[str]:
+    """A copy of Administrator/ before this version reads the wiki back for the
+    first time, or None when there is nothing to keep.
+
+    A vault written by an older version holds pages the two-way pass has never
+    seen: the first writing call reads them all in and writes them again. The
+    zip is made once — when there are wiki pages and no Wiki/_cache/state.json
+    yet — and holds every file under Administrator/ apart from _cache/ and
+    _backup/."""
+    from administrator_vault import wiki_reconcile, wiki_search  # local imports: both read this module
+
+    admin = root / ADMIN_DIR
+    if not admin.is_dir() or (root / wiki_reconcile.STATE_PATH).is_file():
+        return None
+    if any((root / BACKUP_DIR).glob("*.zip")):  # made once: a zip is already there from an earlier init
+        return None
+    if not wiki_search._page_files(root):
+        return None
+    keep = [
+        p for p in sorted(admin.rglob("*"))
+        if p.is_file() and not set(p.relative_to(admin).parts[:-1]) & set(BACKUP_SKIP)
+    ]
+    if not keep:
+        return None
+    stamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+    out = root / BACKUP_DIR / f"{stamp}.zip"
+    n = 2
+    while out.exists():  # a second run within the same second
+        out = root / BACKUP_DIR / f"{stamp}-{n}.zip"
+        n += 1
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        for p in keep:
+            z.write(p, "/".join(p.relative_to(admin).parts))
+    return rel(root, out)
+
+
 def init(
     work_start: str = "09:00",
     work_end: str = "17:00",
@@ -318,12 +360,15 @@ def init(
     """Create the Administrator/ tree, Follow-ups.md, Preferences.md,
     Priorities.md, Wiki/Questions.md and the _views/*.base files. ``overwrite``
     re-writes Preferences.md and the views; Follow-ups.md, Priorities.md and
-    Questions.md are never overwritten (they hold the user's data)."""
+    Questions.md are never overwritten (they hold the user's data). ``backup``
+    in the answer is the zip of Administrator/ kept before this version reads
+    an older vault's pages back, or None when there was nothing to keep."""
     for t in (work_start, work_end):
         if not re.match(r"^\d{2}:\d{2}$", t):
             raise VaultError(f"Work hours must look like HH:MM, got {t!r}.")
     peak_hours = check_peak_hours(peak_hours)
     root = vault_root()
+    backup = backup_zip(root)  # before anything is written: an older vault gets one copy
     created: list[str] = []
     skipped: list[str] = []
     admin = root / ADMIN_DIR
@@ -384,7 +429,7 @@ def init(
             else:
                 write_text(dst, src.read_text(encoding="utf-8"))
                 created.append(rel(root, dst))
-    return {"created": created, "skipped": skipped}
+    return {"created": created, "skipped": skipped, "backup": backup}
 
 
 # ---------------------------------------------------------------- find/list
@@ -597,7 +642,7 @@ def _refuse_generated(p: Path, text: str, what: str) -> None:
     if fm.get("generated") is True:
         raise VaultError(
             f"{p.name} is written from the wiki pages, so a row cannot be {what} here. "
-            "Put the item on the page it is about (vault_wiki_apply with an open op), "
+            "Put the item on the page it is about (vault_wiki_write with an open op), "
             "or close it there (a done op); this file is written again after every change."
         )
 

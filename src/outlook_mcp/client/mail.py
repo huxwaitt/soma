@@ -31,7 +31,7 @@ from outlook_mcp.utils.paths import (
     validate_output_dir,
     validate_output_file,
 )
-from outlook_mcp.utils.fields import apply_fields
+from outlook_mcp.utils.fields import apply_fields, clean_fields
 from outlook_mcp.utils.safety import safe_dasl
 from outlook_mcp.utils.trim import trim_quoted as _trim_quoted
 
@@ -52,6 +52,11 @@ RECIPIENT_SMTP_PROPTAG = "http://schemas.microsoft.com/mapi/proptag/0x39FE001F"
 # stores/mailboxes, unlike EntryID, so it is the right key for correlating
 # a mail with external systems (ticketing, other mailboxes, mbox exports).
 INTERNET_MESSAGE_ID_PROPTAG = "http://schemas.microsoft.com/mapi/proptag/0x1035001F"
+# PR_TRANSPORT_MESSAGE_HEADERS — the RFC 5322 headers the mail arrived
+# with. Only mail that came in over the internet has them; anything
+# else (internal Exchange mail, drafts) raises or returns nothing, so
+# every failure is read as "no signal", never as an error.
+TRANSPORT_HEADERS_PROPTAG = "http://schemas.microsoft.com/mapi/proptag/0x007D001F"
 
 # DASL property names used to build server-side Restrict filters.
 DASL_SUBJECT = "urn:schemas:httpmail:subject"
@@ -309,7 +314,113 @@ def _search_haystack(item: Any, scope: str) -> str:
     return " ".join(str(_safe_get(item, f, "") or "") for f in fields).lower()
 
 
-def _mail_summary(item: Any, preview_chars: int = 200) -> dict[str, Any]:
+# --------------------------------------------------------------------------
+# Bulk mail: is this something a person wrote to you, or a machine?
+# --------------------------------------------------------------------------
+
+# Message classes that are automatic by definition. The same three kinds the
+# rest of the code already skips by subject prefix (see the AUTO_SUBJECT_PREFIXES
+# of client/workflows.py); the class is the sturdier of the two, being the same
+# in every language.
+BULK_MESSAGE_CLASSES = (
+    ("ipm.schedule.meeting.resp", "meeting response"),
+    ("report.ipm.note.ipnrn", "read receipt"),
+    ("report.ipm.note.ipnnrn", "read receipt"),
+    ("ipm.note.rules.oof", "out-of-office reply"),
+)
+
+# Sender local parts that mean "written by a machine". Each word must sit on
+# its own in the local part — start, end, or between separators — so that
+# ``andrews@`` is not read as ``news`` and ``replay@`` not as ``reply``.
+BULK_LOCAL_PART = re.compile(
+    r"(?:^|[^a-z])"
+    r"(?:no-?reply|noreply|donotreply|do-not-reply|newsletter|news|marketing"
+    r"|notification(?:s)?|mailer|bounce|alerts?|digest)"
+    r"(?:[^a-z]|$)"
+)
+
+BULK_DISPLAY_NAMES = ("newsletter", "no reply")
+
+
+def transport_headers(item: Any) -> str:
+    """The mail's internet headers as one string (``""`` when unreadable)."""
+    accessor = _safe_get(item, "PropertyAccessor")
+    if accessor is None:
+        return ""
+    try:
+        value = accessor.GetProperty(TRANSPORT_HEADERS_PROPTAG)
+    except Exception:
+        return ""
+    return value if isinstance(value, str) else ""
+
+
+def _header_signal(raw: str) -> str:
+    """First bulk signal in ``raw`` headers, in header order (``""`` = none).
+
+    Only lines starting at column 0 are header starts; a folded line (one
+    beginning with a space or a tab) belongs to the header above it.
+    """
+    for line in (raw or "").splitlines():
+        if not line[:1].strip() or ":" not in line:
+            continue
+        name, _, value = line.partition(":")
+        name = name.strip().lower()
+        value = value.strip()
+        if name == "list-unsubscribe":
+            return "List-Unsubscribe header"
+        if name == "precedence" and value.lower() in ("bulk", "list", "junk"):
+            return f"Precedence: {value.lower()}"
+        if name == "auto-submitted" and value and value.lower() != "no":
+            return f"Auto-Submitted: {truncate(value, 40)}"
+        if name == "x-auto-response-suppress":
+            return "X-Auto-Response-Suppress header"
+    return ""
+
+
+def _sender_signal(item: Any) -> str:
+    address = str(sender_smtp(item) or "").strip().lower()
+    local = address.split("@", 1)[0]
+    if local and BULK_LOCAL_PART.search(local):
+        return f"sender address {address}"
+    name = str(_safe_get(item, "SenderName", "") or "")
+    lowered = name.lower()
+    for word in BULK_DISPLAY_NAMES:
+        if word in lowered:
+            return f"sender name {name}"
+    return ""
+
+
+def _class_signal(item: Any) -> str:
+    message_class = str(_safe_get(item, "MessageClass", "") or "").strip().lower()
+    for prefix, why in BULK_MESSAGE_CLASSES:
+        if message_class.startswith(prefix):
+            return why
+    return ""
+
+
+def bulk_flags(item: Any) -> tuple[bool, str]:
+    """``(bulk, why)`` for one mail; ``why`` is ``""`` when it is not bulk.
+
+    Bulk means nobody typed it for this reader: a mailing list, a machine's
+    notice, a meeting response, a receipt, an out-of-office reply. Any one
+    signal is enough. The headers are read once per item and only from here,
+    which is why the summary asks for the flag rather than working it out.
+    """
+    why = _header_signal(transport_headers(item)) or _sender_signal(item) or _class_signal(item)
+    return bool(why), why
+
+
+def wants_bulk(fields: list[str] | None) -> bool:
+    """True when the caller asked for ``bulk`` (or for the whole shape).
+
+    The header read costs a MAPI round trip per mail, so a caller that
+    filtered the flag away never pays for it.
+    """
+    keep = clean_fields(fields)
+    return keep is None or "bulk" in keep
+
+
+def _mail_summary(item: Any, preview_chars: int = 200, with_bulk: bool = False) -> dict[str, Any]:
     """Summary shape shared by list/search/conversation results.
 
     ``preview_chars`` sets the length of ``preview``; ``0`` leaves the key
@@ -329,6 +440,8 @@ def _mail_summary(item: Any, preview_chars: int = 200) -> dict[str, Any]:
         "importance": _safe_get(item, "Importance"),
         "internet_message_id": internet_message_id(item),
     }
+    if with_bulk:
+        out["bulk"], out["bulk_why"] = bulk_flags(item)
     if preview_chars:
         out["preview"] = truncate(_safe_get(item, "Body", ""), preview_chars)
     return out
@@ -447,11 +560,12 @@ def list_mails(
 
     results: list[dict[str, Any]] = []
     skipped = 0
+    with_bulk = wants_bulk(fields)
     for item in _iter_mail_items(f, dasl):
         if skipped < offset:
             skipped += 1
             continue
-        results.append(_mail_summary(item, preview_chars))
+        results.append(_mail_summary(item, preview_chars, with_bulk))
         if len(results) >= limit:
             break
 
@@ -527,8 +641,9 @@ def search_mails(
     # Multi-word queries: Restrict on the most selective word, then
     # require the remaining words per item in Python (see
     # split_search_words for why DASL can't do the AND itself).
+    with_bulk = wants_bulk(fields)
     results = [
-        _mail_summary(item, preview_chars)
+        _mail_summary(item, preview_chars, with_bulk)
         for item in _search_items(
             f,
             query=query,

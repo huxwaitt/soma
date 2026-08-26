@@ -914,27 +914,28 @@ def search_tool(
     """What ``vault_wiki_search`` answers: ranked facts, one stitched brief, or
     the open items of the pages that match.
 
-    Pages the user changed by hand are read in first, so the answer holds them.
-    When there were any, the list answers come back as ``{hits, adopted}`` and
-    the brief gains an ``adopted`` key, so the model can say so in one line."""
+    A search writes no page: pages the user changed by hand are counted, not
+    read in. When there are any, the list answers come back as
+    ``{hits, hand_edits}`` and the brief gains a ``hand_edits`` key, so the
+    model can say so in one line; the next writing call takes them over."""
     from administrator_vault import wiki_reconcile  # imported here: that module reads this one
 
     root = store.vault_root()
-    adopted = wiki_reconcile.reconcile(root)["adopted"]
+    hand = wiki_reconcile.detect(root)
     if open_items:
         items = _open_items(query, page, owner, due_before, limit, root, include_done)
-        return {"hits": items, "adopted": adopted} if adopted else items
+        return {"hits": items, "hand_edits": hand} if hand else items
     if brief:
         out = _brief(query, max_chars, root)
-        if adopted:
-            out["adopted"] = adopted
+        if hand:
+            out["hand_edits"] = hand
         return out
     hits = search(query, kinds, limit if not _s(page).strip() else max(int(limit or 10), 50),
                   since, include_superseded, root)
     if _s(page).strip():
         stem = _stem(wiki.page_path(_s(page)))
         hits = [h for h in hits if h["page"] == stem][: max(1, int(limit or 10))]
-    return {"hits": hits, "adopted": adopted} if adopted else hits
+    return {"hits": hits, "hand_edits": hand} if hand else hits
 
 
 __all__ = [

@@ -242,12 +242,10 @@ vault. It has no Outlook dependency and runs on any platform.
 | --- | --- |
 | `vault_status` | Where the vault is, which `Administrator/` folders and files exist |
 | `vault_init` | Creates the folder tree, `Follow-ups.md`, `Preferences.md` (from work hours) and `_views/*.base` |
-| `vault_find` | Finds a note of a type by identity |
+| `vault_find` | Finds a note of a type by identity, or lists the type's notes newest first when no identity is given |
 | `vault_write` | Creates a note (schema-checked frontmatter, slug and filename rules, ` (2)` on clashes) or appends to it (`create` / `append` / `upsert`) |
-| `vault_append_row` | Appends a markdown table row under a `## Section`, with a hidden `<!-- entry_id: … -->` comment as the duplicate check |
-| `vault_move_row` | Moves a row between sections (`Follow-ups.md` Open → Done) |
+| `vault_row` | Appends a markdown table row under a `## Section`, with a hidden `<!-- entry_id: … -->` comment as the duplicate check, or moves a row between sections (`Follow-ups.md` Open → Done) |
 | `vault_read` | Frontmatter, body and heading list of one note |
-| `vault_list` | Notes of a type, newest first |
 
 Run it with `uv run administrator-vault` (stdio). Tests: `tests/test_vault.py`.
 

@@ -716,7 +716,7 @@ def lint(fix: bool = False, items: bool = False, created_by: str = wiki.CREATED_
             "overdue": checks["19"]["count"], "hand_edits": len(edits["adopted"]),
             "questions": f"{checks['20']['found']}/{checks['20']['asked']}", "unanswered": checks["21"]["count"],
         }
-        # one line per run with every count on it, so vault_wiki_log shows the trend
+        # one line per run with every count on it, so vault_wiki_keep(log) shows the trend
         _log(root, "lint", "Wiki", "-", ("fix, " if fix else "")
              + f"{len(pages)} pages, {len(flagged)} flagged, {len(added)} review lines, {len(written)} written, "
              + ", ".join(f"{name.replace('_', ' ')} {value}" for name, value in summary.items()))

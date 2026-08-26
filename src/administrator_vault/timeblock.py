@@ -31,7 +31,7 @@ ADMIN_PREFIX = "[Admin]"
 ADMIN_SUBJECT = f"{ADMIN_PREFIX} Email and small tasks"
 NO_PRIORITY = "Deep work"  # the focus subject when Priorities.md is empty
 PLAN_HEADER = ["Day", "Start", "End", "Kind", "Subject", "Priority"]
-# The Plan row hides "<occurrence_key> # plan": vault_append_row treats a key found anywhere in the
+# The Plan row hides "<occurrence_key> # plan": vault_row treats a key found anywhere in the
 # file as a duplicate, and the Held row of the same block is keyed by the bare occurrence_key.
 PLAN_KEY_SUFFIX = " # plan"
 HELD_HEADER = ["Day", "Block", "Result", "Note"]
@@ -571,7 +571,7 @@ def plan(week: str, events: list[dict[str, Any]], today: Any, preferences: dict[
 
 
 def time_block_plan(week: str, events: list[dict[str, Any]], today: Optional[str] = None, now: Optional[str] = None, peak_hours: Optional[list[str]] = None) -> dict[str, Any]:
-    """``vault_time_block_plan``: ``plan`` with the vault's preferences and priorities
+    """``vault_time_block(action="plan")``: ``plan`` with the vault's preferences and priorities
     (``peak_hours`` overrides the file's for this run; nothing is written)."""
     root = store.vault_root()
     today_d = _parse_day(today, "today") if today else date.today()
@@ -599,7 +599,7 @@ def _plan_rows(blocks: list[dict[str, Any]]) -> list[str]:
 
 
 def write(week: str, blocks: list[dict[str, Any]], created_by: str = CREATED_BY) -> dict[str, Any]:
-    """``vault_time_block_write``: Time-blocks/<week>.md with the ``## Plan``
+    """``vault_time_block(action="write")``: Time-blocks/<week>.md with the ``## Plan``
     table (one row per block, hidden occurrence_key), an empty ``## Held``
     table for the day's answers and ``## Notes``. A second write for the
     same week appends the new plan under ``## Update``."""
@@ -697,7 +697,7 @@ def _held_for(ev: dict[str, Any], day: date, held_rows: list[dict[str, str]]) ->
 
 
 def audit(week: str, events: list[dict[str, Any]], held_rows: Optional[list[dict[str, str]]] = None, preferences: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-    """``vault_time_audit``: hours per kind for the week's timed events
+    """``vault_time_block(action="audit")``: hours per kind for the week's timed events
     (focus, admin, meeting, other; all-day and free-marked events skipped), the Held rows
     applied (skipped blocks count as unplanned, moved ones keep their
     minutes), per-priority planned and held hours, and the lines for the
@@ -778,6 +778,6 @@ def audit(week: str, events: list[dict[str, Any]], held_rows: Optional[list[dict
 
 
 def time_audit(week: str, events: list[dict[str, Any]]) -> dict[str, Any]:
-    """``vault_time_audit``: ``audit`` with the week note's Held rows and the vault's preferences."""
+    """``vault_time_block(action="audit")``: ``audit`` with the week note's Held rows and the vault's preferences."""
     root = store.vault_root()
     return audit(week, events, read_held_rows(root, week), store.read_preferences()["preferences"])

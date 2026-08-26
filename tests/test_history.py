@@ -132,8 +132,11 @@ def test_next_hands_out_one_window_per_source_in_order_with_the_call_to_make(vau
     assert one["list_with"] == (
         'outlook_list_mails(folder="inbox", since="2026-08-13T00:00:00+02:00", until="2026-08-20T00:00:00+02:00", '
         'limit=100, preview_chars=80, fields=["entry_id", "internet_message_id", "subject", "from", '
-        '"from_address", "to", "received", "preview"])'
+        '"from_address", "to", "received", "bulk", "bulk_why", "preview"])'
     )
+    # the call the model is told to make as it stands carries the two keys
+    # vault_rules(action="match") reads, so no window is listed without them
+    assert '"bulk", "bulk_why"' in one["list_with"]
     assert "oldest first" in one["note"]
 
     # the window listed one batch: its size stays, and the place is its end
@@ -286,6 +289,47 @@ def test_done_counts_a_saved_record_once_per_id_and_keeps_the_pages(vault):
     run("next")
     with pytest.raises(VaultError):  # every saved record needs its id
         run("done", payload=finish(saved=[{"path": "Administrator/Emails/c.md"}]))
+
+
+def test_yes_to_all_is_kept_with_its_cap_and_the_running_cost(vault):
+    stamps()
+    run("plan", since="2026-08-01T00:00:00+02:00", batch=5)
+    w = run("next")
+    assert w["auto"] is False and w["cap"] is None and w["cost"] == {"in": 0, "out": 0, "total": 0}
+
+    r = run("done", payload=finish(auto=True, cap=500_000, tokens={"in": 40_000, "out": 6_000}))
+    assert r["auto"] is True and r["cap"] == 500_000
+    assert r["cost"] == {"in": 40_000, "out": 6_000, "total": 46_000}
+    assert "carrying on, 46000 tokens spent of 500000" in r["note"] and "continue?" not in r["note"]
+
+    w = run("next")
+    assert w["auto"] is True and w["cap"] == 500_000 and w["cost"]["total"] == 46_000
+    assert "Running cost 46000 tokens of the 500000 the user allowed." in w["note"]
+
+    r = run("done", payload=finish(tokens={"in": 9_000, "out": 1_000}))  # the mode is kept, the cost adds up
+    assert r["auto"] is True and r["cap"] == 500_000 and r["cost"]["total"] == 56_000
+    kept = state_of(vault)
+    assert kept["auto"] is True and kept["cap"] == 500_000 and kept["tokens_in"] == 49_000
+
+    st = run("status")
+    assert st["auto"] is True and st["cap"] == 500_000 and st["cost"]["total"] == 56_000
+
+
+def test_yes_to_all_can_be_taken_back_and_a_bad_cap_is_refused(vault):
+    stamps()
+    run("plan", since="2026-08-01T00:00:00+02:00", batch=5)
+    run("next")
+    run("done", payload=finish(auto=True, cap=500_000))
+    run("next")
+    r = run("done", payload=finish(auto=False, cap=None))
+    assert r["auto"] is False and r["cap"] is None and r["note"].endswith("— continue?")
+    assert state_of(vault)["cap"] is None
+
+    run("next")
+    with pytest.raises(VaultError):
+        run("done", payload=finish(cap=0))
+    with pytest.raises(VaultError):
+        run("done", payload=finish(tokens=["40000"]))
 
 
 def test_status_shows_the_days_left_and_the_records_listed_against_the_ones_saved(vault):

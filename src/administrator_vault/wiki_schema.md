@@ -224,7 +224,7 @@ One line is one thing somebody owes somebody, on the page of the thing it is abo
 
 `vault_wiki_search(open_items=true, owner="me"|"others", due_before, page, include_done)` reads them back, oldest first: `[{page, stem, type, title, owner_name, id, text, owner, due, since, src, record, done}]`.
 
-**`Administrator/Follow-ups.md` is generated** from these lines: `## Open` is what other people owe you (`owner` is not `me`), `## Done` the newest 50 `done` lines out of the pages' History, in the five columns the file has always had. It is rewritten after every wiki write, so it never disagrees with the pages. Edit or tick the item **on its page** (or say "done" in chat); `vault_append_row` and `vault_move_row` refuse the file.
+**`Administrator/Follow-ups.md` is generated** from these lines: `## Open` is what other people owe you (`owner` is not `me`), `## Done` the newest 50 `done` lines out of the pages' History, in the five columns the file has always had. It is rewritten after every wiki write, so it never disagrees with the pages. Edit or tick the item **on its page** (or say "done" in chat); `vault_row` refuses the file.
 
 ### Projects — the extra ops on a topic
 
@@ -232,7 +232,7 @@ One line is one thing somebody owes somebody, on the page of the thing it is abo
 
 ### Decisions
 
-A decision page is written once and added to, never rewritten. `vault_wiki_create(type="decision", …)` (or a `new:` spec at ingest) needs `decided` (the date it was made) and `by` (links to the person pages of who made it); code sets `status: current`, `flags: [unconfirmed-decision]` and writes one line in `Review.md`:
+A decision page is written once and added to, never rewritten. `vault_wiki_write` with a `new:` spec of type `decision` needs `decided` (the date it was made) and `by` (links to the person pages of who made it); code sets `status: current`, `flags: [unconfirmed-decision]` and writes one line in `Review.md`:
 
 ```
 - [ ] [[Wiki/Decisions/new-stack]] — unconfirmed decision: "The rebuild runs on the new stack" — confirm or drop ([[Emails/2026-08-18 Rebuild]])
@@ -252,7 +252,7 @@ After a page is written the file is read again and compared with what was meant:
 
 ### Your pins
 
-Anything under `## Notes`, and any fact with `src:user` (you said it in chat and the model wrote it through `vault_wiki_apply`), outranks what the model learns from records: a `supersede`, `update` or `retire` on a `src:user` fact from a record is refused (`user-pin`) and goes to Review instead.
+Anything under `## Notes`, and any fact with `src:user` (you said it in chat and the model wrote it through `vault_wiki_write` without a record), outranks what the model learns from records: a `supersede`, `update` or `retire` on a `src:user` fact from a record is refused (`user-pin`) and goes to Review instead.
 
 ### Contradictions
 
@@ -295,7 +295,7 @@ Asked about, never done on its own:
 - A file that is a sync copy of a page (`… (1).md`, or `conflict` in the name, same `id`): not read, one Review line.
 - A page you wrote by hand whose name a page already has: one Review line ("merge them or rename one?"), your file untouched.
 
-Every change taken over is one `adopt` line in `Wiki/Log.md`. The tool that ran the pass answers with `adopted: [{page, changes}]`, so the model tells you in one line what it read back; `vault_wiki_lint` reports the same under `checks["0"]`. A file that is being written at that moment is left for the next call.
+The pass runs at the start of every tool that writes. Every change taken over is one `adopt` line in `Wiki/Log.md`, and the tool that ran the pass answers with `adopted: [{page, changes}]`, so the model tells you in one line what it read back; `vault_wiki_keep(action="lint")` reports the same under `checks["0"]`. A tool that only reads never rewrites a page: `vault_wiki_search` in every mode, `vault_wiki_read`, `vault_wiki_keep(action="log")` and `vault_wiki_keep(action="review", review_action="list")` count the files that differ and answer `hand_edits: n`, and the next writing call is what adopts them. A file that is being written at that moment is left for the next call.
 
 The first run of this version reads every page once: each gets an `id`, bullets you had typed become facts of yours, and one `migrate` line in the log says how many.
 
@@ -307,11 +307,11 @@ The first run of this version reads every page once: each gets an `id`, bullets 
 
 How well a fact is backed comes with it: `streams` is how many kinds of source say it (mail, meeting, chat, you) and `confirmed` how many days ago the newest of them was. One source and nothing for more than 180 days, and the brief writes it out — `- Deadline is 2026-08-29 (f:abcd, 2026-01-04) (one source, unconfirmed since 2026-01-04)` — so the model hedges or asks you instead of stating it flat.
 
-`vault_wiki_match` is unchanged — the index lines that match a subject, sender or domain — and runs on the same engine.
+`vault_wiki_search(pages=true)` is unchanged — the index lines that match a subject, sender or domain — and runs on the same engine.
 
 ## Index, log, review
 
-**`Wiki/Index.md`** is generated from frontmatter after every write, so it cannot drift from the files. One line per page: link with title, status (or organisation for people), the `verified` date, the summary. Grouped by type; `active` before `draft` before `dormant` before `closed` (closed pages beyond 20 collapse to a count); newest `verified` first, so the top of each group is what matters now. Topics with a `due` date are the **Projects** group, soonest first, above the other topics, and their line reads owner, due date and status instead of the `verified` date; the decisions come between the projects and the other topics. Before it is rewritten the lines it had are compared with the lines it should have: a line that differs for a page nobody just wrote means the file was changed by hand, and that goes to the log as `index-repaired`. It is the home page in Obsidian. The model never reads it whole; `vault_wiki_match` returns the few lines that match a subject, sender or domain.
+**`Wiki/Index.md`** is generated from frontmatter after every write, so it cannot drift from the files. One line per page: link with title, status (or organisation for people), the `verified` date, the summary. Grouped by type; `active` before `draft` before `dormant` before `closed` (closed pages beyond 20 collapse to a count); newest `verified` first, so the top of each group is what matters now. Topics with a `due` date are the **Projects** group, soonest first, above the other topics, and their line reads owner, due date and status instead of the `verified` date; the decisions come between the projects and the other topics. Before it is rewritten the lines it had are compared with the lines it should have: a line that differs for a page nobody just wrote means the file was changed by hand, and that goes to the log as `index-repaired`. It is the home page in Obsidian. The model never reads it whole; `vault_wiki_search(pages=true)` returns the few lines that match a subject, sender or domain.
 
 ```markdown
 ## Projects (3)
@@ -329,7 +329,7 @@ How well a fact is backed comes with it: `streams` is how many kinds of source s
 
 **`Wiki/Log.md`** is append-only: `- [2026-08-22T09:40:00+02:00] ingest | Wiki/Topics/q3-budget | [[Emails/2026-08-22 Budget Q3]] | add 2, supersede 1`. One line per page per ingest (`ingest`), per chat change (`apply`), per page created (`create`), per person page touched by a saved mail (`record`), per resolved review item (`review`), per page read back after you edited it in Obsidian (`adopt`), one per lint run (`lint`), merge (`merge`), migration (`migrate`), write that did not come back as written (`restore`) and index put right (`index-repaired`). At 500 lines it rolls over to `Wiki/_history/Log-YYYY.md`.
 
-**`Wiki/Review.md`** is the checklist of what code could not decide, under `## Open` (resolved lines move to `## Done`): contradictions, decisions written from a record and not yet confirmed, items of your own past their due date, pages that may be duplicates ("merge A into B?"), stale pages, two pages that disagree about each other, projects with no update in 90 days, pages still on one record after 60 days, refused supersedes and refused changes to your facts. Topic proposals from candidates are not written here; `vault_wiki_match`, ingest and lint check 12 report them. Every line links the page. `/administrator:weekly` lists the open count; `/administrator:lint` adds to it.
+**`Wiki/Review.md`** is the checklist of what code could not decide, under `## Open` (resolved lines move to `## Done`): contradictions, decisions written from a record and not yet confirmed, items of your own past their due date, pages that may be duplicates ("merge A into B?"), stale pages, two pages that disagree about each other, projects with no update in 90 days, pages still on one record after 60 days, refused supersedes and refused changes to your facts. Topic proposals from candidates are not written here; `vault_wiki_search(pages=true)`, a write with a record and lint check 12 report them. Every line links the page. `/administrator:weekly` lists the open count; `/administrator:lint` adds to it.
 
 **`_views/Wiki.base`** gives you Obsidian tables over the wiki: projects (topics with a due date), decisions, active topics by `verified`, stale pages, the review queue (pages with flags), people by organisation. Bases read frontmatter, which is exactly what code maintains, so the views are never stale.
 
@@ -379,7 +379,7 @@ Check 21 reads the other side of the same coin: the questions the wiki was actua
 
 Every run adds one line to `Wiki/Log.md` carrying all of these counts (`… questions 17/20, unanswered 3, …`), so the log shows whether the wiki is getting better or worse from week to week.
 
-A merge (`vault_wiki_merge(keep, drop)`) moves the facts, aliases, records and links of `drop` onto `keep`, keeps `drop`'s full old text under `Wiki/_history/`, and leaves a short redirect page (`type: redirect`) in `drop`'s place, so no link breaks; a read of the old page follows the redirect. It only ever runs after you say the two pages are the same thing; a similar name alone only produces the question.
+A merge (`vault_wiki_keep(action="merge", keep, drop)`) moves the facts, aliases, records and links of `drop` onto `keep`, keeps `drop`'s full old text under `Wiki/_history/`, and leaves a short redirect page (`type: redirect`) in `drop`'s place, so no link breaks; a read of the old page follows the redirect. It only ever runs after you say the two pages are the same thing; a similar name alone only produces the question.
 
 ## What the model never does here
 

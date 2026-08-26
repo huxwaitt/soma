@@ -204,7 +204,8 @@ def rules_template(created_by: str = CREATED_BY) -> str:
         "Label a mail without reading it. Labels: act, reply, waiting, fyi, noise.\n\n"
         "| Match | Field | Label |\n| --- | --- | --- |\n\n"
         "## Never save\n\n"
-        "Mail that never goes into a daily note (left out before labelling).\n\n"
+        "Mail that never goes into a daily note (left out before labelling). The same rows also keep it "
+        "out of `/administrator:collect-information` and `/administrator:load-history`.\n\n"
         "| Match | Field |\n| --- | --- |\n\n"
         "## Fyi senders\n\n"
         "One address or domain per line; mail from these is always `fyi`.\n\n"
@@ -296,19 +297,32 @@ def _builtin(item: dict[str, Any], people: list[tuple[str, dict[str, Any]]]) -> 
 
 
 def rules_match(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Label the items, and split them into the ones worth reading and the rest.
+
+    ``kept`` is what a person wrote and no rule sends away; ``dropped`` says
+    why each of the others went, so a command can report a count without the
+    model reading a single preview. ``bulk`` comes from the mail listing
+    (outlook_list_mails with ``bulk`` in ``fields``); an item without the key
+    is treated as not bulk. Nothing is written.
+    """
     root = store.vault_root()
     rules = rules_get()
     people = _people(root)
     results = []
+    kept: list[dict[str, Any]] = []
+    dropped: list[dict[str, Any]] = []
+    counts = {"bulk": 0, "never_save": 0, "kept": 0}
     for item in items or []:
         if not isinstance(item, dict):
             continue
         label, rule = _builtin(item, people)
         never = False
+        never_rule = ""
         for r in rules["never_save"]:
             if _hit(r["match"], _field_value(item, r["field"])):
                 never = True
-                rule = rule or f"Never save: {r['match']} ({r['field']})"
+                never_rule = f"Never save: {r['match']} ({r['field']})"
+                rule = rule or never_rule
                 break
         if label is None:
             addr = _s(item.get("from_address")).strip().lower()
@@ -323,8 +337,18 @@ def rules_match(items: list[dict[str, Any]]) -> dict[str, Any]:
                 if r["label"] in LABELS and _hit(r["match"], _field_value(item, r["field"])):
                     label, rule = r["label"], f"Labels: {r['match']} ({r['field']}) → {r['label']}"
                     break
-        results.append({"entry_id": _s(item.get("entry_id")), "label": label, "never_save": never, "rule": rule})
-    return {"results": results, "rules_path": rules["path"]}
+        entry_id = _s(item.get("entry_id"))
+        if item.get("bulk"):
+            dropped.append({"entry_id": entry_id, "why": f"bulk: {_s(item.get('bulk_why')) or 'automatic mail'}"})
+            counts["bulk"] += 1
+        elif never:
+            dropped.append({"entry_id": entry_id, "why": f"rule: {never_rule}"})
+            counts["never_save"] += 1
+        else:
+            kept.append(item)
+        results.append({"entry_id": entry_id, "label": label, "never_save": never, "rule": rule})
+    counts["kept"] = len(kept)
+    return {"results": results, "kept": kept, "dropped": dropped, "counts": counts, "rules_path": rules["path"]}
 
 
 # ------------------------------------------------------------------ inbox prepare / write daily

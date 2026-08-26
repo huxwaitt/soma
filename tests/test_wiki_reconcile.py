@@ -133,7 +133,8 @@ def test_bullets_changes_removals_and_ticks_are_taken_over(vault):
     hand_edit(vault, path, with_bullet("\n".join(lines), "- Jane presents the numbers herself").replace(
         "- [ ] Send the numbers to Jane", "- [x] Send the numbers to Jane"))
 
-    out = wiki.read(path)
+    assert wiki.read(path)["hand_edits"] == 1  # a read only says how many; it takes nothing over
+    out = wiki_reconcile.reconcile(vault)  # what the next writing call does
     assert out["adopted"] == [{"page": "Wiki/Topics/q3-budget",
                                "changes": "1 new fact, 1 fact changed, 1 fact removed, 1 open item ticked"}]
     facts = {f["text"]: f for f in wiki.read(path)["facts"]}
@@ -306,10 +307,10 @@ def test_a_read_while_another_process_writes_still_answers(vault):
     hand_edit(vault, path, with_bullet(text_of(vault, path), "- Bob keeps the ledger of pledges"))
     (vault / W / ".lock").write_text(f"99999 {time.time():.0f} another process\n", encoding="utf-8")
 
-    out = wiki.read(path)  # the pass steps aside instead of refusing the read
-    assert "adopted" not in out and out["title"] == "Q3 budget"
+    out = wiki.read(path)  # a read takes no lock at all: it counts and answers
+    assert "adopted" not in out and out["hand_edits"] == 1 and out["title"] == "Q3 budget"
     (vault / W / ".lock").unlink()
-    assert wiki.read(path)["adopted"] == [{"page": "Wiki/Topics/q3-budget", "changes": "1 new fact"}]
+    assert wiki.apply(path, [])["adopted"] == [{"page": "Wiki/Topics/q3-budget", "changes": "1 new fact"}]
 
 
 def test_a_file_still_being_written_waits_for_the_next_pass(vault, monkeypatch):
@@ -348,13 +349,35 @@ def test_a_busy_file_is_read_back_even_when_it_then_lies_still(vault, monkeypatc
 # ------------------------------------------------------------------ the tools
 
 
+def test_a_read_only_counts_the_hand_edits_and_the_next_write_takes_them_over(vault):
+    """No read rewrites a page: each one says how many files differ, and the
+    writing call after it is what adopts them."""
+    path = topic(vault)
+    hand_edit(vault, path, with_bullet(text_of(vault, path), "- Bob keeps the ledger of pledges"))
+    before = text_of(vault, path)
+
+    reads = [wiki.read(path), wiki.log(), wiki.review("list"), wiki.match("ledger"),
+             wiki_search.search_tool("ledger", brief=True)]
+    for out in reads:
+        assert out["hand_edits"] == 1 and "adopted" not in out
+    assert text_of(vault, path) == before  # not one of them wrote
+    assert state(vault)["Wiki/Topics/q3-budget"]["facts"] == {}
+
+    assert wiki.apply(path, [])["adopted"] == [{"page": "Wiki/Topics/q3-budget", "changes": "1 new fact"}]
+    assert wiki.read(path).get("hand_edits") is None and wiki.log().get("hand_edits") is None
+    assert [f[0] for f in state(vault)["Wiki/Topics/q3-budget"]["facts"].values()] == ["Bob keeps the ledger of pledges"]
+
+
 def test_the_search_answers_with_the_text_written_by_hand(vault):
     path = topic(vault)
     hand_edit(vault, path, with_bullet(text_of(vault, path), "- Bob keeps the ledger of pledges"))
 
     out = wiki_search.search_tool("who keeps the ledger")
-    assert out["adopted"] == [{"page": "Wiki/Topics/q3-budget", "changes": "1 new fact"}]
-    assert out["hits"][0]["text"] == "Bob keeps the ledger of pledges" and out["hits"][0]["src"] == ["user"]
+    assert out["hand_edits"] == 1 and "adopted" not in out  # the search wrote nothing
+    assert out["hits"][0]["text"] == "Bob keeps the ledger of pledges"
+    assert state(vault)["Wiki/Topics/q3-budget"]["facts"] == {}  # the file holds it, the state does not yet
+    assert wiki.apply(path, [])["adopted"] == [{"page": "Wiki/Topics/q3-budget", "changes": "1 new fact"}]
+    assert wiki.read(path)["facts"][0]["src"] == ["user"]
     again = wiki_search.search_tool("who keeps the ledger")
     assert again[0]["text"] == "Bob keeps the ledger of pledges"  # nothing left to take over: the plain list
     entry = state(vault)["Wiki/Topics/q3-budget"]
@@ -429,7 +452,8 @@ def test_an_open_item_typed_by_hand_gets_an_id_an_owner_and_a_date(vault):
     hand_edit(vault, path, text_of(vault, path).replace(
         "## Open\n", f"## Open\n\n- [ ] call Jane — owner: me\n- [ ] Jane sends the sheet — owner: [[{wiki._stem(person)}]]\n"))
 
-    out = wiki.read(path)
+    assert wiki.read(path)["hand_edits"] == 1
+    out = wiki_reconcile.reconcile(vault)
     assert out["adopted"] == [{"page": "Wiki/Topics/q3-budget", "changes": "2 new open items"}]
     items = wiki.commitments(vault, page="Wiki/Topics/q3-budget")
     assert [i["text"] for i in items] == ["call Jane", "Jane sends the sheet"]
@@ -438,4 +462,4 @@ def test_an_open_item_typed_by_hand_gets_an_id_an_owner_and_a_date(vault):
     assert items[0]["owner"] == "me" and items[1]["owner_name"] == "Jane Doe"
     assert fm_of(vault, path)["open_items"] == 2
     wiki_reconcile._MEMO.clear()
-    assert wiki.read(path).get("adopted") is None  # once, not on every pass
+    assert wiki.read(path).get("hand_edits") is None  # taken over: nothing left to report

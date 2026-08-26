@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import zipfile
 
 import pytest
 
@@ -215,6 +216,29 @@ def test_init_overwrite_keeps_followups(vault):
     assert "Administrator/Preferences.md" in res["created"]
     assert "Administrator/Follow-ups.md" in res["skipped"]
     assert "# mine" in fu.read_text(encoding="utf-8")
+
+
+def test_init_zips_the_vault_once_before_an_older_wiki_is_read_back(vault):
+    """A vault written before this version keeps a copy of Administrator/ before
+    the first writing call reads its pages back and writes them again."""
+    from administrator_vault import wiki_reconcile
+
+    assert store.init(created_by=CB)["backup"] is None  # no wiki pages: nothing to keep
+    page = vault / "Administrator" / "Wiki" / "Topics" / "q3-budget.md"
+    page.write_text("---\ntype: topic\ntitle: Q3 budget\n---\n\n# Q3 budget\n", encoding="utf-8")
+    cache = vault / "Administrator" / "Wiki" / "_cache"
+    cache.mkdir(parents=True, exist_ok=True)
+    (cache / "queries.log").write_text("who keeps the ledger\n", encoding="utf-8")
+
+    res = store.init(created_by=CB)
+    assert res["backup"].startswith("Administrator/_backup/") and res["backup"].endswith(".zip")
+    with zipfile.ZipFile(vault / res["backup"]) as z:
+        names = z.namelist()
+    assert "Wiki/Topics/q3-budget.md" in names and "Preferences.md" in names
+    assert not any(n.startswith("_backup/") or "_cache/" in n for n in names)
+
+    wiki_reconcile.reconcile(vault)  # the state file is written; the copy was for that one pass
+    assert store.init(created_by=CB)["backup"] is None
 
 
 def test_vault_root_must_exist(monkeypatch, tmp_path):
@@ -606,17 +630,16 @@ def test_server_tools():
     tools = asyncio.run(server.list_tools())
     names = {t.name for t in tools}
     assert names == {
-        "vault_status", "vault_init", "vault_find", "vault_write",
-        "vault_append_row", "vault_move_row", "vault_read", "vault_list",
-        "vault_rules", "vault_inbox_prepare", "vault_write_daily", "vault_save_email",
-        "vault_prep_context", "vault_weekly_facts", "vault_attach_transcript",
-        "vault_wiki_match", "vault_wiki_search", "vault_wiki_read", "vault_wiki_ingest", "vault_wiki_create",
-        "vault_wiki_apply", "vault_wiki_log", "vault_wiki_review",
-        "vault_wiki_lint", "vault_wiki_merge", "vault_wiki_migrate",
-        "vault_save_chat", "vault_collect_sources", "vault_changed_notes", "vault_load_history",
-        "vault_time_block_plan", "vault_time_block_write", "vault_time_audit", "vault_priorities_write",
+        "vault_status", "vault_init", "vault_find", "vault_write", "vault_row", "vault_read",
+        "vault_rules", "vault_inbox_prepare", "vault_write_daily", "vault_save",
+        "vault_prep_context", "vault_weekly_facts",
+        "vault_wiki_search", "vault_wiki_read", "vault_wiki_write", "vault_wiki_keep",
+        "vault_collect", "vault_load_history", "vault_time_block", "vault_priorities_write",
     }
-    assert len(tools) == 34
+    # 34 tools folded into 20: search took match, write took ingest/create/apply,
+    # keep took log/review/lint/merge/migrate, save took the three savers, collect
+    # took changed_notes, time_block took its three, row took the two, find took list.
+    assert len(tools) == 20
 
 
 # What every tool costs the model before it has read a word: the same sum the
@@ -652,11 +675,22 @@ def test_tool_schemas_stay_under_their_caps():
 
 def test_schema_trim_keeps_every_parameter():
     """Dropping pydantic's "title" metadata must not eat a parameter of that name."""
-    tools = {t.name: t for t in asyncio.run(build_server().list_tools())}
-    props = tools["vault_wiki_create"].inputSchema["properties"]
-    assert props["title"] == {"type": "string", "description": "Noun phrase, 6 words or fewer."}
-    assert "title" in tools["vault_wiki_create"].inputSchema["required"]
-    for tool in tools.values():
+    from administrator_vault.server import _drop_titles
+
+    # what pydantic hands over for a tool that really does take a "title"
+    schema = _drop_titles({
+        "title": "vault_wiki_writeArguments",
+        "type": "object",
+        "properties": {
+            "title": {"title": "Title", "type": "string", "description": "Noun phrase, 6 words or fewer."},
+            "pages": {"title": "Pages", "type": "array", "items": {"title": "Item", "type": "object"}},
+        },
+        "required": ["title"],
+    })
+    assert schema["properties"]["title"] == {"type": "string", "description": "Noun phrase, 6 words or fewer."}
+    assert schema["properties"]["pages"] == {"type": "array", "items": {"type": "object"}}
+    assert "title" not in schema and schema["required"] == ["title"]
+    for tool in asyncio.run(build_server().list_tools()):
         schema = tool.inputSchema
         assert "title" not in schema, tool.name
         for name, spec in schema.get("properties", {}).items():
@@ -664,10 +698,10 @@ def test_schema_trim_keeps_every_parameter():
 
 
 def test_no_tool_description_runs_long():
-    """The twelve tools the plugin leans on may be fuller; the rest stay short."""
+    """The eleven tools the plugin leans on may be fuller; the rest stay short."""
     fuller = {
-        "vault_wiki_search", "vault_wiki_ingest", "vault_wiki_match", "vault_wiki_read",
-        "vault_wiki_apply", "vault_save_email", "vault_write_daily", "vault_inbox_prepare",
+        "vault_wiki_search", "vault_wiki_write", "vault_wiki_keep", "vault_wiki_read",
+        "vault_save", "vault_write_daily", "vault_inbox_prepare",
         "vault_prep_context", "vault_status", "vault_find", "vault_write",
     }
     for tool in asyncio.run(build_server().list_tools()):
@@ -685,3 +719,44 @@ def test_server_call_round_trip(vault):
     assert json.loads(text)["action"] == "created"
     with pytest.raises(Exception):
         asyncio.run(server.call_tool("vault_read", {"path": "Other/x.md"}))
+
+    def call(name, args):
+        out = asyncio.run(server.call_tool(name, args))
+        return json.loads(out[0].text if isinstance(out, list) else out[0][0].text)
+
+    # vault_find without identity is the old list; with one it is the old find
+    assert [n["frontmatter"]["subject"] for n in call("vault_find", {"type": "email"})] == ["Re: Budget Q3"]
+    assert call("vault_find", {"type": "email", "identity": "<abc@example.com>"})["found"] is True
+    # vault_row does both halves of the old pair
+    daily = {"type": "daily", "date": "2026-08-22", "folder": "inbox", "since": "2026-08-22T00:00:00+02:00",
+             "inbox_checked": "2026-08-22T09:00:00+02:00", "mails_seen": 0, "status": "open", "created_by": "t"}
+    path = call("vault_write", {"type": "daily", "frontmatter": daily, "body": "b"})["path"]
+    assert call("vault_row", {"action": "append", "path": path, "section": "Open", "row": ["a", "b"],
+                              "dedupe_key": "K1", "header": ["One", "Two"]})["appended"] is True
+    call("vault_row", {"action": "append", "path": path, "section": "Done", "row": ["x", "y"],
+                       "dedupe_key": "K0", "header": ["One", "Two"]})
+    assert call("vault_row", {"action": "move", "path": path, "from_section": "Open", "to_section": "Done",
+                              "dedupe_key": "K1", "set_last_cell": "2026-08-22"})["moved"] is True
+    for bad in ({"action": "append", "path": path}, {"action": "move", "path": path}, {"action": "nope", "path": path}):
+        with pytest.raises(Exception):
+            asyncio.run(server.call_tool("vault_row", bad))
+    # vault_save says which kind it is writing
+    for bad in ({"kind": "email"}, {"kind": "chat"}, {"kind": "transcript"}, {"kind": "nope"}):
+        with pytest.raises(Exception):
+            asyncio.run(server.call_tool("vault_save", bad))
+
+
+def test_the_backup_zip_is_made_once_even_before_any_wiki_write(vault):
+    """A second setup on an older vault must not zip everything again."""
+    from administrator_vault import store, wiki
+    wiki.create("topic", "Old page", created_by=CB)
+    state = vault / "Administrator" / "Wiki" / "_cache" / "state.json"
+    if state.exists():
+        state.unlink()
+    first = store.init(created_by=CB)
+    assert first["backup"]
+    if state.exists():
+        state.unlink()
+    second = store.init(created_by=CB)
+    assert second["backup"] is None
+    assert len(list((vault / "Administrator" / "_backup").glob("*.zip"))) == 1

@@ -156,7 +156,7 @@ def test_save_chat_refuses_bad_input(vault):
 
 def test_server_save_chat_round_trip(vault):
     server = build_server()
-    out = asyncio.run(server.call_tool("vault_save_chat", {"chat": chat(), "messages": [msg(1, "2026-08-21T09:14:00+02:00")], "self_names": ["Hux"]}))
+    out = asyncio.run(server.call_tool("vault_save", {"kind": "chat", "chat": chat(), "messages": [msg(1, "2026-08-21T09:14:00+02:00")], "self_names": ["Hux"]}))
     text = out[0].text if isinstance(out, list) else out[0][0].text
     res = json.loads(text)
     assert res["action"] == "created" and res["path"] == "Administrator/Teams/2026-08-21 Q3 budget.md" and res["unknown_people"] == ["Jane Doe"]

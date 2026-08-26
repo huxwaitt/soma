@@ -30,25 +30,26 @@ The wiki (Administrator/Wiki/) holds pages the model keeps: person, org,
 topic, decision, howto, me. A topic with an owner and a due date is a
 project; a decision page (Wiki/Decisions/) records one choice and is added
 to, never rewritten. vault_wiki_search answers a question with ranked facts
-(brief=true stitches them into one text), vault_wiki_match finds pages,
+(brief=true stitches them into one text, pages=true finds the pages instead),
 vault_wiki_read returns a page's lead and facts (with ids),
-vault_wiki_ingest / vault_wiki_apply take
+vault_wiki_write takes
 op lists (add, update, supersede, confirm, retire, contest, lead, summary,
 status, title, alias, related, role, open, done, reschedule, steps, due,
 owner, org, outcome, milestone, risk, link, superseded_by, reversal). Open
 items carry an owner and a due date, and Follow-ups.md is
-written from them. vault_wiki_lint runs its checks (and asks the wiki the
-questions the user keeps in Wiki/Questions.md), vault_wiki_merge folds one page
-into another (only on a yes), vault_wiki_migrate moves a 0.1.0 vault's
-People/ folder into the wiki (dry run first). What each op does, what it
-refuses and how a page is laid out is the page contract, wiki_schema.md
-(the plugin ships the same file as skills/wiki/references/wiki.md); read it
-before writing ops.
+written from them. vault_wiki_keep holds the rest: action=lint runs the checks
+(and asks the wiki the questions the user keeps in Wiki/Questions.md),
+action=merge folds one page into another (only on a yes), action=migrate
+moves a 0.1.0 vault's People/ folder into the wiki (dry run first),
+action=log and action=review read Log.md and the review list. What each op
+does, what it refuses and how a page is laid out is the page contract,
+wiki_schema.md (the plugin ships the same file as
+skills/wiki/references/wiki.md); read it before writing ops.
 
-Collecting: vault_collect_sources keeps the "last collected" stamp per
-source (teams, outlook, notes), vault_save_chat writes a Teams chat as a day
-record under Teams/, vault_changed_notes lists the notes modified since a
-time (records and the user's collect_folders, read only).
+Collecting: vault_collect keeps the "last collected" stamp per source
+(teams, outlook, notes) and lists the notes modified since a time
+(action=changed: records and the user's collect_folders, read only);
+vault_save(kind="chat") writes a Teams chat as a day record under Teams/.
 vault_load_history reads the months before that into the wiki: it hands out
 one window of days at a time (Outlook inbox, then sent items, then Teams)
 with the exact call to list it, remembers where it got to, and never moves a
@@ -77,8 +78,9 @@ chat, else a record id.
 ops: the op list of the page contract, each {op, ...}; wiki_schema.md says
 what every op does and what it refuses. Fact ids come from vault_wiki_read.
 items: mail items as outlook_list_mails returned them (entry_id,
-internet_message_id, from_address, from_name, subject, received, preview;
-optional headers {list_unsubscribe, auto_submitted} and message_class).
+internet_message_id, from_address, from_name, subject, received, preview,
+bulk, bulk_why; optional headers {list_unsubscribe, auto_submitted} and
+message_class).
 peak_hours: the hours the user works best, as ranges HH:MM-HH:MM (for
 example ["09:00-12:00"]); focus blocks are placed there first.
 week: an ISO week, e.g. 2026-W34. date: a local date YYYY-MM-DD.
@@ -100,13 +102,19 @@ list) and the _views/*.base files. Existing files are kept unless
 overwrite=true; Follow-ups.md, Rules.md, Priorities.md, Questions.md and the
 Wiki files are always kept. overwrite rewrites Preferences.md and the
 _views/*.base files only. work_start / work_end are HH:MM and
-buffer_minutes the free minutes kept around existing meetings.
+buffer_minutes the free minutes kept around existing meetings. backup in the
+answer is a zip of Administrator/ under Administrator/_backup/<stamp>.zip,
+made once when the vault already holds wiki pages this version has never
+read back (_cache/ and _backup/ are left out), else null.
 
 ## vault_find
 identity is a string, or an object with the identity keys: email
 internet_message_id / entry_id; meeting occurrence_key / global_id; person
 email; daily date; weekly week; chat chat_id + date, or 'chat_id|date';
-time-block week.
+time-block week. Without identity the notes of the type are listed instead,
+newest first by its date key: email received, meeting start, person
+last_contact, daily date, weekly start; since is a lower bound on that key,
+limit caps how many come back.
 
 ## vault_write
 mode 'create' names the file by the type's filename rule (' (2)' suffix on a
@@ -116,29 +124,23 @@ frontmatter, and aliases are merged. frontmatter holds the keys and values
 of the note; the required keys per type are validated. body is markdown
 without frontmatter.
 
-## vault_append_row
-The '## <section>' heading and the header row are created when missing;
-Follow-ups.md gets its fixed header, so header (the column names to create
-the table with) is only needed when the section has no table yet. row is one
-cell value per column. dedupe_key is written as a hidden
+## vault_row
+append: the '## <section>' heading and the header row are created when
+missing; Follow-ups.md gets its fixed header, so header (the column names
+to create the table with) is only needed when the section has no table yet.
+row is one cell value per column. dedupe_key is written as a hidden
 <!-- entry_id: KEY --> comment in the last cell, and a row already carrying
 that key anywhere in the file returns {appended: false, reason:
 'duplicate'}. key_label is the label used in that comment: 'entry_id'
 (default) or 'occurrence_key'. section is the heading text without the
 leading '## '.
-
-## vault_move_row
-The row carrying dedupe_key is cut from the table under from_section and
-appended to the table under to_section (for Follow-ups Open -> Done).
+move: the row carrying dedupe_key is cut from the table under from_section
+and appended to the table under to_section (for Follow-ups Open -> Done).
 set_last_cell replaces the last cell's text and keeps the hidden comment,
 e.g. the Closed date.
 
 ## vault_read
 {path, frontmatter, body, sections (heading texts)}.
-
-## vault_list
-Newest first by the type's date key: email received, meeting start, person
-last_contact, daily date, weekly start. since is a lower bound on that key.
 
 ## vault_rules
 The rules of Administrator/Rules.md (created when missing) plus the built-in
@@ -146,7 +148,9 @@ ones: a List-Unsubscribe header -> fyi; auto-submitted, an 'Automatic reply'
 subject and meeting responses -> noise; noreply senders -> fyi; a sender
 with a person note of status fyi -> fyi. get: {path, labels, never_save,
 fyi_senders}. match: {results: [{entry_id, label or null, never_save,
-rule}]}.
+rule}], kept: [the items that are neither bulk nor never-save], dropped:
+[{entry_id, why: 'bulk: ...' | 'rule: ...'}], counts: {bulk, never_save,
+kept}}. An item's bulk field comes from outlook_list_mails.
 
 ## vault_inbox_prepare
 {to_label: [the items not in any daily note of that week and not never_save,
@@ -174,8 +178,8 @@ missing prep notes). Returns {path, action (created/appended/unchanged),
 rows_written, duplicates_skipped, followups_added, promised, calendar_rows,
 unlabelled}.
 
-## vault_save_email
-mail: the JSON from outlook_get_mail(trim_quoted=true) — entry_id,
+## vault_save
+kind=email. mail: the JSON from outlook_get_mail(trim_quoted=true) — entry_id,
 internet_message_id, conversation_id, subject, from, from_address,
 recipients[], received, attachments[], body / body_trimmed (body_trimmed is
 used when present). summary: one line, 25 words or fewer. action_items:
@@ -192,6 +196,29 @@ person page under Wiki/People is created, or a Records line is added to it
 (last_contact, aliases). When status is waiting an open item owned by the
 counterpart (the first recipient of the user's own mail, else the sender)
 is added to that person's page.
+
+kind=chat. chat: the chat as teams_list_chats returned it — id, title, type,
+members (names or {name, mri}), account. messages: that chat's messages in any
+order, [{id, time (local ISO), sender, is_self, text}]. self_names: the
+user's own display names, to tell 'from me' apart when is_self is missing.
+The file is Teams/<date> <chat>.md, one record per chat per day (record_id =
+chat_id|date), with '## Messages' holding one line per message, oldest
+first, and hidden message ids. A second call the same day appends only the
+messages whose ids are not in the file yet (under '## Update') and moves
+messages / last forward. Senders that match a person page by name or alias
+get a Records line and last_contact on it; senders without a page are listed
+in unknown_people, and no page is made without an address. Returns {path,
+action (created / appended / unchanged), date, record_id, added,
+skipped_duplicates, messages, people: [{name, page}], unknown_people}; when
+the messages span several days, a list with one such result per day.
+
+kind=transcript. transcript_path is vault-relative, under
+Administrator/Attachments/, and meeting_path names the meeting note. The
+Copilot scaffolding is dropped, turns and speakers are counted, and
+'### Transcript' is appended under '## Update' on the meeting note, with
+speakers linked to attendee person notes and a collapsed callout up to 400
+lines, else a link to the file. Returns {path, turns, speakers,
+speaker_links, lines, appended_lines, linked, update_heading}.
 
 ## vault_prep_context
 occurrence_key is global_id|start; global_id is taken from it when empty,
@@ -219,19 +246,6 @@ quiet_people: [{name, email, path, last_contact, days}] over 30 days, wiki:
 {review_open, stale, uningested, candidates} counts for the '## Wiki'
 section}.
 
-## vault_attach_transcript
-transcript_path is vault-relative, under Administrator/Attachments/. The
-Copilot scaffolding is dropped, turns and speakers are counted, and
-'### Transcript' is appended under '## Update' on the meeting note, with
-speakers linked to attendee person notes and a collapsed callout up to 400
-lines, else a link to the file. Returns {path, turns, speakers,
-speaker_links, lines, appended_lines, linked, update_heading}.
-
-## vault_wiki_match
-text is free text: the subject plus the first ~300 characters. people are
-sender / attendee addresses, domains their sender domains. candidates are
-the topics over the 2-records-on-2-days threshold that have no page yet.
-
 ## vault_wiki_search
 query: the question in plain words; "quoted phrases", ids, dates and amounts
 are looked up as written and /regex/ searches the raw text. kinds keeps only
@@ -248,56 +262,59 @@ is not used there); owner is 'me' for what the user owes or 'others' for
 what other people owe the user, due_before keeps the items due before that
 ISO date (that date itself is left out), include_done also answers with the
 items already ticked, and page keeps to one page.
+pages=true finds pages instead of facts: query is then free text (a subject
+plus the first ~300 characters), people are sender / attendee addresses and
+domains their sender domains, and the answer is {pages: [{path, line, score,
+why}], candidates} — the topics over the 2-records-on-2-days threshold that
+have no page yet.
 
 ## vault_wiki_read
 sections: lead, facts, people, topics, contacts, open, records, related,
 history, steps, notes; the default is lead + facts.
 
-## vault_wiki_ingest
-record_path is the email, meeting or chat note the ops come from. pages is
-one entry per page: {path, ops} for an existing page, or {new: {type, title,
-aliases, lead, summary}, ops} for a new one; an empty ops list still adds
-the Records line. Per page the answer holds the applied / refused ops with
-reasons, new ids and sizes; the tool writes Records, History, the record's
-wiki: link, Log.md and Index.md, and reports the topic candidate for the
-record's subject (candidate.suggest_due says a record named a day, so
-propose an owner and a due date). The answer carries confirmed_decisions:
-[page stems] when the user ticked an 'unconfirmed decision' line in
-Review.md. Every page is read back after the write: one that does not come
-back as it was written keeps its previous text and answers written: false
-with reason 'verify-failed'.
+## vault_wiki_write
+pages is one entry per page: {path, ops} for an existing page, or {new:
+{type, title, aliases, lead, summary}, ops} for a new one; an empty ops list
+still adds the Records line. record_path is the email, meeting or chat note
+the ops come from: with it src and since default to the record's id and
+date, without it to src ('user' unless another is given) and today. Per page
+the answer holds the applied / refused ops with reasons, new ids and sizes;
+with a record the tool also writes Records, History, the record's wiki:
+link, Log.md and Index.md, and reports the topic candidate for the record's
+subject (candidate.suggest_due says a record named a day, so propose an
+owner and a due date). The answer is {record (null without one), pages,
+candidate} and carries confirmed_decisions: [page stems] when the user
+ticked an 'unconfirmed decision' line in Review.md. Every page is read back
+after the write: one that does not come back as it was written keeps its
+previous text and answers written: false with reason 'verify-failed'.
+A new: spec with no ops is how a page is created on its own. type: person,
+org, topic, decision, howto or me. title: a noun phrase, 6 words or fewer,
+no dates. lead: 2-4 sentences, 80 words or fewer. summary: one line, 160
+characters or fewer, used as the Index.md line. Without a record, new: also
+takes facts: [{text, since, src}] written as add ops. Its other keys are the
+type-specific frontmatter keys — email (person), domains (org), owner / org
+/ due (topic), decided (date, required) and by (person page links, required)
+for a decision; code-owned keys are refused. The page is created under
+Wiki/<Type>/ with a slug filename, and refused with the matching index line
+when a page with this title, alias or address exists: {created: false,
+reason: 'exists', path, match}. A new decision page is written with status
+current and flags [unconfirmed-decision] and gets one Review line
+('unconfirmed decision: … — confirm or drop'); confirming it clears the
+flag, and ticking that line in Obsidian does the same on the next lint or
+write.
 
-## vault_wiki_create
-type: person, org, topic, decision, howto or me. title: a noun phrase, 6
-words or fewer, no dates. lead: 2-4 sentences, 80 words or fewer. summary:
-one line, 160 characters or fewer, used as the Index.md line. facts:
-[{text, since, src}] written as add ops. extra: the type-specific keys —
-email (person), domains (org), owner / org / due (topic), decided (date,
-required) and by (person page links, required) for a decision; code-owned
-keys are refused. The page is created under Wiki/<Type>/ with a slug
-filename, and refused with the matching index line when a page with this
-title, alias or address exists: {created: false, reason: 'exists', path,
-match}. A new decision page is written with status current and flags
-[unconfirmed-decision] and gets one Review line ('unconfirmed decision: … —
-confirm or drop'); confirming it clears the flag, and ticking that line in
-Obsidian does the same on the next lint or ingest.
-
-## vault_wiki_apply
-Same answer shape as vault_wiki_ingest for one page; since defaults to
-today.
-
-## vault_wiki_log
+## vault_wiki_keep
+action=log: the newest matching lines of Wiki/Log.md, {path, total, lines};
 page keeps to one page's lines (stem or link).
 
-## vault_wiki_review
+action=review, review_action list or resolve.
 item: the item's number in the Open list, or a part of its text.
 resolution_ops: ops applied to the page the item names (src user), e.g. a
 supersede the user decided on. list: {open: [{n, text}], done}. resolve
 moves the item to Done with today's date and clears the page's contradiction
 and unconfirmed-decision flags when no other open item names it.
 
-## vault_wiki_lint
-The checks are: index vs files, dangling links, orphans, frontmatter,
+action=lint. The checks are: index vs files, dangling links, orphans, frontmatter,
 sections, oversized, stale, due in the past, open items done, duplicate
 pages, records never ingested, topic candidates, History / Log rotation,
 pages to ask the model about, unconfirmed facts, 19 overdue (the user's own
@@ -314,9 +331,11 @@ Returns {date, fix, pages, counts, checks: {0..21}, flagged, review_added,
 written, cache}, plus confirmed_decisions: [page stems] when the user ticked
 an 'unconfirmed decision' line in Review.md (the one line a tick alone
 settles). checks['0'] is the pass that reads back what the user changed by
-hand in Obsidian; it runs at the start of every wiki tool, and when it took
-something over the answer carries adopted: [{page, changes}] — pass that on
-in one line. checks['14'].ask_model lists the pages touched since the last
+hand in Obsidian; it runs at the start of every wiki tool that writes, and
+when it took something over the answer carries adopted: [{page, changes}] —
+pass that on in one line. A tool that only reads writes no page: it answers
+hand_edits: n, how many files differ from what the code last wrote, and the
+next writing call is what takes them over. checks['14'].ask_model lists the pages touched since the last
 lint: read their facts and report pairs that cannot both be true with a
 contest op. checks['20'] is {name, asked, found, misses: [{question,
 expected, top}], unknown} and checks['21'] {name, count, days, items:
@@ -325,11 +344,10 @@ back only with items=true; without it each check keeps its name, its count
 and its flags, which is what the report needs, and the cache file always
 holds the full report. Ask for items on the checks you are about to show the
 user. Every run appends one Log.md line with all the counts ("questions
-17/20, unanswered 3"), so vault_wiki_log shows whether the wiki is getting
+17/20, unanswered 3"), so action=log shows whether the wiki is getting
 better.
 
-## vault_wiki_merge
-keep is the page that stays, drop the one folded into it. Only after the
+action=merge. keep is the page that stays, drop the one folded into it. Only after the
 user said the two pages are the same thing. Facts of drop are added to keep
 with their since / src (same text: confirm), aliases / records / links are
 merged, drop becomes a 3-line redirect page (type redirect) so links keep
@@ -337,8 +355,7 @@ resolving, other pages' links follow, and keep's History records the merge.
 Returns {keep, drop, redirect, facts_added, facts_confirmed, facts_refused,
 relinked, review_closed, sizes}.
 
-## vault_wiki_migrate
-dry_run=true returns the plan and writes nothing; false does it with a
+action=migrate. dry_run=true returns the plan and writes nothing; false does it with a
 backup. Three parts. people: Administrator/People/*.md move to Wiki/People/
 as person pages following the page contract (old Emails / Meetings lines
 become Records, a 'Voice with this person:' block and other user text go
@@ -354,23 +371,7 @@ views, followups: {open, done, count, backup}, left, backup}) plus, after a
 real run, {moved, skipped, links_rewritten, followups_moved: {open, done},
 old_folder_removed, old_folder_left}.
 
-## vault_save_chat
-chat: the chat as teams_list_chats returned it — id, title, type, members
-(names or {name, mri}), account. messages: that chat's messages in any
-order, [{id, time (local ISO), sender, is_self, text}]. self_names: the
-user's own display names, to tell 'from me' apart when is_self is missing.
-The file is Teams/<date> <chat>.md, one record per chat per day (record_id =
-chat_id|date), with '## Messages' holding one line per message, oldest
-first, and hidden message ids. A second call the same day appends only the
-messages whose ids are not in the file yet (under '## Update') and moves
-messages / last forward. Senders that match a person page by name or alias
-get a Records line and last_contact on it; senders without a page are listed
-in unknown_people, and no page is made without an address. Returns {path,
-action (created / appended / unchanged), date, record_id, added,
-skipped_duplicates, messages, people: [{name, page}], unknown_people}; when
-the messages span several days, a list with one such result per day.
-
-## vault_collect_sources
+## vault_collect
 source (advance): teams, outlook or notes; omit for all three. at (advance):
 the new stamp as local ISO, defaults to now. payload (tokens): {command:
 'collect-information' | 'load-history', predicted_in, predicted_out,
@@ -389,8 +390,9 @@ Wiki/_cache/tokens.json (the last 20 per command) and returns {command,
 runs, ratio_in, ratio_out (the median actual/predicted over those runs, null
 until one run has both numbers), last}.
 
-## vault_changed_notes
-folders: vault-relative folders to read instead of the default set
+changed: the markdown notes modified after since (required), oldest first,
+with an excerpt each. folders: vault-relative folders to read instead of the
+default set
 (Administrator/Meetings, Emails, Daily, Weekly plus the collect_folders of
 Preferences.md). Returns {since, count, total, capped, folders, skipped,
 missing, notes: [{path, type, modified, ingested (a wiki key is present),
@@ -407,7 +409,10 @@ received}], skipped_ids: [ids left out], reached: the received time of the
 last record worked (ISO), exhausted: true when nothing in the window was
 left over, pages: [wiki pages touched], calls: how many tool calls the batch
 took, listed: how many records the window listed before the cut (drives the
-window size and the listed-vs-saved gap; defaults to saved + skipped)}.
+window size and the listed-vs-saved gap; defaults to saved + skipped), auto:
+true when the user said "yes to all" (run the rest without asking after each
+batch) and false when they took it back, cap: the tokens the whole pass may
+spend or null for none, tokens: {in, out} this batch cost}.
 status: the state ({started: false} before the first plan) with the collect
 stamps, the days left per source and how many records each source listed
 against how many were saved, so a gap shows. plan: fixes the start date, the
@@ -419,8 +424,11 @@ skip_ids (ids of that window already seen), list_with (the exact
 outlook_list_mails / teams_list_chats call), reissued}; turn the list oldest
 first, drop skip_ids and automated mail, work on the first 'expected'
 records; while a batch is open the same window is handed out again instead
-of a second one. done: takes payload and answers {batch, saved, skipped,
-listed, place, window_days, source_done, all_done, totals, next_hint, note}
+of a second one. next, done, plan and status all answer auto, cap and cost
+({in, out, total} so far), so a run that said "yes to all" knows when its
+next batch would pass the cap and has to ask again. done: takes payload and
+answers {batch, saved, skipped, listed, place, window_days, source_done,
+all_done, totals, next_hint, auto, cap, cost, note}
 — the ids are recorded as seen, the place moves (to until when the window
 was exhausted, else to reached), the window is halved or doubled to fit the
 batch size (1 to 30 days), and when every source is finished the answer
@@ -429,8 +437,8 @@ Wiki/_cache/history.json and is written after plan and after every done, so
 a crash costs at most one window. The collect stamps are only read, never
 moved.
 
-## vault_time_block_plan
-events: outlook_list_events items for the week — subject, start, end,
+## vault_time_block
+action=plan. events: outlook_list_events items for the week — subject, start, end,
 all_day, attendee_count, is_meeting, occurrence_key, entry_id, busy_status.
 today: days before it are not planned. now: local time HH:MM from
 outlook_whoami.local_time; it only matters on today, where nothing is placed
@@ -455,19 +463,17 @@ existing_blocks, slack_share_kept}, deadlines: [{name, due, page,
 block_date}], unplaced, skipped_days: [{date, reason}], preferences_used,
 missing_keys}.
 
-## vault_time_block_write
-blocks: the plan's blocks (start, end, kind, subject, priority) with the
+action=write. blocks: the plan's blocks (start, end, kind, subject, priority) with the
 create results merged in — occurrence_key and entry_id from
 outlook_create_event; existing blocks may be passed too. The note holds a
 '## Plan' table (Day | Start | End | Kind | Subject | Priority, with a
 hidden occurrence_key per row), an empty '## Held' table (Day | Block |
 Result | Note, which /administrator:collect-information fills with
-vault_append_row, dedupe_key = occurrence_key, key_label = occurrence_key)
+vault_row, dedupe_key = occurrence_key, key_label = occurrence_key)
 and '## Notes'. A re-plan of the same week appends the new table under
 '## Update'. Returns {path, action, week, blocks, planned}.
 
-## vault_time_audit
-events: outlook_list_events items for that week — subject, start, end,
+action=audit. events: outlook_list_events items for that week — subject, start, end,
 all_day, attendee_count, is_meeting, occurrence_key, busy_status. Hours per
 kind: meeting = attendees or is_meeting, focus = '[Focus]', admin =
 '[Admin]', other, unplanned = work hours not booked; all-day events are
@@ -500,7 +506,7 @@ is created first. Returns {path, action: 'written', lines, previous}.
 # Module-level aliases: with ``from __future__ import annotations`` every hint
 # is a string resolved against module globals when FastMCP builds the schema.
 NoteType = Annotated[str, Field(description="Note type.")]
-Identity = Annotated[Any, Field(description="The note's identity keys.")]
+Identity = Annotated[Any, Field(description="The note's identity keys; omit to list the type.")]
 VaultPath = Annotated[str, Field(min_length=1)]
 Frontmatter = Annotated[dict[str, Any], Field(description="Frontmatter keys and values.")]
 Body = Annotated[str, Field(description="Markdown body, no frontmatter.")]
@@ -542,6 +548,11 @@ WikiOps = Annotated[
     Field(description="Ops from the page contract, each {op, ...}."),
 ]
 WikiSrc = Annotated[str, Field(description="'user', else a record id.")]
+RowAction = Annotated[str, Field(description="append or move.")]
+SaveKind = Annotated[str, Field(description="email, chat or transcript.")]
+KeepAction = Annotated[str, Field(description="log, review, lint, merge or migrate.")]
+CollectAction = Annotated[str, Field(description="read, advance, tokens or changed.")]
+BlockAction = Annotated[str, Field(description="plan, write or audit.")]
 
 
 def _json(data: Any) -> str:
@@ -563,7 +574,7 @@ def _guard(fn: Callable[..., Any]) -> Callable[..., Any]:
 
 # Keywords whose value is a map of *names* to schemas: their keys are
 # parameter names, never schema metadata, so they are recursed into but never
-# filtered. vault_wiki_create really does take a parameter called "title".
+# filtered. A page spec really does hold a key called "title".
 _SCHEMA_MAPS = ("properties", "$defs", "definitions", "patternProperties")
 _SCHEMA_LISTS = ("anyOf", "oneOf", "allOf", "prefixItems")
 _SCHEMA_VALUES = ("items", "additionalProperties", "not", "contains")
@@ -600,6 +611,53 @@ def _trim_schemas(mcp: FastMCP) -> None:
         tool.parameters = _drop_titles(tool.parameters)
 
 
+def _wiki_write_pages(pages: Any, src: str, created_by: str) -> dict[str, Any]:
+    """vault_wiki_write without a record: create and apply, page by page.
+
+    The answer is the shape a write with a record has, so a caller reads one
+    result either way; ``record`` and ``candidate`` are null because there is
+    no record to name.
+    """
+    results: list[dict[str, Any]] = []
+    adopted: list[Any] = []
+    for spec in pages or []:
+        if not isinstance(spec, dict):
+            results.append({"written": False, "refused": [{"reason": "bad-page-spec"}]})
+            continue
+        ops = spec.get("ops") or []
+        new = spec.get("new")
+        if isinstance(new, dict):
+            fixed = ("type", "title", "aliases", "lead", "summary", "facts", "extra")
+            extra = {k: v for k, v in new.items() if k not in fixed}
+            extra.update(new.get("extra") or {})
+            res = wiki.create(
+                new.get("type") or "", new.get("title") or "", new.get("aliases"),
+                new.get("lead") or "", new.get("summary") or "", new.get("facts"),
+                src, created_by, extra or None,
+            )
+            adopted += res.pop("adopted", [])
+            if res.get("created") and ops:
+                more = wiki.apply(res["path"], ops, created_by, src)
+                adopted += more.pop("adopted", [])
+                res.update(
+                    applied=res["applied"] + more["applied"],
+                    refused=res["refused"] + more["refused"],
+                    written=more["written"],
+                    sizes=more["sizes"],
+                )
+            elif res.get("created"):
+                res["written"] = True
+            results.append(res)
+            continue
+        res = wiki.apply(spec.get("path") or "", ops, created_by, src)
+        adopted += res.pop("adopted", [])
+        results.append(res)
+    out: dict[str, Any] = {"record": None, "pages": results, "candidate": None}
+    if adopted:
+        out["adopted"] = adopted
+    return out
+
+
 def build_server() -> FastMCP:
     mcp = FastMCP("vault", instructions=INSTRUCTIONS)
     register(mcp)
@@ -634,11 +692,19 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="vault_find",
-        annotations={"title": "Find a note by identity", "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+        annotations={"title": "Find or list notes", "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
     )
     @_guard
-    def vault_find(type: NoteType, identity: Identity, fields: Fields = None) -> str:
-        """Find the note of a type with this identity by reading frontmatter, not filenames. Returns {found, path, frontmatter, matches}; a global_id-only meeting identity returns the newest occurrence first."""
+    def vault_find(
+        type: NoteType,
+        identity: Identity = None,
+        fields: Fields = None,
+        limit: Limit = 200,
+        since: Since = None,
+    ) -> str:
+        """Find the note of a type with this identity by reading frontmatter, not filenames: {found, path, frontmatter, matches}; a global_id-only meeting identity returns the newest occurrence first. Without identity it lists the type's notes instead, newest first by its date key."""
+        if not identity:
+            return _json(store.list_notes(type, since, limit, fields))
         return _json(store.find(type, identity, fields))
 
     @mcp.tool(
@@ -651,35 +717,32 @@ def register(mcp: FastMCP) -> None:
         return _json(store.write(type, frontmatter, body, mode))
 
     @mcp.tool(
-        name="vault_append_row",
-        annotations={"title": "Append a table row", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+        name="vault_row",
+        annotations={"title": "Append or move a table row", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
     )
     @_guard
-    def vault_append_row(
+    def vault_row(
+        action: RowAction,
         path: VaultPath,
-        section: Section,
-        row: Row,
+        section: Optional[Section] = None,
+        row: Optional[Row] = None,
         dedupe_key: DedupeKey = None,
         header: Header = None,
         key_label: KeyLabel = "entry_id",
-    ) -> str:
-        """Append one markdown table row under a '## <section>' heading, creating the heading and the header row when missing. Returns {appended, ...}; dedupe_key leaves out a row already in the file."""
-        return _json(store.append_row(path, section, row, dedupe_key, header, key_label))
-
-    @mcp.tool(
-        name="vault_move_row",
-        annotations={"title": "Move a table row between sections", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
-    )
-    @_guard
-    def vault_move_row(
-        path: VaultPath,
-        from_section: Section,
-        to_section: Section,
-        dedupe_key: Annotated[str, Field(min_length=1, description="Key in the row's hidden comment.")],
+        from_section: Optional[Section] = None,
+        to_section: Optional[Section] = None,
         set_last_cell: SetLastCell = None,
     ) -> str:
-        """Move the row carrying dedupe_key from one section's table to another's, for Follow-ups Open -> Done. Returns {moved, ...}."""
-        return _json(store.move_row(path, from_section, to_section, dedupe_key, set_last_cell))
+        """Append a markdown table row under a '## <section>' heading, creating the heading and the header row when missing (append; dedupe_key leaves out a row already in the file), or move the row carrying dedupe_key between two sections' tables, for Follow-ups Open -> Done. Returns {appended, ...} / {moved, ...}."""
+        if action == "append":
+            if not section or row is None:
+                raise RuntimeError("append needs section and row.")
+            return _json(store.append_row(path, section, row, dedupe_key, header, key_label))
+        if action == "move":
+            if not from_section or not to_section or not dedupe_key:
+                raise RuntimeError("move needs from_section, to_section and dedupe_key.")
+            return _json(store.move_row(path, from_section, to_section, dedupe_key, set_last_cell))
+        raise RuntimeError("action must be 'append' or 'move'.")
 
     @mcp.tool(
         name="vault_read",
@@ -689,15 +752,6 @@ def register(mcp: FastMCP) -> None:
     def vault_read(path: VaultPath) -> str:
         """Read one note under Administrator/: {path, frontmatter, body, sections (heading texts)}."""
         return _json(store.read(path))
-
-    @mcp.tool(
-        name="vault_list",
-        annotations={"title": "List notes of a type", "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
-    )
-    @_guard
-    def vault_list(type: NoteType, since: Since = None, limit: Limit = 200, fields: Fields = None) -> str:
-        """List notes of a type, newest first by its date key. Returns [{path, frontmatter}]."""
-        return _json(store.list_notes(type, since, limit, fields))
 
     # ---------------------------------------------------------------- v0.5 helpers
 
@@ -710,7 +764,7 @@ def register(mcp: FastMCP) -> None:
         action: Annotated[str, Field(description="get or match.")] = "get",
         items: Optional[Items] = None,
     ) -> str:
-        """Read the labelling rules of Administrator/Rules.md plus the built-in ones, or apply them to mail items. get returns the parsed rules; match returns one result per item."""
+        """Read the labelling rules of Administrator/Rules.md plus the built-in ones, or apply them to mail items. get returns the parsed rules; match returns one result per item plus kept (the items left to read), dropped ({entry_id, why}) for bulk mail and never-save rules, and counts."""
         if action == "get":
             return _json(workflows.rules_get())
         if action == "match":
@@ -747,23 +801,41 @@ def register(mcp: FastMCP) -> None:
         return _json(workflows.write_daily(date, labels, items, events, watch_out, since, inbox_checked, tokens_used, folder, created_by))
 
     @mcp.tool(
-        name="vault_save_email",
-        annotations={"title": "Save one email as a note", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+        name="vault_save",
+        annotations={"title": "Save an email, chat or transcript", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
     )
     @_guard
-    def vault_save_email(
-        mail: Mail,
-        summary: Annotated[str, Field(description="One line, 25 words or fewer.")],
-        action_items: Annotated[Optional[list[str]], Field(description="Action item lines.")] = None,
-        attachments_saved: Annotated[Optional[list[str]], Field(description="Paths from outlook_save_attachments.")] = None,
-        msg_file: Annotated[Optional[str], Field(description="Path from outlook_save_mail_as.")] = None,
-        status: Annotated[Optional[str], Field(description="todo, waiting, done or fyi.")] = None,
-        self_addresses: Annotated[Optional[list[str]], Field(description="The user's own addresses.")] = None,
-        company: Annotated[Optional[str], Field(description="Company for a new person note.")] = None,
+    def vault_save(
+        kind: SaveKind,
+        mail: Optional[Mail] = None,
+        summary: Annotated[str, Field(description="Email: one line, 25 words or fewer.")] = "",
+        action_items: Annotated[Optional[list[str]], Field(description="Email: action item lines.")] = None,
+        attachments_saved: Annotated[Optional[list[str]], Field(description="Email: paths from outlook_save_attachments.")] = None,
+        msg_file: Annotated[Optional[str], Field(description="Email: path from outlook_save_mail_as.")] = None,
+        status: Annotated[Optional[str], Field(description="Email: todo, waiting, done or fyi.")] = None,
+        self_addresses: Annotated[Optional[list[str]], Field(description="Email: the user's own addresses.")] = None,
+        company: Annotated[Optional[str], Field(description="Email: company for a new person note.")] = None,
+        chat: Annotated[Optional[dict[str, Any]], Field(description="Chat: the chat from teams_list_chats.")] = None,
+        messages: Annotated[Optional[list[dict[str, Any]]], Field(description="Chat: that chat's messages, any order.")] = None,
+        self_names: Annotated[Optional[list[str]], Field(description="Chat: the user's own display names.")] = None,
+        meeting_path: Annotated[Optional[str], Field(description="Transcript: the meeting note.")] = None,
+        transcript_path: Annotated[Optional[str], Field(description="Transcript: its vault-relative path.")] = None,
         created_by: CreatedBy = workflows.CREATED_BY,
     ) -> str:
-        """Build the email note from outlook_get_mail JSON and write it (upsert), then create the sender's person page under Wiki/People or add a Records line to it. Returns {path, action, status, person_path, person_action, followup_added}."""
-        return _json(workflows.save_email(mail, summary, action_items, attachments_saved, msg_file, status, self_addresses, company, created_by))
+        """Write one record. email: build the note from outlook_get_mail JSON, upsert it, then create the sender's person page under Wiki/People or add a Records line to it; returns {path, action, status, person_path, person_action, followup_added}. chat: write or extend Teams/<date> <chat>.md, one record per chat per day, appending only the messages not in the file yet. transcript: drop the Copilot scaffolding and append a '### Transcript' section under '## Update' on the meeting note."""
+        if kind == "email":
+            if not mail:
+                raise RuntimeError("kind 'email' needs mail.")
+            return _json(workflows.save_email(mail, summary, action_items, attachments_saved, msg_file, status, self_addresses, company, created_by))
+        if kind == "chat":
+            if not chat:
+                raise RuntimeError("kind 'chat' needs chat.")
+            return _json(workflows.save_chat(chat, messages or [], self_names, created_by))
+        if kind == "transcript":
+            if not meeting_path or not transcript_path:
+                raise RuntimeError("kind 'transcript' needs meeting_path and transcript_path.")
+            return _json(workflows.attach_transcript(meeting_path, transcript_path, created_by))
+        raise RuntimeError("kind must be 'email', 'chat' or 'transcript'.")
 
     @mcp.tool(
         name="vault_prep_context",
@@ -791,38 +863,11 @@ def register(mcp: FastMCP) -> None:
         """The facts for a weekly review, computed from the vault only. Returns {week, start, end, open_from_inbox, waiting, promised_overdue, meetings_held, no_notes, quiet_people, wiki}."""
         return _json(workflows.weekly_facts(week, today))
 
-    @mcp.tool(
-        name="vault_attach_transcript",
-        annotations={"title": "Attach a transcript file to a meeting note", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
-    )
-    @_guard
-    def vault_attach_transcript(
-        meeting_path: VaultPath,
-        transcript_path: Annotated[str, Field(description="Vault-relative path of the transcript.")],
-        created_by: CreatedBy = workflows.CREATED_BY,
-    ) -> str:
-        """Read a transcript file, drop the Copilot scaffolding and append a '### Transcript' section under '## Update' on the meeting note. Returns {path, turns, speakers, speaker_links, lines, appended_lines, linked, update_heading}."""
-        return _json(workflows.attach_transcript(meeting_path, transcript_path, created_by))
-
     # ---------------------------------------------------------------- wiki (0.2.0)
 
     @mcp.tool(
-        name="vault_wiki_match",
-        annotations={"title": "Find wiki pages for a text / people / domains", "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
-    )
-    @_guard
-    def vault_wiki_match(
-        text: Annotated[str, Field(description="Free text to match on.")],
-        people: Annotated[Optional[list[str]], Field(description="Sender / attendee addresses.")] = None,
-        domains: Annotated[Optional[list[str]], Field(description="Sender domains.")] = None,
-        limit: Annotated[int, Field(ge=1, le=50)] = 8,
-    ) -> str:
-        """Index lines of the wiki pages whose title, aliases, email or domains match, ranked alias hit > address > word overlap > domain, plus the topic candidates that have no page yet. Returns {pages: [{path, line, score, why}], candidates: [{subject, records, days}]}."""
-        return _json(wiki.match(text, people, domains, limit))
-
-    @mcp.tool(
         name="vault_wiki_search",
-        annotations={"title": "Search the wiki for facts", "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+        annotations={"title": "Search the wiki for facts or pages", "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
     )
     @_guard
     def vault_wiki_search(
@@ -838,8 +883,13 @@ def register(mcp: FastMCP) -> None:
         due_before: Annotated[Optional[str], Field(description="Open items: due before this date.")] = None,
         page: Annotated[Optional[str], Field(description="Keep to this one page.")] = None,
         include_done: Annotated[bool, Field(description="Open items: also the ticked ones.")] = False,
+        pages: Annotated[bool, Field(description="Answer with matching pages, not facts.")] = False,
+        people: Annotated[Optional[list[str]], Field(description="Pages: sender / attendee addresses.")] = None,
+        domains: Annotated[Optional[list[str]], Field(description="Pages: sender domains.")] = None,
     ) -> str:
-        """Ranked facts read from the wiki pages themselves, best first, at most three per page: [{page, kind, title, fact_id, text, since, src, score, why, superseded, streams, confirmed}]. streams is how many kinds of source back the fact and confirmed how many days ago it was last confirmed: streams 1 with confirmed over 180 means one source and nothing since, so say it with a hedge or ask. brief=true answers with one stitched text instead, open_items=true with the commitments. Notes are never read."""
+        """Ranked facts read from the wiki pages themselves, best first, at most three per page: [{page, kind, title, fact_id, text, since, src, score, why, superseded, streams, confirmed}]. streams is how many kinds of source back the fact and confirmed how many days ago it was last confirmed: streams 1 with confirmed over 180 means one source and nothing since, so say it with a hedge or ask. brief=true answers with one stitched text instead, open_items=true with the commitments. Notes are never read; nothing is written but the query log (a cache file). hand_edits: n = pages changed by hand, taken over by the next writing call. pages=true answers instead with the pages whose title, aliases, email or domains match query, people and domains, ranked alias hit > address > word overlap > domain, plus the topic candidates with no page yet."""
+        if pages:
+            return _json(wiki.match(query, people, domains, limit))
         return _json(wiki_search.search_tool(query, kinds, limit, since, include_superseded, brief, max_chars, open_items, owner, due_before, page, include_done))
 
     @mcp.tool(
@@ -856,157 +906,82 @@ def register(mcp: FastMCP) -> None:
         return _json(wiki.read(path, sections, max_chars))
 
     @mcp.tool(
-        name="vault_wiki_ingest",
-        annotations={"title": "Apply ops from a record to wiki pages", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+        name="vault_wiki_write",
+        annotations={"title": "Write to wiki pages", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
     )
     @_guard
-    def vault_wiki_ingest(
-        record_path: Annotated[str, Field(description="The record note the ops come from.")],
+    def vault_wiki_write(
         pages: Annotated[list[dict[str, Any]], Field(description="One {path, ops} or {new, ops} per page.")],
-        created_by: CreatedBy = wiki.CREATED_BY,
-    ) -> str:
-        """Apply op lists to wiki pages with the record as source (src and since default to the record's id and date), writing Records, History, the record's wiki: link, Log.md and Index.md. Answers per page with the applied and refused ops, their reasons, the new ids and the sizes, plus the topic candidate for the record's subject. Every page is read back after the write: one that does not come back as written keeps its previous text and answers written: false."""
-        return _json(wiki.ingest(record_path, pages, created_by))
-
-    @mcp.tool(
-        name="vault_wiki_create",
-        annotations={"title": "Create a wiki page", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
-    )
-    @_guard
-    def vault_wiki_create(
-        type: Annotated[str, Field(description="The page type.")],
-        title: Annotated[str, Field(description="Noun phrase, 6 words or fewer.")],
-        aliases: Optional[list[str]] = None,
-        lead: Annotated[str, Field(description="2-4 sentences, 80 words or fewer.")] = "",
-        summary: Annotated[str, Field(description="One line, 160 characters or fewer.")] = "",
-        facts: Annotated[Optional[list[dict[str, Any]]], Field(description="[{text, since, src}] as add ops.")] = None,
+        record_path: Annotated[Optional[str], Field(description="The record note the ops come from.")] = None,
         src: WikiSrc = "user",
         created_by: CreatedBy = wiki.CREATED_BY,
-        extra: Annotated[Optional[dict[str, Any]], Field(description="The type-specific frontmatter keys.")] = None,
     ) -> str:
-        """Create a page under Wiki/<Type>/ with a slug filename. Returns the new page, or {created: false, reason: 'exists', path, match} when its title, alias or address is already taken."""
-        return _json(wiki.create(type, title, aliases, lead, summary, facts, src, created_by, extra))
+        """Apply op lists to wiki pages. With record_path the record is the source (src and since default to its id and date) and Records, History, the record's wiki: link, Log.md and Index.md are written; without it the ops are the user's own (src 'user', since today). Each entry of pages is {path, ops} for a page that exists or {new: {...}, ops} for one to create; a new: spec with no ops just creates the page. Answers {record (null without one), pages, candidate}: per page the applied and refused ops, their reasons, the new ids and the sizes. Every page is read back after the write: one that does not come back as written keeps its previous text and answers written: false."""
+        if record_path:
+            return _json(wiki.ingest(record_path, pages, created_by))
+        return _json(_wiki_write_pages(pages, src, created_by))
 
     @mcp.tool(
-        name="vault_wiki_apply",
-        annotations={"title": "Apply ops to a wiki page without a record", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+        name="vault_wiki_keep",
+        annotations={"title": "Keep the wiki in shape", "readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False},
     )
     @_guard
-    def vault_wiki_apply(path: WikiPage, ops: WikiOps, created_by: CreatedBy = wiki.CREATED_BY, src: WikiSrc = "user") -> str:
-        """Apply ops the user asked for in chat (src defaults to 'user', since to today). Same answer shape as vault_wiki_ingest for one page."""
-        return _json(wiki.apply(path, ops, created_by, src))
-
-    @mcp.tool(
-        name="vault_wiki_log",
-        annotations={"title": "Read Wiki/Log.md", "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
-    )
-    @_guard
-    def vault_wiki_log(
-        since: Annotated[Optional[str], Field(description="ISO date or datetime lower bound.")] = None,
-        page: Annotated[Optional[str], Field(description="Only lines of this page.")] = None,
+    def vault_wiki_keep(
+        action: KeepAction,
+        since: Annotated[Optional[str], Field(description="log: ISO date or datetime lower bound.")] = None,
+        page: Annotated[Optional[str], Field(description="log: only lines of this page.")] = None,
         limit: Annotated[int, Field(ge=1, le=500)] = 50,
-    ) -> str:
-        """The newest matching lines of Wiki/Log.md: {path, total, lines}."""
-        return _json(wiki.log(since, page, limit))
-
-    @mcp.tool(
-        name="vault_wiki_review",
-        annotations={"title": "List or resolve Wiki/Review.md items", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
-    )
-    @_guard
-    def vault_wiki_review(
-        action: Annotated[str, Field(description="list or resolve.")] = "list",
-        item: Annotated[Optional[str], Field(description="resolve: the item's number or text.")] = None,
-        resolution_ops: Annotated[Optional[list[dict[str, Any]]], Field(description="resolve: ops for the item's page.")] = None,
+        review_action: Annotated[str, Field(description="review: list or resolve.")] = "list",
+        item: Annotated[Optional[str], Field(description="review: the item's number or text.")] = None,
+        resolution_ops: Annotated[Optional[list[dict[str, Any]]], Field(description="review: ops for the item's page.")] = None,
+        fix: Annotated[bool, Field(description="lint: also apply the safe fixes.")] = False,
+        items: Annotated[bool, Field(description="lint: add the per-check lists to the answer.")] = False,
+        keep: Annotated[Optional[str], Field(description="merge: the page that stays.")] = None,
+        drop: Annotated[Optional[str], Field(description="merge: the page folded into keep.")] = None,
+        dry_run: Annotated[bool, Field(description="migrate: return the plan and write nothing.")] = True,
         created_by: CreatedBy = wiki.CREATED_BY,
     ) -> str:
-        """List or resolve the items in Wiki/Review.md. list returns {open: [{n, text}], done}; resolve applies resolution_ops to the item's page and moves the item to Done."""
-        if action not in ("list", "resolve"):
-            raise RuntimeError("action must be 'list' or 'resolve'.")
-        return _json(wiki.review(action, item, resolution_ops, created_by))
-
-    @mcp.tool(
-        name="vault_wiki_lint",
-        annotations={"title": "Run the wiki checks", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
-    )
-    @_guard
-    def vault_wiki_lint(
-        fix: Annotated[bool, Field(description="Also apply the safe fixes.")] = False,
-        items: Annotated[bool, Field(description="Add the per-check lists to the answer.")] = False,
-        created_by: CreatedBy = wiki.CREATED_BY,
-    ) -> str:
-        """Run the wiki's checks (0 to 21), writing the flags and the Review lines in both modes; fix=true also applies the safe fixes. Returns {date, fix, pages, counts, checks, flagged, review_added, written, cache}."""
-        return _json(wiki_lint.lint(fix, items, created_by))
-
-    @mcp.tool(
-        name="vault_wiki_merge",
-        annotations={"title": "Merge one wiki page into another", "readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False},
-    )
-    @_guard
-    def vault_wiki_merge(
-        keep: Annotated[str, Field(min_length=1, description="The page that stays.")],
-        drop: Annotated[str, Field(min_length=1, description="The page folded into keep.")],
-        created_by: CreatedBy = wiki.CREATED_BY,
-    ) -> str:
-        """Fold one wiki page into another, only after the user said the two are the same thing; drop becomes a redirect so links keep resolving. Returns {keep, drop, redirect, facts_added, facts_confirmed, facts_refused, relinked, review_closed, sizes}."""
-        return _json(wiki_lint.merge(keep, drop, created_by))
-
-    @mcp.tool(
-        name="vault_wiki_migrate",
-        annotations={"title": "Move a 0.1.0 People/ folder into the wiki", "readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False},
-    )
-    @_guard
-    def vault_wiki_migrate(
-        dry_run: Annotated[bool, Field(description="Return the plan and write nothing.")] = True,
-        created_by: CreatedBy = wiki.CREATED_BY,
-    ) -> str:
-        """Bring a 0.1.0 vault up to date: the People/ pages move into the wiki, the Follow-ups rows become open items, and the .base views are refreshed. Returns the plan; a real run keeps a backup under Administrator/_backup/<stamp>/ and adds what it moved."""
-        return _json(wiki_migrate.migrate(dry_run, created_by))
+        """Keep the wiki in shape. log: the newest matching lines of Wiki/Log.md. review: list the items of Wiki/Review.md, or resolve one (review_action) by applying resolution_ops to the page it names and moving it to Done. lint: run the checks 0 to 21, writing the flags and the Review lines, with fix=true also applying the safe fixes. merge: fold one page into another, only after the user said the two are the same thing; drop becomes a redirect. migrate: bring a 0.1.0 vault up to date, dry_run first. Each action answers as it did before."""
+        if action == "log":
+            return _json(wiki.log(since, page, limit))
+        if action == "review":
+            if review_action not in ("list", "resolve"):
+                raise RuntimeError("review_action must be 'list' or 'resolve'.")
+            return _json(wiki.review(review_action, item, resolution_ops, created_by))
+        if action == "lint":
+            return _json(wiki_lint.lint(fix, items, created_by))
+        if action == "merge":
+            if not keep or not drop:
+                raise RuntimeError("merge needs keep and drop.")
+            return _json(wiki_lint.merge(keep, drop, created_by))
+        if action == "migrate":
+            return _json(wiki_migrate.migrate(dry_run, created_by))
+        raise RuntimeError("action must be 'log', 'review', 'lint', 'merge' or 'migrate'.")
 
     # ---------------------------------------------------------------- collect (0.3.0)
 
     @mcp.tool(
-        name="vault_save_chat",
-        annotations={"title": "Save a Teams chat as a day record", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+        name="vault_collect",
+        annotations={"title": "Collect stamps, token runs and changed notes", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
     )
     @_guard
-    def vault_save_chat(
-        chat: Annotated[dict[str, Any], Field(description="The chat from teams_list_chats.")],
-        messages: Annotated[list[dict[str, Any]], Field(description="That chat's messages, any order.")],
-        self_names: Annotated[Optional[list[str]], Field(description="The user's own display names.")] = None,
-        created_by: CreatedBy = workflows.CREATED_BY,
-    ) -> str:
-        """Write or extend Teams/<date> <chat>.md, one record per chat per day; a second call the same day appends only the messages not in the file yet. Returns {path, action, date, record_id, added, skipped_duplicates, messages, people, unknown_people}, or one such result per day when the messages span several."""
-        return _json(workflows.save_chat(chat, messages, self_names, created_by))
-
-    @mcp.tool(
-        name="vault_collect_sources",
-        annotations={"title": "Read or advance the 'last collected' stamps", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
-    )
-    @_guard
-    def vault_collect_sources(
-        action: Annotated[str, Field(description="read, advance or tokens.")] = "read",
+    def vault_collect(
+        action: CollectAction = "read",
         source: Annotated[Optional[str], Field(description="advance: teams, outlook or notes.")] = None,
         at: Annotated[Optional[str], Field(description="advance: the new stamp; now by default.")] = None,
         now: Annotated[Optional[str], Field(description="Only for tests.")] = None,
         payload: Annotated[Optional[dict], Field(description="tokens: one run's predicted and actual counts.")] = None,
-    ) -> str:
-        """Read or move the 'last collected' stamp per source, or file what a run predicted against what it cost. read returns the stamps with their age and the token ratios; advance moves them and never back; tokens appends the run and returns its command's ratios."""
-        return _json(workflows.collect_sources(action, source, at, now, payload))
-
-    @mcp.tool(
-        name="vault_changed_notes",
-        annotations={"title": "Notes modified since a time", "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
-    )
-    @_guard
-    def vault_changed_notes(
-        since: Annotated[str, Field(min_length=1, description="Notes modified after it are returned.")],
-        folders: Annotated[Optional[list[str]], Field(description="Folders to read instead of the default set.")] = None,
+        since: Annotated[Optional[str], Field(description="changed: notes modified after it are returned.")] = None,
+        folders: Annotated[Optional[list[str]], Field(description="changed: folders to read instead of the default set.")] = None,
         max_chars: Annotated[int, Field(ge=0, le=20000)] = 1200,
         limit: Annotated[int, Field(ge=1, le=200)] = 20,
     ) -> str:
-        """The markdown notes modified after since, oldest first, with an excerpt each. Returns {since, count, total, capped, folders, skipped, missing, notes}; Wiki/, Attachments/, _views/, _backup/ and dot-folders are never read."""
-        return _json(workflows.changed_notes(since, folders, max_chars, limit))
+        """read: the 'last collected' stamp per source, with its age and the token ratios. advance: move the stamps, never back. tokens: file what a run predicted against what it cost, and answer with that command's ratios. changed: the markdown notes modified after since, oldest first, with an excerpt each; Wiki/, Attachments/, _views/, _backup/ and dot-folders are never read."""
+        if action == "changed":
+            if not since:
+                raise RuntimeError("changed needs since.")
+            return _json(workflows.changed_notes(since, folders, max_chars, limit))
+        return _json(workflows.collect_sources(action, source, at, now, payload))
 
     @mcp.tool(
         name="vault_load_history",
@@ -1027,44 +1002,28 @@ def register(mcp: FastMCP) -> None:
     # ---------------------------------------------------------------- time blocks (0.3.0)
 
     @mcp.tool(
-        name="vault_time_block_plan",
-        annotations={"title": "Plan the week's focus and admin blocks", "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+        name="vault_time_block",
+        annotations={"title": "Plan, write or audit the week's blocks", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
     )
     @_guard
-    def vault_time_block_plan(
+    def vault_time_block(
+        action: BlockAction,
         week: Annotated[str, Field(min_length=1, description="ISO week, e.g. 2026-W35.")],
-        events: Annotated[list[dict[str, Any]], Field(description="outlook_list_events items for the week.")],
-        today: Annotated[Optional[str], Field(description="Days before it are not planned.")] = None,
-        now: Annotated[Optional[str], Field(description="Local time HH:MM; only matters on today.")] = None,
+        events: Annotated[Optional[list[dict[str, Any]]], Field(description="plan / audit: outlook_list_events items for the week.")] = None,
+        today: Annotated[Optional[str], Field(description="plan: days before it are not planned.")] = None,
+        now: Annotated[Optional[str], Field(description="plan: local time HH:MM; only matters on today.")] = None,
         peak_hours: PeakHours = None,
-    ) -> str:
-        """Plan focus and admin blocks for the working days of week from today on, from Preferences.md and the priorities, placing what has a due date first. Nothing is booked, so the model creates the appointments after a yes; returns {week, priorities, days, totals, deadlines, unplaced, skipped_days, preferences_used, missing_keys}."""
-        return _json(timeblock.time_block_plan(week, events, today, now, peak_hours))
-
-    @mcp.tool(
-        name="vault_time_block_write",
-        annotations={"title": "Write the week's time-block note", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
-    )
-    @_guard
-    def vault_time_block_write(
-        week: Annotated[str, Field(min_length=1, description="ISO week, e.g. 2026-W35.")],
-        blocks: Annotated[list[dict[str, Any]], Field(description="The plan's blocks, with the create results.")],
+        blocks: Annotated[Optional[list[dict[str, Any]]], Field(description="write: the plan's blocks, with the create results.")] = None,
         created_by: CreatedBy = workflows.CREATED_BY,
     ) -> str:
-        """Write Time-blocks/<week>.md after the appointments exist: a '## Plan' table, an empty '## Held' table and '## Notes'. A re-plan of the same week appends the new table under '## Update'; returns {path, action, week, blocks, planned}."""
-        return _json(timeblock.write(week, blocks, created_by))
-
-    @mcp.tool(
-        name="vault_time_audit",
-        annotations={"title": "Hours per kind for a week", "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
-    )
-    @_guard
-    def vault_time_audit(
-        week: Annotated[str, Field(min_length=1, description="ISO week, e.g. 2026-W34.")],
-        events: Annotated[list[dict[str, Any]], Field(description="outlook_list_events items for that week.")],
-    ) -> str:
-        """How the week went: hours per kind against the work hours of Preferences.md, with the Held rows of Time-blocks/<week>.md applied. Returns {week, hours, work_hours, shares, per_priority, blocks, lines} — lines are ready for the weekly note's '## Time' section."""
-        return _json(timeblock.time_audit(week, events))
+        """plan: focus and admin blocks for the working days of week from today on, from Preferences.md and the priorities, what has a due date first — nothing is booked, so the model creates the appointments after a yes. write: Time-blocks/<week>.md once they exist, its '## Plan' table and an empty '## Held' one. audit: hours per kind against the work hours, with the note's Held rows applied."""
+        if action == "plan":
+            return _json(timeblock.time_block_plan(week, events or [], today, now, peak_hours))
+        if action == "write":
+            return _json(timeblock.write(week, blocks or [], created_by))
+        if action == "audit":
+            return _json(timeblock.time_audit(week, events or []))
+        raise RuntimeError("action must be 'plan', 'write' or 'audit'.")
 
     @mcp.tool(
         name="vault_priorities_write",

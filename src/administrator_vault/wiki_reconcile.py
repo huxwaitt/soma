@@ -3,11 +3,15 @@
 Obsidian is a text editor over the same files the code writes, so a page can
 change under it: a bullet typed into Facts, a fact reworded or deleted, an
 open item ticked, a page renamed, moved between folders or made from
-scratch. ``reconcile(root)`` runs at the start of every wiki tool call. It
-compares each file with what the code last wrote (``Wiki/_cache/state.json``)
-and takes the change over: a new bullet becomes a user fact dated the day the
-file changed, a changed fact keeps a History line, a removed fact is retired,
-a renamed page takes its links with it.
+scratch. ``reconcile(root)`` runs at the start of every wiki tool call that
+writes. It compares each file with what the code last wrote
+(``Wiki/_cache/state.json``) and takes the change over: a new bullet becomes
+a user fact dated the day the file changed, a changed fact keeps a History
+line, a removed fact is retired, a renamed page takes its links with it.
+
+The tools that only read call ``detect(root)`` instead. It compares the same
+way and answers how many files differ, and writes nothing: a read tool says
+``hand_edits: n`` and the next writing call is what adopts them.
 
 Nothing is thrown away. Text under a heading the contract does not know moves
 under ``## Notes`` with a dated marker, a History section that was shortened
@@ -176,6 +180,39 @@ def forget(root: Path, stem: str) -> None:
 def load_state(root: Path) -> dict[str, Any]:
     """The state file as a dict (for lint and tests)."""
     return _load(root)
+
+
+def detect(root: Path) -> int:
+    """How many pages differ from what the code last wrote — a scan, no writes.
+
+    The read tools call this instead of ``reconcile``: they say how many files
+    the user changed by hand and leave taking them over to the next writing
+    call, so no read ever rewrites a page. One stat per page, and only the few
+    whose size or time moved are read."""
+    if not (root / STATE_PATH).is_file():  # nothing written yet: the first writing call reads the wiki in
+        return 0
+    files = wiki_search._page_files(root)
+    if _MEMO.get(str(root)) == tuple((path, size, mtime) for path, _p, size, mtime in files):
+        return 0  # this process just read every page back
+    pages = _load(root).get("pages") or {}
+    seen: set[str] = set()
+    n = 0
+    for path, p, size, mtime in files:
+        stem = _stem(path)
+        seen.add(stem)
+        old = pages.get(stem)
+        if old is None:
+            n += 1
+            continue
+        if old.get("size") == size and old.get("mtime_ns") == mtime:
+            continue
+        try:
+            if old.get("hash") == _hash(read_text(p)):  # saved again with the same text
+                continue
+        except (OSError, UnicodeDecodeError):
+            continue
+        n += 1
+    return n + sum(1 for stem, e in pages.items() if stem not in seen and not e.get("deleted"))
 
 
 # ------------------------------------------------------------------ links
@@ -567,4 +604,4 @@ def _pass(root: Path, state: dict[str, Any], work: list[tuple], gone: list[str],
     return {"adopted": adopted, "review": review, "busy": busy, "first_run": first_run, "scanned": scanned}
 
 
-__all__ = ["reconcile", "note_write", "forget", "load_state", "STATE_PATH", "SCHEMA"]
+__all__ = ["reconcile", "detect", "note_write", "forget", "load_state", "STATE_PATH", "SCHEMA"]

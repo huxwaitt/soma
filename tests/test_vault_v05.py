@@ -104,6 +104,37 @@ def test_rules_get_and_match(vault):
     assert res["00A0"] == {"entry_id": "00A0", "label": None, "never_save": False, "rule": None}
 
 
+def test_rules_match_splits_kept_from_dropped(vault):
+    store.append_row("Administrator/Rules.md", "Never save", ["spam.example", "domain"])
+    items = [
+        item(1),
+        item(2, bulk=True, bulk_why="List-Unsubscribe header"),
+        item(3, bulk=False, bulk_why=""),
+        item(4, from_address="x@spam.example"),
+        item(5, bulk=True, from_address="x@spam.example"),
+    ]
+    res = workflows.rules_match(items)
+
+    # kept holds the items themselves, so the caller works on what came back
+    assert [i["entry_id"] for i in res["kept"]] == ["00A1", "00A3"]
+    assert res["kept"][0] is items[0]
+    assert res["dropped"] == [
+        {"entry_id": "00A2", "why": "bulk: List-Unsubscribe header"},
+        {"entry_id": "00A4", "why": "rule: Never save: spam.example (domain)"},
+        # bulk is looked at first, and stands on its own without a why
+        {"entry_id": "00A5", "why": "bulk: automatic mail"},
+    ]
+    assert res["counts"] == {"bulk": 2, "never_save": 1, "kept": 2}
+    # the per-item results are unchanged: one for every item, dropped or not
+    assert [r["entry_id"] for r in res["results"]] == ["00A1", "00A2", "00A3", "00A4", "00A5"]
+    assert res["results"][3]["never_save"] is True
+
+
+def test_rules_match_without_the_bulk_field_keeps_everything(vault):
+    res = workflows.rules_match([item(1), item(2)])
+    assert res["counts"] == {"bulk": 0, "never_save": 0, "kept": 2} and res["dropped"] == []
+
+
 # ------------------------------------------------------------------ inbox prepare + write daily
 
 
@@ -487,6 +518,7 @@ def test_server_round_trip_v05(vault):
     assert call("vault_rules", {})["labels"] == []
     r = call("vault_rules", {"action": "match", "items": [item(8, from_address="noreply@x.example")]})
     assert r["results"][0]["label"] == "fyi"
+    assert r["counts"] == {"bulk": 0, "never_save": 0, "kept": 1} and r["kept"][0]["entry_id"] == "00A8"
     prep = call("vault_inbox_prepare", {"items": [item(1)], "date": DAY})
     assert prep["to_label"][0]["entry_id"] == "00A1"
     w = call("vault_write_daily", {"date": DAY, "labels": [{"entry_id": "00A1", "label": "fyi", "reason": "r"}], "since": "s"})

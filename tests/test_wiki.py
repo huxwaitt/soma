@@ -577,32 +577,46 @@ def test_server_wiki_tools_round_trip(vault):
         out = asyncio.run(server.call_tool(name, args))
         return json.loads(out[0].text if isinstance(out, list) else out[0][0].text)
 
-    c = call("vault_wiki_create", {"type": "topic", "title": "Q3 budget", "lead": "Lead.", "summary": "S.", "facts": [{"text": "Deadline is 2026-08-29", "since": "2026-08-22"}]})
+    def write(args):
+        """One page through vault_wiki_write: the page's own result."""
+        return call("vault_wiki_write", args)["pages"][0]
+
+    c = write({"pages": [{"new": {"type": "topic", "title": "Q3 budget", "lead": "Lead.", "summary": "S.",
+                                 "facts": [{"text": "Deadline is 2026-08-29", "since": "2026-08-22"}]}}]})
     assert c["created"] and c["path"] == f"{W}/Topics/q3-budget.md"
     r = call("vault_wiki_read", {"path": "Wiki/Topics/q3-budget"})
     fid = r["facts"][0]["id"]
     rec = email(1)
-    i = call("vault_wiki_ingest", {"record_path": rec, "pages": [{"path": c["path"], "ops": [{"op": "confirm", "id": fid}]}]})
-    assert i["pages"][0]["applied"] == [{"op": "confirm", "id": fid}]
-    a = call("vault_wiki_apply", {"path": c["path"], "ops": [{"op": "contest", "id": fid, "text": "Deadline is 2026-08-30"}]})
+    i = call("vault_wiki_write", {"record_path": rec, "pages": [{"path": c["path"], "ops": [{"op": "confirm", "id": fid}]}]})
+    assert i["record"] and i["pages"][0]["applied"] == [{"op": "confirm", "id": fid}]
+    a = write({"pages": [{"path": c["path"], "ops": [{"op": "contest", "id": fid, "text": "Deadline is 2026-08-30"}]}]})
     assert a["applied"][0]["result"] == "review"
     # the commitment ops through the tools
-    o = call("vault_wiki_apply", {"path": c["path"], "ops": [
-        {"op": "open", "text": "Send the numbers", "owner": "Jane Doe", "due": "2026-08-29", "since": "2026-08-22", "src": "user"}]})
+    o = write({"pages": [{"path": c["path"], "ops": [
+        {"op": "open", "text": "Send the numbers", "owner": "Jane Doe", "due": "2026-08-29", "since": "2026-08-22", "src": "user"}]}]})
     oid = o["applied"][0]["id"]
     assert o["applied"][0]["owner"] == "Jane Doe"
     items = call("vault_wiki_search", {"query": "", "open_items": True, "owner": "others"})
     assert [(x["stem"], x["text"], x["owner"], x["due"]) for x in items] == [("Wiki/Topics/q3-budget", "Send the numbers", "Jane Doe", "2026-08-29")]
     assert call("vault_wiki_search", {"query": "", "open_items": True, "owner": "me"}) == []
-    assert call("vault_wiki_apply", {"path": c["path"], "ops": [{"op": "reschedule", "id": oid, "due": "2026-09-05", "src": "user"}]})["applied"][0]["due"] == "2026-09-05"
-    assert call("vault_wiki_apply", {"path": c["path"], "ops": [{"op": "done", "id": oid, "src": "user"}]})["applied"][0]["id"] == oid
+    assert write({"pages": [{"path": c["path"], "ops": [{"op": "reschedule", "id": oid, "due": "2026-09-05", "src": "user"}]}]})["applied"][0]["due"] == "2026-09-05"
+    assert write({"pages": [{"path": c["path"], "ops": [{"op": "done", "id": oid, "src": "user"}]}]})["applied"][0]["id"] == oid
     assert call("vault_wiki_search", {"query": "", "open_items": True}) == []
-    assert call("vault_wiki_match", {"text": "budget q3 numbers"})["pages"][0]["path"] == c["path"]
-    assert call("vault_wiki_log", {"page": "q3-budget"})["total"] == 6
-    assert len(call("vault_wiki_review", {})["open"]) == 1
-    assert call("vault_wiki_review", {"action": "resolve", "item": "1"})["page"] == "Wiki/Topics/q3-budget"
+    assert call("vault_wiki_search", {"query": "budget q3 numbers", "pages": True})["pages"][0]["path"] == c["path"]
+    assert call("vault_wiki_keep", {"action": "log", "page": "q3-budget"})["total"] == 6
+    assert len(call("vault_wiki_keep", {"action": "review"})["open"]) == 1
+    assert call("vault_wiki_keep", {"action": "review", "review_action": "resolve", "item": "1"})["page"] == "Wiki/Topics/q3-budget"
+    # one write, several pages: an existing one and a new one, each with its own result
+    multi = call("vault_wiki_write", {"pages": [
+        {"path": c["path"], "ops": [{"op": "add", "text": "Forecast closes on 2026-09-02", "since": "2026-08-22"}]},
+        {"new": {"type": "org", "title": "Acme Parts", "lead": "The supplier.", "summary": "Supplier."}},
+    ]})
+    assert multi["record"] is None and multi["candidate"] is None and len(multi["pages"]) == 2
+    assert multi["pages"][0]["written"] is True and multi["pages"][1]["created"] is True
     with pytest.raises(Exception):
-        asyncio.run(server.call_tool("vault_wiki_review", {"action": "nope"}))
+        asyncio.run(server.call_tool("vault_wiki_keep", {"action": "review", "review_action": "nope"}))
+    with pytest.raises(Exception):
+        asyncio.run(server.call_tool("vault_wiki_keep", {"action": "nope"}))
     with pytest.raises(Exception):
         asyncio.run(server.call_tool("vault_wiki_read", {"path": "Administrator/Follow-ups.md"}))
 

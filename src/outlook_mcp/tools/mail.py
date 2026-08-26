@@ -100,7 +100,7 @@ def register(mcp, bridge) -> None:
         preview_chars: PreviewChars = 200,
         response_format: Annotated[str, Field(description="'markdown' or 'json'.")] = "markdown",
     ) -> CallToolResult:
-        """List mail items from a folder, newest first. All filters are pushed into Outlook's index (DASL Restrict), so large folders stay fast."""
+        """List mail items from a folder, newest first. All filters are pushed into Outlook's index (DASL Restrict), so large folders stay fast. Each item carries bulk / bulk_why (mailing list, machine notice, meeting response, receipt), worked out only when bulk is among fields."""
         data = await bridge.call(
             mail_client.list_mails,
             folder=folder,
@@ -150,7 +150,7 @@ def register(mcp, bridge) -> None:
         preview_chars: PreviewChars = 200,
         response_format: Annotated[str, Field(description="'markdown' or 'json'.")] = "markdown",
     ) -> CallToolResult:
-        """Search a mail folder by subject, body, or sender. Keyword + date/unread/attachment filters are combined into one server-side DASL Restrict."""
+        """Search a mail folder by subject, body, or sender. Keyword + date/unread/attachment filters are combined into one server-side DASL Restrict. Items carry bulk / bulk_why like outlook_list_mails, worked out only when bulk is among fields."""
         data = await bridge.call(
             mail_client.search_mails,
             query=query,
