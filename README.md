@@ -331,4 +331,4 @@ Notes are plain markdown with frontmatter and wikilinks; nothing beyond core Obs
 
 ## License
 
-MIT
+Apache License 2.0 — see `LICENSE`. Copyright 2026 huxwaitt.

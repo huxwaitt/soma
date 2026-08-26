@@ -5,7 +5,7 @@
   "author": {
     "name": "huxwaitt"
   },
-  "license": "MIT",
+  "license": "Apache-2.0",
   "keywords": ["outlook", "obsidian", "email", "inbox", "notes", "meetings", "scheduling", "setup", "followups", "weekly", "find", "search", "attachments", "documents", "draft", "reply", "voice", "teams", "wiki", "collect", "history", "assistant", "windows", "mcp"],
   "mcpServers": {
     "outlook": {
