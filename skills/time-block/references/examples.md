@@ -26,7 +26,7 @@ outlook_list_events(start="2026-08-17T00:00:00", end="2026-08-23T23:59:59", incl
    → 15 items (six `[Focus]` / `[Admin]` blocks, eight meetings, one all-day "Team day" marked free).
 
 ```
-vault_time_audit(week="2026-W34", events=<items[]>)
+vault_time_block(action="audit", week="2026-W34", events=<items[]>)
 ```
 
 ```json
@@ -49,7 +49,7 @@ outlook_list_events(start="2026-08-24T00:00:00", end="2026-08-30T23:59:59", incl
    → 10 items: Mon Stand-up 09:30–10:00 (4 attendees) and Budget review with Jane 13:00–14:00 (2); Tue Weekly supplier sync 10:00–11:00 (3) and 1:1 with Priya 15:00–15:30 (1); Wed Offsite planning workshop 09:00–12:00 (6), Vendor demo 13:00–15:00 (5), Leadership sync 15:30–17:00 (7); Thu `[Focus] ACME supplier contract` 09:00–10:30 (0 attendees, `entry_id: "000000000400C2709"`, `occurrence_key: "0400C|2026-08-27T09:00:00+02:00"`) and Dentist 14:00–14:30 (0); Fri Stand-up 11:00–11:30 (4).
 
 ```
-vault_time_block_plan(week="2026-W35", events=<items[]>, today="2026-08-24", now="08:40")
+vault_time_block(action="plan", week="2026-W35", events=<items[]>, today="2026-08-24", now="08:40")
 ```
 
 ```json
@@ -126,7 +126,7 @@ outlook_create_event(subject="[Focus] ACME supplier contract", start="2026-08-24
 6. The note — all 13 blocks, the 12 new ones with their `entry_id` and `occurrence_key` merged in:
 
 ```
-vault_time_block_write(week="2026-W35", blocks=[...13 blocks...], created_by="administrator/0.4.0")
+vault_time_block(action="write", week="2026-W35", blocks=[...13 blocks...], created_by="administrator/0.4.0")
 ```
 
    → `{"path": "Administrator/Time-blocks/2026-W35.md", "action": "created", "week": "2026-W35", "blocks": 13, "planned": 13}`. The note (the model never types it):
@@ -179,7 +179,7 @@ Tuesday 25 Aug, 08:10. The vendor demo on Wednesday was cancelled. User: `/admin
 2. `outlook_list_events(...)` for 24–30 Aug now returns 21 items: the 9 meetings and the Dentist, plus the 12 blocks booked on Monday (0 attendees, `busy_status: "busy"`, `categories: "Administrator"`) — Vendor demo gone.
 
 ```
-vault_time_block_plan(week="2026-W35", events=<items[]>, today="2026-08-25", now="08:50")
+vault_time_block(action="plan", week="2026-W35", events=<items[]>, today="2026-08-25", now="08:50")
 ```
 
 ```json
@@ -214,7 +214,7 @@ Book these 1 blocks? They are appointments without attendees — nothing is sent
 
    User: "yes" → one `outlook_create_event(subject="[Focus] ACME supplier contract", start="2026-08-26T12:15:00", end="2026-08-26T13:45:00", show_as="busy", categories="Administrator", reminder_minutes=0, body="Planned by administrator on 2026-08-25 for ACME supplier contract")` → `occurrence_key: "0400E01…|2026-08-26T12:15:00+02:00"`.
 
-4. `vault_time_block_write(week="2026-W35", blocks=[<the one new block with its keys>], created_by="administrator/0.4.0")` → `{"path": "Administrator/Time-blocks/2026-W35.md", "action": "appended", "week": "2026-W35", "blocks": 1, "planned": 14}`. The note gains:
+4. `vault_time_block(action="write", week="2026-W35", blocks=[<the one new block with its keys>], created_by="administrator/0.4.0")` → `{"path": "Administrator/Time-blocks/2026-W35.md", "action": "appended", "week": "2026-W35", "blocks": 1, "planned": 14}`. The note gains:
 
 ```markdown
 ## Update 2026-08-25T08:11:02+02:00
@@ -235,7 +235,7 @@ Saturday 22 Aug, `/administrator:weekly` for `2026-W34`. Next to `vault_weekly_f
 ```
 outlook_list_events(start="2026-08-17T00:00:00", end="2026-08-23T23:59:59", include_recurrences=true, limit=200,
                     fields=["subject","start","end","all_day","attendee_count","is_meeting","occurrence_key","busy_status"], response_format="json")
-vault_time_audit(week="2026-W34", events=<items[]>)
+vault_time_block(action="audit", week="2026-W34", events=<items[]>)
 ```
 
 The result is the one in example 1 step 2: `/administrator:collect-information` had answered five of the six blocks in the note's `## Held` table (Mon focus held, Mon admin held, Tue focus skipped "urgent ACME call", Tue admin moved "done 17:30", Thu focus held; Thu admin never answered). The skipped block's 90 minutes count as unplanned; the moved block keeps its 45. The weekly note gets, between `## People going quiet` and `## Wiki`:
@@ -294,10 +294,10 @@ vault_priorities_write(action="write", lines=["[[Wiki/Topics/acme-supplier-contr
 
 2. Last week: the calls and the three lines of example 1 step 2.
 
-3. This week: the events of example 1 step 3, then `vault_time_block_plan(week="2026-W35", events=<items[]>, today="2026-08-24", now="08:40")` → the plan of example 1 with a fourth priority (`{"rank": 4, "name": "Hiring: backend role", "page": null}`), `"preferences_used": {…, "peak_hours": ["09:00-12:00"], …}` and `"missing_keys": ["peak_hours"]`. The key is missing, so the plan is not shown on the default; the turn ends with: "When are you sharpest? (focus blocks go there first; e.g. 09:00–12:00)". User: "mornings, 9 to 12".
+3. This week: the events of example 1 step 3, then `vault_time_block(action="plan", week="2026-W35", events=<items[]>, today="2026-08-24", now="08:40")` → the plan of example 1 with a fourth priority (`{"rank": 4, "name": "Hiring: backend role", "page": null}`), `"preferences_used": {…, "peak_hours": ["09:00-12:00"], …}` and `"missing_keys": ["peak_hours"]`. The key is missing, so the plan is not shown on the default; the turn ends with: "When are you sharpest? (focus blocks go there first; e.g. 09:00–12:00)". User: "mornings, 9 to 12".
 
 ```
-vault_time_block_plan(week="2026-W35", events=<items[]>, today="2026-08-24", now="08:40", peak_hours=["09:00-12:00"])
+vault_time_block(action="plan", week="2026-W35", events=<items[]>, today="2026-08-24", now="08:40", peak_hours=["09:00-12:00"])
 ```
 
    → `preferences_used.peak_hours: ["09:00-12:00"]`, `missing_keys` still `["peak_hours"]` (the file did not change; the override is for this run). The answer matched the default, so the blocks are those of example 1 — the point is that the hours were asked, not assumed.

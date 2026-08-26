@@ -20,13 +20,13 @@ Vault conventions live in the core `administrator` skill and `administrator/refe
 
 ### 1. Find the window
 
-`vault_list("daily", limit=1, fields=["date", "inbox_checked"])` → `since` = that note's `inbox_checked` (its `date` at 00:00 local when the key is missing). User gave `since` → use it. No daily note → now minus 24 hours. `outlook_whoami(response_format="json")` once per session for `utc_offset` and `local_time`. Say in one line which window you use: "Checking mail since Thu 21 Aug 17:05."
+`vault_find("daily", limit=1, fields=["date", "inbox_checked"])` → `since` = that note's `inbox_checked` (its `date` at 00:00 local when the key is missing). User gave `since` → use it. No daily note → now minus 24 hours. `outlook_whoami(response_format="json")` once per session for `utc_offset` and `local_time`. Say in one line which window you use: "Checking mail since Thu 21 Aug 17:05."
 
 ### 2. List the mail — one call, small fields
 
 ```
 outlook_list_mails(folder=<folder>, unread_only=true, since=<since>, limit=100,
-    fields=["entry_id", "internet_message_id", "from_address", "from", "subject", "received", "preview"],
+    fields=["entry_id", "internet_message_id", "from_address", "from", "subject", "received", "bulk", "bulk_why", "preview"],
     preview_chars=80, response_format="json")
 ```
 
@@ -45,7 +45,7 @@ Back come `to_label[]` (only mails not yet in any daily note of this ISO week an
 
 ### 4. Label the rest
 
-Only for `to_label[]` entries with `label: null`. Work from `from_name`, `from_address`, `subject`, `received`, `preview`, using `references/labels.md` (short form: **act** do something, **reply** write back, **waiting** they owe me, **fyi** read, **noise** ignore; when torn take the more demanding label — a wrong `noise` costs the most). Your whole output for this step is one compact JSON list, nothing else:
+Only for `to_label[]` entries with `label: null`. An entry whose `entry_id` came back `bulk: true` in the listing is `noise` with nothing opened — a machine wrote it, and `bulk_why` names the signal in the reason ("bulk: meeting response"). Work from `from_name`, `from_address`, `subject`, `received`, `preview`, using `references/labels.md` (short form: **act** do something, **reply** write back, **waiting** they owe me, **fyi** read, **noise** ignore; when torn take the more demanding label — a wrong `noise` costs the most). Your whole output for this step is one compact JSON list, nothing else:
 
 ```json
 [{"entry_id": "00000000A2…", "label": "reply", "reason": "Asks you for the revised Q3 figure"}]
@@ -71,7 +71,7 @@ vault_write_daily(date=<today>, labels=<the JSON from step 4>, since=<since>, in
 
 Items come from the cache; rule-labelled mails need no entry in `labels`. The server sorts the table, writes the `<!-- entry_id -->` comments, links the `Note` column to existing email notes, fills `## To do` and `## Waiting on` (each `waiting` mail also opens an item on the sender's page, owned by them), writes `## Promised` on the first run of the day, and on a second run today appends only new rows under `## Update <ISO>` (the only frontmatter key that moves is `inbox_checked`). Read the result: `action` (`created` / `appended` / `unchanged`), `rows_written`, `duplicates_skipped`, `followups_added`, `promised`, `unlabelled[]` (fix: label them and call again — they were left out of the note). `unchanged` means nothing was written; say so.
 
-Closing a follow-up: when a fresh mail is a reply from someone who owes an open item on the same subject, `vault_wiki_search(query="", open_items=true, owner="others", page=<their person page>)` once, then `vault_wiki_apply(path=<the item's page>, ops=[{"op": "done", "id": <the item's id>, "src": "user"}])`. Say so in the report. Skip the search when no fresh mail is a reply from a person. Never write a row into `Follow-ups.md`; the file is written from the pages.
+Closing a follow-up: when a fresh mail is a reply from someone who owes an open item on the same subject, `vault_wiki_search(query="", open_items=true, owner="others", page=<their person page>)` once, then `vault_wiki_write(pages=[{"path": <the item's page>, "ops": [{"op": "done", "id": <the item's id>, "src": "user"}]}])`. Say so in the report. Skip the search when no fresh mail is a reply from a person. Never write a row into `Follow-ups.md`; the file is written from the pages.
 
 ### 6. `daily` only — the calendar
 
@@ -95,7 +95,7 @@ One yes per item; "yes" to 1 is not yes to 2. Ask with one short message ending 
 Count, in this run's `to_label[]`, the mails you labelled yourself per `from_address` (or per domain for automated senders) and label. When one sender got the same label **5 or more times**, and `vault_rules(action="get")` has no row for it yet, propose one line: "You labelled 6 mails from news@vendor.example as noise. Add the rule `news@vendor.example → noise` to Rules.md so they skip the model next time?" Only on a clear yes:
 
 ```
-vault_append_row("Administrator/Rules.md", "Labels", [<match>, <field: from | domain | name | subject>, <label>])
+vault_row(action="append", path="Administrator/Rules.md", section="Labels", row=[<match>, <field: from | domain | name | subject>, <label>])
 ```
 
 No `dedupe_key` (the `Rules.md` parser reads plain cells); the `vault_rules` check is the duplicate guard. `never_save` rules are never proposed — the user writes those by hand. One proposal per run.

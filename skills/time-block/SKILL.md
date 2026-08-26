@@ -1,11 +1,11 @@
 ---
 name: time-block
-description: Plans the week's focus and admin blocks as appointments in the user's own Outlook calendar. Reads `Preferences.md` and `Priorities.md` (an empty list gets a suggestion from `vault_priorities_write`, written only after the user's yes), gives what the user owes this week a block before its due day, shows how last week went (`vault_time_audit`), lets `vault_time_block_plan` place `[Focus] <priority>` and `[Admin] Email and small tasks` blocks around the meetings with a slack share kept free, shows one line per day, books them with `outlook_create_event` only after a yes (appointments without attendees — nothing is sent to anyone), then writes `Administrator/Time-blocks/YYYY-Www.md` with `vault_time_block_write`. Trigger when the user says "/administrator:time-block", "plan my week", "block time for", "time-block next week", "book my focus blocks", "protect my mornings", "when do I get to work on X", "re-plan the week", "how did my week go against my priorities", "suggest priorities", "what should I focus on", "what should my priorities be". Never deletes or moves an appointment; a re-plan only adds.
+description: Plans the week's focus and admin blocks as appointments in the user's own Outlook calendar. Reads `Preferences.md` and `Priorities.md` (an empty list gets a suggestion from `vault_priorities_write`, written only after the user's yes), gives what the user owes this week a block before its due day, shows how last week went (`vault_time_block` audit), lets `vault_time_block` plan place `[Focus] <priority>` and `[Admin] Email and small tasks` blocks around the meetings with a slack share kept free, shows one line per day, books them with `outlook_create_event` only after a yes (appointments without attendees — nothing is sent to anyone), then writes `Administrator/Time-blocks/YYYY-Www.md` with `vault_time_block` write. Trigger when the user says "/administrator:time-block", "plan my week", "block time for", "time-block next week", "book my focus blocks", "protect my mornings", "when do I get to work on X", "re-plan the week", "how did my week go against my priorities", "suggest priorities", "what should I focus on", "what should my priorities be". Never deletes or moves an appointment; a re-plan only adds.
 ---
 
 # time-block — the week's focus and admin blocks
 
-The planner (`vault_time_block_plan`) does the placing; you show the week, ask once, create the appointments, and let `vault_time_block_write` keep the plan. Why the blocks look the way they do — specific when-and-where plans, long blocks in peak hours, shallow work in a few batches, a fifth of the day left free, a weekly audit — is in `references/method.md` (load it when the user asks why, or wants to change a preference). Worked runs with every call and result: `references/examples.md` — load it the first time this runs in a session. Outlook mechanics follow the `outlook` skill; notes go only through `vault_*` tools (`skills/administrator/references/vault.md`).
+The planner (`vault_time_block(action="plan")`) does the placing; you show the week, ask once, create the appointments, and let `vault_time_block(action="write")` keep the plan. Why the blocks look the way they do — specific when-and-where plans, long blocks in peak hours, shallow work in a few batches, a fifth of the day left free, a weekly audit — is in `references/method.md` (load it when the user asks why, or wants to change a preference). Worked runs with every call and result: `references/examples.md` — load it the first time this runs in a session. Outlook mechanics follow the `outlook` skill; notes go only through `vault_*` tools (`skills/administrator/references/vault.md`).
 
 Once per session: `vault_status` (a false folder or file flag → `vault_init(created_by="administrator/0.4.0")`; vault unset or not a directory → stop and say so) and `outlook_whoami(response_format="json")` — `local_time` is "now" and "today"; the offset in it is the one every ISO string below carries.
 
@@ -38,7 +38,7 @@ vault_priorities_write(action="write", lines=["[[Wiki/Topics/acme-supplier-contr
 ```
 outlook_list_events(start="<last Monday>T00:00:00", end="<last Sunday>T23:59:59", include_recurrences=true, limit=200,
                     fields=["subject","start","end","all_day","attendee_count","is_meeting","occurrence_key","busy_status"], response_format="json")
-vault_time_audit(week=<last ISO week>, events=<items[]>)
+vault_time_block(action="audit", week=<last ISO week>, events=<items[]>)
 ```
 
 → `{week, hours: {meeting, focus, admin, other, unplanned}, work_hours, shares, per_priority: [{name, planned_hours, held_hours}], blocks: {planned, held, moved, skipped, unanswered}, held_rows, lines}`. Show the three `lines` as they came, under "Last week:"; nothing else from the result. No blocks last week → the second line reads `Blocks: none planned this week.` and that is fine. `unanswered` above zero → one clause: "`/administrator:collect-information` asks about today's blocks each day".
@@ -48,7 +48,7 @@ vault_time_audit(week=<last ISO week>, events=<items[]>)
 ```
 outlook_list_events(start="<Monday>T00:00:00", end="<Sunday>T23:59:59", include_recurrences=true, limit=200,
                     fields=["subject","start","end","all_day","attendee_count","is_meeting","occurrence_key","entry_id","busy_status"], response_format="json")
-vault_time_block_plan(week=<week>, events=<items[]>, today=<today>, now=<HH:MM>)   # now from whoami.local_time; today is planned from that time on
+vault_time_block(action="plan", week=<week>, events=<items[]>, today=<today>, now=<HH:MM>)   # now from whoami.local_time; today is planned from that time on
 ```
 
 → `{week, start, end, today, priorities: [{rank, name, page, due}], days: [{date, day, work_minutes, meeting_minutes, bookable_minutes, booked_minutes, slack_minutes, blocks: [{date, day, start, end, minutes, kind, subject, priority, page, existing}]}], totals: {focus_minutes, admin_minutes, new_blocks, existing_blocks, slack_share_kept}, deadlines: [{name, due, page, block_date}], unplaced: [{rank, name, page, due, reason}], skipped_days: [{date, reason}], preferences_used, missing_keys}`. Blocks with `existing: true` are already in Outlook (they carry `occurrence_key` and `entry_id`) and are never booked again. `priorities` are the numbered lines, then the user's own open items due by the end of the week, then active wiki topics due within 30 days or with open items. What has a due date is placed first, in the latest free new focus block before that day (`deadlines[].block_date`, `null` when the week had none). Pass the events exactly as listed; the planner ignores all-day and free-marked events itself.
@@ -82,7 +82,7 @@ No `attendees`, no `location`, no `is_online_meeting`, no `recurrence`. Result `
 ### 7. The plan note
 
 ```
-vault_time_block_write(week=<week>, blocks=<every block of the shown plan; new ones with entry_id and occurrence_key from the create results merged in, existing ones as they came>, created_by="administrator/0.4.0")
+vault_time_block(action="write", week=<week>, blocks=<every block of the shown plan; new ones with entry_id and occurrence_key from the create results merged in, existing ones as they came>, created_by="administrator/0.4.0")
 ```
 
 → `{path, action, week, blocks, planned}`. The note holds a `## Plan` table (one row per block, hidden `occurrence_key`), an empty `## Held` table that `/administrator:collect-information` fills day by day, and `## Notes`. `action: appended` = the week had a note; the new rows sit under `## Update`. Never `vault_write` this note yourself.
@@ -98,7 +98,7 @@ The same run on a week that has blocks. The planner returns them as `existing` a
 ## Rules
 
 - `outlook_create_event` only after the exact question of step 5 got a clear yes, never with attendees from this skill. Never `outlook_delete_event`. `outlook_update_event` on a block is offered only by `/administrator:daily` when a meeting lands on it (no attendees, nothing sent).
-- Subjects are exactly `[Focus] <priority>` and `[Admin] Email and small tasks`: `vault_time_audit`, `/administrator:daily`, `/administrator:collect-information` and `max_meetings_per_day` in `free` / `schedule` all key on the two prefixes.
+- Subjects are exactly `[Focus] <priority>` and `[Admin] Email and small tasks`: `vault_time_block(action="audit")`, `/administrator:daily`, `/administrator:collect-information` and `max_meetings_per_day` in `free` / `schedule` all key on the two prefixes.
 - Never write `Preferences.md`; `Priorities.md` only through `vault_priorities_write(action="write")` with the lines the user confirmed after the exact question of step 1; never pass the events back with a value changed (times, keys and subjects come from Outlook).
 - `fields=[...]` on every `outlook_list_events` call; `response_format="json"`; the same local ISO strings everywhere.
 - One question per turn: the priorities question, the peak-hours question, the booking question — never two in one.

@@ -11,8 +11,8 @@ Three ingests, call by call. Tool results are cut to what the model reads. Dates
 1. Match:
 
 ```
-vault_wiki_match(text="Re: Budget Q3 — could you send me the final Q3 numbers by Friday 29 August? I need them to close the forecast on 2 September. Same sheet as last time, Sales tab.",
-                 people=["jane.doe@example.com"], domains=["example.com"], limit=8)
+vault_wiki_search(query="Re: Budget Q3 — could you send me the final Q3 numbers by Friday 29 August? I need them to close the forecast on 2 September. Same sheet as last time, Sales tab.",
+                  pages=true, people=["jane.doe@example.com"], domains=["example.com"], limit=8)
 ```
 
 ```json
@@ -44,7 +44,7 @@ vault_wiki_read(path="Administrator/Wiki/Topics/q3-budget.md", sections=["lead",
 4. One call:
 
 ```
-vault_wiki_ingest(record_path="Administrator/Emails/2026-08-22 Budget Q3.md", created_by="administrator/0.4.0", pages=[
+vault_wiki_write(record_path="Administrator/Emails/2026-08-22 Budget Q3.md", created_by="administrator/0.4.0", pages=[
   {"path": "Administrator/Wiki/Topics/q3-budget.md", "ops": [
     {"op": "supersede", "id": "7k2q", "text": "Deadline for the user's numbers is 2026-08-29", "since": "2026-08-22", "src": "<7f3a9c@example.com>"},
     {"op": "add", "text": "Forecast closes 2026-09-02", "since": "2026-08-22", "src": "<7f3a9c@example.com>"},
@@ -84,7 +84,7 @@ The page now has `verified: 2026-08-22`, the History line `superseded "Deadline 
 > - first Sep delivery moved to 8 Sep, Tom to send updated schedule by Wed
 > - packaging spec: Jane will send the draft next week
 
-1. `vault_wiki_match(text="Weekly supplier sync — contract: Jane ok with net 45 … packaging spec: Jane will send the draft next week", people=["jane.doe@acme-parts.com","tom.lee@acme-parts.com"], domains=["acme-parts.com"])` → `Wiki/Topics/acme-supplier-contract` (alias hit "supplier contract"), `Wiki/Orgs/acme-parts` (domain), `Wiki/People/Jane Doe`, `Wiki/People/Tom Lee`. Four hits; read the topic, the org and Tom (Jane's page was read this session and has no fact about delivery or packaging).
+1. `vault_wiki_search(query="Weekly supplier sync — contract: Jane ok with net 45 … packaging spec: Jane will send the draft next week", pages=true, people=["jane.doe@acme-parts.com","tom.lee@acme-parts.com"], domains=["acme-parts.com"])` → `Wiki/Topics/acme-supplier-contract` (alias hit "supplier contract"), `Wiki/Orgs/acme-parts` (domain), `Wiki/People/Jane Doe`, `Wiki/People/Tom Lee`. Four hits; read the topic, the org and Tom (Jane's page was read this session and has no fact about delivery or packaging).
 
 2. `vault_wiki_read("Administrator/Wiki/Topics/acme-supplier-contract.md", sections=["lead","facts"])` →
 
@@ -101,7 +101,7 @@ The page now has `verified: 2026-08-22`, the History line `superseded "Deadline 
 4. One call:
 
 ```
-vault_wiki_ingest(record_path="Administrator/Meetings/2026-08-25 1300 Weekly supplier sync.md", created_by="administrator/0.4.0", pages=[
+vault_wiki_write(record_path="Administrator/Meetings/2026-08-25 1300 Weekly supplier sync.md", created_by="administrator/0.4.0", pages=[
   {"path": "Administrator/Wiki/Topics/acme-supplier-contract.md", "ops": [
     {"op": "supersede", "id": "d2f8", "text": "Payment terms are net 45", "since": "2026-08-25", "src": "0400A1…|2026-08-25T13:00:00+02:00"},
     {"op": "supersede", "id": "q5hh", "text": "First September delivery is on 2026-09-08", "since": "2026-08-25", "src": "0400A1…|2026-08-25T13:00:00+02:00"},
@@ -126,12 +126,12 @@ On 2026-08-26 the user says "save the thread with Jane about the budget timing".
 
 The save writes `Administrator/Emails/2026-08-19 Budget timing.md`. Ingest:
 
-1. `vault_wiki_match(...)` → `Wiki/Topics/q3-budget`.
+1. `vault_wiki_search(..., pages=true)` → `Wiki/Topics/q3-budget`.
 2. `vault_wiki_read(...)` → fact `m4rt` "Deadline for the user's numbers is 2026-08-29", `since: 2026-08-22`.
 3. Compare. The mail disagrees, but it is dated 2026-08-19, before the current fact's `since` of 2026-08-22. The 29 Aug fact came from a later mail, so it very likely still holds — but the model does not decide that. `contest`, not `supersede`:
 
 ```
-vault_wiki_ingest(record_path="Administrator/Emails/2026-08-19 Budget timing.md", created_by="administrator/0.4.0", pages=[
+vault_wiki_write(record_path="Administrator/Emails/2026-08-19 Budget timing.md", created_by="administrator/0.4.0", pages=[
   {"path": "Administrator/Wiki/Topics/q3-budget.md", "ops": [
     {"op": "contest", "id": "m4rt", "text": "Deadline for the user's numbers is 2026-08-27", "src": "<e41c2@example.com>"}]}])
 ```
@@ -155,7 +155,7 @@ Had the model sent `supersede` with `since: "2026-08-19"` instead, the result wo
 When the user answers "29 is right, 27 was the old plan":
 
 ```
-vault_wiki_review(action="resolve", item="1", resolution_ops=[{"op": "confirm", "id": "m4rt", "src": "user"}], created_by="administrator/0.4.0")
+vault_wiki_keep(action="review", review_action="resolve", item="1", resolution_ops=[{"op": "confirm", "id": "m4rt", "src": "user"}], created_by="administrator/0.4.0")
 ```
 
 → `{"resolved": "- [ ] [[Wiki/Topics/q3-budget]] — f:m4rt …", "page": "Wiki/Topics/q3-budget", "applied": {...}}`. The Review line moves to `## Done` with the date, the `contradiction` flag is cleared, and `m4rt` gains `user` as its newest source — which now pins it (`user-pin`) against any later record that tries to supersede it.
@@ -165,7 +165,7 @@ vault_wiki_review(action="resolve", item="1", resolution_ops=[{"op": "confirm", 
 The same meeting note says "we agreed to go with net 45 for the whole contract; the 2 % early-payment discount was dropped". That is a choice that now stands, so the decision page goes into the same ingest, without asking:
 
 ```
-vault_wiki_ingest(record_path="Administrator/Meetings/2026-08-25 1300 Weekly supplier sync.md", created_by="administrator/0.4.0", pages=[
+vault_wiki_write(record_path="Administrator/Meetings/2026-08-25 1300 Weekly supplier sync.md", created_by="administrator/0.4.0", pages=[
   {"new": {"type": "decision", "title": "Net 45 terms", "aliases": ["net-45"],
            "lead": "The ACME Parts contract runs on net 45 from v3 on. The 2 % early-payment discount was dropped in exchange.",
            "summary": "ACME Parts contract runs on net 45; the early-payment discount is dropped.",
@@ -177,7 +177,7 @@ vault_wiki_ingest(record_path="Administrator/Meetings/2026-08-25 1300 Weekly sup
 
 → the page is written as `Wiki/Decisions/net-45-terms` with `status: current`, `flags: ["unconfirmed-decision"]`, and one line in `Review.md`: `- [ ] [[Wiki/Decisions/net-45-terms]] — unconfirmed decision: "The ACME Parts contract runs on net 45" — confirm or drop ([[Meetings/2026-08-25 1300 Weekly supplier sync]])`. The report says so in one line: "Decision `Decisions/net-45-terms` written from the meeting — confirm or drop it (`/administrator:wiki resolve review`)."
 
-Later, when the user says "yes, that one stands": `vault_wiki_review(action="resolve", item="net-45-terms", resolution_ops=[{"op": "confirm", "id": "f2np"}])` → the flag goes and the line moves to `## Done`. Dropping it instead is `resolution_ops=[{"op": "status", "value": "dropped"}]`. A later `{"op": "add", …}` on that page comes back `refused: [{"op": "add", "reason": "append-only", "detail": "A decision page is never rewritten. …"}]` — the consequence goes on the topic page, or into a new decision linked with `superseded_by`.
+Later, when the user says "yes, that one stands": `vault_wiki_keep(action="review", review_action="resolve", item="net-45-terms", resolution_ops=[{"op": "confirm", "id": "f2np"}])` → the flag goes and the line moves to `## Done`. Dropping it instead is `resolution_ops=[{"op": "status", "value": "dropped"}]`. A later `{"op": "add", …}` on that page comes back `refused: [{"op": "add", "reason": "append-only", "detail": "A decision page is never rewritten. …"}]` — the consequence goes on the topic page, or into a new decision linked with `superseded_by`.
 
 ## What the model never does in these runs
 
@@ -195,7 +195,7 @@ Three short pieces the skill file points at.
 **An open item on a person page.** What Jane owes, opened from the mail that asked for it (the `## Open` line format itself is in `wiki.md`):
 
 ```
-vault_wiki_apply(path="Wiki/People/Jane Doe", ops=[{"op": "open", "text": "Send the signed contract", "owner": "[[Wiki/People/Jane Doe]]", "due": "2026-09-02", "since": "2026-08-25", "src": "<7f3a9c@example.com>"}], src="<7f3a9c@example.com>")
+vault_wiki_write(pages=[{"path": "Wiki/People/Jane Doe", "ops": [{"op": "open", "text": "Send the signed contract", "owner": "[[Wiki/People/Jane Doe]]", "due": "2026-09-02", "since": "2026-08-25", "src": "<7f3a9c@example.com>"}]}], src="<7f3a9c@example.com>")
 ```
 
 Closing it later is `{"op": "done", "id": <the item's `o:` id>, "src": "user"}`, a new date `{"op": "reschedule", "id": …, "due": "2026-09-09", "src": …}`. `Administrator/Follow-ups.md` is written from these lines and refuses rows.

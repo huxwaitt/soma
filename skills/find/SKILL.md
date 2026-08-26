@@ -48,7 +48,7 @@ Then one line: `Save #1 as a note? (/administrator:save <entry_id>)` — for the
 
 ## Rules
 
-- Read-only: no `outlook_mark_mail`, `outlook_move_mail`, `outlook_save_*`, `outlook_send_mail`, `outlook_reply_mail`, no `vault_write`, no `vault_append_row`, no `vault_wiki_ingest` / `vault_wiki_apply`.
+- Read-only: no `outlook_mark_mail`, `outlook_move_mail`, `outlook_save_*`, `outlook_send_mail`, `outlook_reply_mail`, no `vault_write`, no `vault_row`, no `vault_wiki_write`.
 - Quote, do not summarise. When no snippet or body sentence holds a search word, quote the first sentence of the newest message and say "closest match".
 - The snippet is the server's best sentence, not proof: read the thread when the snippet is a greeting, a signature line or says "see below".
 - `outlook_advanced_search` returning nothing proves nothing (unindexed store; `count: 0` with `timed_out: false`); say "not found in the index", never "does not exist".

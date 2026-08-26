@@ -1,6 +1,6 @@
 # Preferences reference — `<vault>/Administrator/Preferences.md`
 
-One file holds the user's scheduling preferences. The `schedule` skill reads it (`vault_read("Administrator/Preferences.md")`) once per session — again only when the user says they changed it — and applies it on top of what Outlook returns. The `time-block` skill's planner (`vault_time_block_plan`) and `/administrator:collect-information` (`vault_changed_notes`) read the same file inside the vault server. The user edits it by hand in Obsidian; `vault_init` creates it when it is missing (`/administrator:setup` asks for work hours first, every other command uses the defaults below) and only `vault_init(overwrite=true)` ever rewrites it.
+One file holds the user's scheduling preferences. The `schedule` skill reads it (`vault_read("Administrator/Preferences.md")`) once per session — again only when the user says they changed it — and applies it on top of what Outlook returns. The `time-block` skill's planner (`vault_time_block(action="plan")`) and `/administrator:collect-information` (`vault_collect(action="changed")`) read the same file inside the vault server. The user edits it by hand in Obsidian; `vault_init` creates it when it is missing (`/administrator:setup` asks for work hours first, every other command uses the defaults below) and only `vault_init(overwrite=true)` ever rewrites it.
 
 ## Template (what `vault_init` writes with the defaults)
 
@@ -79,13 +79,13 @@ Anything you write below this line is yours; the plugin never touches it.
 | `default_duration` | Before the call | `duration_minutes` when the user gave none. |
 | `default_location` | At booking | `location` for `outlook_create_event` when the user gave none. |
 | `preferred_days` | Ordering | Candidates on a preferred day first (earliest first inside each group), then the rest, earliest first. With an empty list, plain earliest-first. |
-| `peak_hours` | `vault_time_block_plan` (in the server) | Each range is parsed as `HH:MM-HH:MM`; a focus block goes into the largest free piece inside a range first, outside only when none fits. |
-| `focus_block_minutes` | `vault_time_block_plan` | Length of every new focus block; a free piece shorter than this gets none. An existing `[Focus]` appointment of any length is kept and counted. |
-| `focus_blocks_per_day` | `vault_time_block_plan` | Cap per working day, existing `[Focus]` appointments included. |
-| `admin_blocks_per_day` | `vault_time_block_plan` | Cap per working day, existing `[Admin]` appointments included; the first ends at or before 13:00, the second at the end of the day when there is room. |
-| `admin_block_minutes` | `vault_time_block_plan` | Length of every new admin block. |
-| `slack_share` | `vault_time_block_plan` | Bookable minutes = (1 − `slack_share`) × work minutes − meeting minutes; nothing is booked on a day where that is 0 or less (`skipped_days` names the reason). `work_start`, `work_end`, `buffer_minutes` and `no_meeting_blocks` are applied by the planner the same way `free` applies them. |
-| `collect_folders` | `vault_changed_notes` (in the server) | Extra vault-relative folders scanned for changed notes; read only. |
+| `peak_hours` | `vault_time_block` plan (in the server) | Each range is parsed as `HH:MM-HH:MM`; a focus block goes into the largest free piece inside a range first, outside only when none fits. |
+| `focus_block_minutes` | `vault_time_block` plan | Length of every new focus block; a free piece shorter than this gets none. An existing `[Focus]` appointment of any length is kept and counted. |
+| `focus_blocks_per_day` | `vault_time_block` plan | Cap per working day, existing `[Focus]` appointments included. |
+| `admin_blocks_per_day` | `vault_time_block` plan | Cap per working day, existing `[Admin]` appointments included; the first ends at or before 13:00, the second at the end of the day when there is room. |
+| `admin_block_minutes` | `vault_time_block` plan | Length of every new admin block. |
+| `slack_share` | `vault_time_block` plan | Bookable minutes = (1 − `slack_share`) × work minutes − meeting minutes; nothing is booked on a day where that is 0 or less (`skipped_days` names the reason). `work_start`, `work_end`, `buffer_minutes` and `no_meeting_blocks` are applied by the planner the same way `free` applies them. |
+| `collect_folders` | `vault_collect` changed (in the server) | Extra vault-relative folders scanned for changed notes; read only. |
 
 `max_meetings_per_day` counts non-all-day events whose subject does not start with `[Focus]` or `[Admin]` — the user's own time blocks never fill a day for the meeting limit.
 

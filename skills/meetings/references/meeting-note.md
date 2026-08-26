@@ -76,7 +76,7 @@ created_by: administrator/0.4.0
 <Only present when /administrator:notes created this note and saved a minutes email in the same run. Otherwise the draft text sits under "## Update <ISO>" as "### Minutes draft".>
 ```
 
-A transcript never sits in the body `notes` creates: `vault_attach_transcript` appends it as `### Transcript` (speakers line, collapsed callout or a file link) under its own `## Update` heading, and the decisions go into a separate append under `### Decisions`; see `references/transcript.md`.
+A transcript never sits in the body `notes` creates: `vault_save(kind="transcript")` appends it as `### Transcript` (speakers line, collapsed callout or a file link) under its own `## Update` heading, and the decisions go into a separate append under `### Decisions`; see `references/transcript.md`.
 
 ## Frontmatter rules
 
@@ -106,7 +106,7 @@ Header lines under the `# Subject`: `**When:**` is `YYYY-MM-DD HH:MM–HH:MM` (o
 | `## Action items` | `prep` / `schedule` write `- none`; `notes` fills it only on creation | Never. New `- [ ]` lines go under `## Update <ISO>` as `### Action items`. Boxes are never ticked by the plugin; a closed item is named under `### Closed` in the same Update. The unchecked action items of a meeting = all `- [ ]` lines in the note, in any section. |
 | `## Waiting on` | same as `## Action items` | Never; later items go under `## Update` as `### Waiting on`. |
 | `## Related emails` | `prep` | Never; a second `prep` run puts new lines under `## Update` as `### Related emails`. Skip a line whose `[[Emails/…]]` link or `entry_id` comment is already in the note. |
-| `### Transcript` (under `## Update`) | `vault_attach_transcript`, called by `notes` after the transcript file was written once (`references/transcript.md`) | Never; every transcript lands under its own `## Update` heading, never in the created body. |
+| `### Transcript` (under `## Update`) | `vault_save(kind="transcript")`, called by `notes` after the transcript file was written once (`references/transcript.md`) | Never; every transcript lands under its own `## Update` heading, never in the created body. |
 | `## Minutes draft` | `notes`, only when it creates the note and a draft was saved in the same run | Never; the draft text is appended under `## Update` as `### Minutes draft` (not replaced — the newest one mirrors the Drafts item). |
 
 The section order above is fixed. `prep` writes every heading even when a section is empty (with the single line `- none` for lists, `_(none yet)_` for `## Notes`). `## Minutes draft` is the exception: not present unless `notes` wrote it. The server (`vault_write`) never edits text that is already in the file, so everything a later run adds lives under its own `## Update <ISO>` heading with `###` sub-headings.
@@ -222,7 +222,7 @@ on the topic or decision page the meeting matched, else on that person's page. `
 
 - The same wording twice, or this meeting twice, is refused as `duplicate`; leave it.
 - `notes` closes an item only when the user's notes say it is done ("Tom confirmed the address"): `{"op": "done", "id": <the id from `commitments[]`>}`. `inbox` and `followups` close their own items the same way. Old boxes in the meeting note are never ticked.
-- `Administrator/Follow-ups.md` shows the items other people owe, written from the pages after every wiki change; `vault_append_row` and `vault_move_row` refuse the file.
+- `Administrator/Follow-ups.md` shows the items other people owe, written from the pages after every wiki change; `vault_row` refuses the file.
 
 ## Note written by `schedule`
 

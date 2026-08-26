@@ -47,7 +47,8 @@ Session already has `vault_status` (vault `C:\Users\<you>\Documents\Vault`, `vau
 5. The only text the model writes:
 
 ```
-vault_save_email(
+vault_save(
+  kind="email",
   mail=<the step 2 JSON, unchanged>,
   summary="Jane sends contract v3 with net-45 terms and asks for a signed copy by 29 Aug plus confirmation of the Leipzig delivery address.",
   action_items=["Sign and return Q3 supplier contract v3 by 2026-08-29 — owner: me",
@@ -128,7 +129,7 @@ One more thing: please confirm the delivery address is still the Leipzig warehou
 
 Steps 1–2 as above. Step 3: `vault_find("email", …, fields=["status","msg_file","attachments"])` → `found: true`, frontmatter shows `msg_file` and `attachments` already set → no export question. `vault_find("person", …)` → `found: true`, so no `outlook_search_contacts`.
 
-`vault_save_email(mail, summary=<same two sentences>, action_items=<same>, self_addresses=[...])` → `action: "appended"`. The helper put `Saved again via /administrator:save.` plus `### Summary` / `### Action items` under a `## Update 2026-08-22T…` heading; the `## Body` and frontmatter stay as they were. The person page is unchanged apart from `last_contact`; its `## Records` line was already there, so it is not doubled — the helper decides.
+`vault_save(kind="email", mail, summary=<same two sentences>, action_items=<same>, self_addresses=[...])` → `action: "appended"`. The helper put `Saved again via /administrator:save.` plus `### Summary` / `### Action items` under a `## Update 2026-08-22T…` heading; the `## Body` and frontmatter stay as they were. The person page is unchanged apart from `last_contact`; its `## Records` line was already there, so it is not doubled — the helper decides.
 
 > Already saved at `Emails/2026-08-21 Q3 supplier contract – signature needed.md`; appended an update. Nothing exported again.
 > obsidian://open?vault=Vault&file=…
@@ -179,12 +180,12 @@ Attached is v3 with the payment terms changed to net 45 as we discussed. …
 
 3–4. As in example 1 (identity and attachments are the newest mail's).
 
-5. `vault_save_email(mail=<newest mail with the thread body>, summary="Jane agreed to net 45 and sent contract v3; she asks for a signed copy by 29 Aug and confirmation of the Leipzig delivery address.", action_items=[...same two...], ..., self_addresses=["hux@example.com"])` → one note, `Emails/2026-08-21 Q3 supplier contract – signature needed.md`, whose `## Body` holds the three dated sections. One person note (Jane), none for the user's own sent mail.
+5. `vault_save(kind="email", mail=<newest mail with the thread body>, summary="Jane agreed to net 45 and sent contract v3; she asks for a signed copy by 29 Aug and confirmation of the Leipzig delivery address.", action_items=[...same two...], ..., self_addresses=["hux@example.com"])` → one note, `Emails/2026-08-21 Q3 supplier contract – signature needed.md`, whose `## Body` holds the three dated sections. One person note (Jane), none for the user's own sent mail.
 
 6. Report as in example 1, plus "3 mails in the thread (Sent Items, Inbox)".
 
 ## What the model never does in these runs
 
-- Types the frontmatter, the `**From:**` / `**To:**` lines, the body of a single mail, or the `## Attachments` list — `vault_save_email` builds them from `mail`.
+- Types the frontmatter, the `**From:**` / `**To:**` lines, the body of a single mail, or the `## Attachments` list — `vault_save` builds them from `mail`.
 - Reads `vault_read` on the email or person note — `vault_find(fields=...)` is enough.
-- Calls `vault_write`, `vault_append_row` or `outlook_search_contacts` when the helper or an earlier `vault_find` already covers it.
+- Calls `vault_write`, `vault_row` or `outlook_search_contacts` when the helper or an earlier `vault_find` already covers it.

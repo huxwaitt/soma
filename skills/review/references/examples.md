@@ -46,17 +46,17 @@ Two `Accepted:` responses in Sent were skipped by the server; nothing was read b
 - Item 3: `vault_find("person", "bob.lee@example.com", fields=["name"])` → `Administrator/Wiki/People/Bob Lee.md`.
 
 ```
-vault_wiki_apply(path="Wiki/People/Priya Nair", ops=[{"op": "open", "text": "Offsite venue options",
-    "owner": "[[Wiki/People/Priya Nair]]", "since": "2026-08-18", "src": "<DB7PR05MB1234A9@…>"}],
+vault_wiki_write(pages=[{"path": "Wiki/People/Priya Nair", "ops": [{"op": "open", "text": "Offsite venue options",
+    "owner": "[[Wiki/People/Priya Nair]]", "since": "2026-08-18", "src": "<DB7PR05MB1234A9@…>"}]}],
     src="<DB7PR05MB1234A9@…>")
-vault_wiki_apply(path="Wiki/People/Bob Lee", ops=[{"op": "open", "text": "offsite dates",
-    "owner": "[[Wiki/People/Bob Lee]]", "since": "2026-08-19", "src": "<DB7PR05MB1234B1@…>"}],
+vault_wiki_write(pages=[{"path": "Wiki/People/Bob Lee", "ops": [{"op": "open", "text": "offsite dates",
+    "owner": "[[Wiki/People/Bob Lee]]", "since": "2026-08-19", "src": "<DB7PR05MB1234B1@…>"}]}],
     src="<DB7PR05MB1234B1@…>")
 ```
 
 Both answer `written: true` with one `applied: [{op: "open", id: …, owner: "[[Wiki/People/…]]"}]`.
 
-Closing: Carol Ng's item matched no thread and its `src` is an `entry_id` → `outlook_get_conversation(entry_id="00000000AC…", include_body=false, limit=50, fields=["entry_id","from_address","received"])` → last item `from_address: carol.ng@example.com`, `received: 2026-08-22T08:15:00+02:00` → `vault_wiki_apply(path="Wiki/People/Carol Ng", ops=[{"op": "done", "id": "4m2t", "src": "user"}])`. Tom's item matched thread 1 → stays.
+Closing: Carol Ng's item matched no thread and its `src` is an `entry_id` → `outlook_get_conversation(entry_id="00000000AC…", include_body=false, limit=50, fields=["entry_id","from_address","received"])` → last item `from_address: carol.ng@example.com`, `received: 2026-08-22T08:15:00+02:00` → `vault_wiki_write(pages=[{"path": "Wiki/People/Carol Ng", "ops": [{"op": "done", "id": "4m2t", "src": "user"}]}])`. Tom's item matched thread 1 → stays.
 
 `Administrator/Follow-ups.md`, written again after each of those calls, now shows under `## Open`:
 
@@ -99,7 +99,7 @@ User: "yes" → `outlook_reply_mail(entry_id="00000000B3…", body=<text>, reply
 > obsidian://open?vault=MyVault&file=Administrator/Follow-ups
 > Tokens this turn: 4 900
 
-Calls: 1 `awaiting_reply`, 1 `vault_wiki_search`, 2 `vault_find`, 1 `vault_write`, 3 `vault_wiki_apply`, 1 `get_conversation`, 2 `voice_sample`, 2 `reply_mail` = 13 (plus `vault_status` / `whoami` once per session). A second run ten minutes later finds all three `src` keys on the pages: "3 waiting, 0 new items, 0 closed".
+Calls: 1 `awaiting_reply`, 1 `vault_wiki_search`, 2 `vault_find`, 1 `vault_write`, 3 `vault_wiki_write`, 1 `get_conversation`, 2 `voice_sample`, 2 `reply_mail` = 13 (plus `vault_status` / `whoami` once per session). A second run ten minutes later finds all three `src` keys on the pages: "3 waiting, 0 new items, 0 closed".
 
 ## weekly
 

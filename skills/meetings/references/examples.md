@@ -173,7 +173,7 @@ User, 2026-08-25 14:18: `/administrator:notes supplier sync` followed by:
 3. Two open items, sent with the wiki ingest of step 7 (the subject matched `Wiki/Topics/acme-supplier-contract`, so both sit on that page):
 
    ```
-   vault_wiki_ingest(record_path="Administrator/Meetings/2026-08-25 1300 Weekly supplier sync.md",
+   vault_wiki_write(record_path="Administrator/Meetings/2026-08-25 1300 Weekly supplier sync.md",
        pages=[{"path": "Wiki/Topics/acme-supplier-contract", "ops": [
            {"op": "supersede", "id": "9x1a", "text": "Payment terms are net 45"},
            {"op": "open", "text": "Updated September delivery schedule", "owner": "[[Wiki/People/Tom Lee]]", "due": "2026-08-27"},
@@ -241,7 +241,7 @@ Priya
 ```
 
 1. Step 1 as in example 2. Nine turn lines and `END OF TRANSCRIPT` → transcript.
-2. Host Write tool: `C:\Users\<you>\Documents\Vault\Administrator\Attachments\2026-08-25 1300 Weekly supplier sync\transcript.md` with the paste exactly as above. Then `vault_attach_transcript(meeting_path="Administrator/Meetings/2026-08-25 1300 Weekly supplier sync.md", transcript_path="Administrator/Attachments/2026-08-25 1300 Weekly supplier sync/transcript.md")` →
+2. Host Write tool: `C:\Users\<you>\Documents\Vault\Administrator\Attachments\2026-08-25 1300 Weekly supplier sync\transcript.md` with the paste exactly as above. Then `vault_save(kind="transcript", meeting_path="Administrator/Meetings/2026-08-25 1300 Weekly supplier sync.md", transcript_path="Administrator/Attachments/2026-08-25 1300 Weekly supplier sync/transcript.md")` →
 
    ```json
    {"path": "Administrator/Meetings/2026-08-25 1300 Weekly supplier sync.md", "turns": 9,

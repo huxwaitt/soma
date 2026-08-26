@@ -1,6 +1,6 @@
 # Transcript reference — pasted transcripts in `/administrator:notes`
 
-Sometimes what the user pastes is not notes but a transcript: the speaker-by-speaker record from `references/copilot-transcript-prompt.md`, a Teams export, or the same shape typed by hand. This page holds only two things: how to tell, and what `vault_attach_transcript` does with it. Everything else (finding the meeting, decisions, action items, waiting items, `status: held`, `last_contact`, the minutes email, the report) is "Half 2 — notes" in `SKILL.md`.
+Sometimes what the user pastes is not notes but a transcript: the speaker-by-speaker record from `references/copilot-transcript-prompt.md`, a Teams export, or the same shape typed by hand. This page holds only two things: how to tell, and what `vault_save(kind="transcript")` does with it. Everything else (finding the meeting, decisions, action items, waiting items, `status: held`, `last_contact`, the minutes email, the report) is "Half 2 — notes" in `SKILL.md`.
 
 ## 1. Is it a transcript?
 
@@ -13,7 +13,7 @@ The user's own words win over the rule: "here is the transcript" means transcrip
 
 The server uses the same two patterns (`_TURN_RE`, `_TURN_NUMBERED_RE` in `administrator_vault/workflows.py`); a line that matches neither is kept as a wrapped line of the turn above it and is not counted.
 
-## 2. What `vault_attach_transcript` does
+## 2. What `vault_save(kind="transcript")` does
 
 Input: `meeting_path` (the meeting note, vault-relative) and `transcript_path` (a file under `Administrator/Attachments/`, written once by the host's Write tool with the text exactly as pasted or read — anything above the first turn line included). The server then:
 

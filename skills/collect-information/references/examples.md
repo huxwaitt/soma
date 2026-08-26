@@ -9,7 +9,7 @@ User: `/administrator:collect-information`
 1. Stamps:
 
 ```
-vault_collect_sources(action="read")
+vault_collect(action="read")
 ```
 
 ```json
@@ -57,7 +57,7 @@ teams_list_chats(since="2026-08-21T18:10:00+02:00", include_messages=true, per_c
 3. Which chats matter. One match per chat, then the pages before any judgement:
 
 ```
-vault_wiki_match(text="Jane Doe: Morning — moved to the 29th, two teams are late. ok? Hux Waitt: Fine by me. Jane Doe: Great, then we close on 2 Sep as planned.", people=[], domains=[], limit=5)
+vault_wiki_search(query="Jane Doe: Morning — moved to the 29th, two teams are late. ok? Hux Waitt: Fine by me. Jane Doe: Great, then we close on 2 Sep as planned.", pages=true, people=[], domains=[], limit=5)
 ```
 
    → `pages: [Topics/q3-budget (score 3, word overlap: budget, close), People/Jane Doe (2, alias)]`, `candidates: []`.
@@ -76,10 +76,10 @@ vault_wiki_search(query="Jane Doe: Morning — moved to the 29th, two teams are 
 
 ```
 outlook_list_mails(folder="inbox", since="2026-08-21T18:10:00+02:00", limit=50, preview_chars=80, response_format="json",
-                   fields=["entry_id","internet_message_id","subject","from","from_address","to","received","preview"])
+                   fields=["entry_id","internet_message_id","subject","from","from_address","to","received","bulk","bulk_why","preview"])
 ```
 
-   → 23 items; 9 are automated (no-reply, two newsletters, six meeting responses) and skipped without a call. `folder="sent"` → 4 items. `vault_wiki_match(text=<subject + preview>, people=[<from_address>], domains=[<domain>], limit=3)` on the 18 others; two have a hit:
+   → 23 items; `folder="sent"` → 4 items. One `vault_rules(action="match", items=<the 27>)` before a preview is read → `counts: {"bulk": 9, "never_save": 1, "kept": 17}`, and `dropped` says why each went: `bulk: List-Unsubscribe header` for two newsletters, `bulk: meeting response` for six, `bulk: sender address no-reply@ci.example`, and `rule: Never save: promo.example (domain)` for one. The report carries it as "9 bulk / 1 by your rules dropped". `vault_wiki_search(query=<subject + preview>, pages=true, people=[<from_address>], domains=[<domain>], limit=3)` on the 17 kept; two have a hit:
 
    - `RE: Q3 supplier contract – signature needed` from `tom.lee@acme-parts.com`, 2026-08-22 09:05 → `pages: [Topics/acme-supplier-contract (score 4, alias), People/Tom Lee (3, address)]`.
    - `Budget close date` from `jane.doe@example.com`, 2026-08-25 08:50 → `pages: [Topics/q3-budget (4, alias), People/Jane Doe (3, address)]`.
@@ -87,16 +87,16 @@ outlook_list_mails(folder="inbox", since="2026-08-21T18:10:00+02:00", limit=50, 
    Both opened with `outlook_get_mail(entry_id, trim_quoted=true, response_format="json", fields=[...])` (the `save` skill's field list) and saved:
 
 ```
-vault_save_email(mail=<get_mail JSON>, summary="Tom confirms the PO is raised once the signed v3 comes back and repeats the net-30 terms.",
+vault_save(kind="email", mail=<get_mail JSON>, summary="Tom confirms the PO is raised once the signed v3 comes back and repeats the net-30 terms.",
                  action_items=["Return signed v3 to Jane by 2026-08-29 — owner: me"], self_addresses=["hux@example.com"], created_by="administrator/0.4.0")
 ```
 
-   → `{"path": "Administrator/Emails/2026-08-22 Q3 supplier contract – signature needed.md", "action": "created", "status": "todo", "person_path": "Administrator/Wiki/People/Tom Lee.md", "person_action": "appended", "followup_added": false}`; the second → `Administrator/Emails/2026-08-25 Budget close date.md` (`created`, `fyi`). Sixteen mails seen and not saved; three named in the report (`Offsite venue options`, `Invoice 4471`, `Parking permit renewal`).
+   → `{"path": "Administrator/Emails/2026-08-22 Q3 supplier contract – signature needed.md", "action": "created", "status": "todo", "person_path": "Administrator/Wiki/People/Tom Lee.md", "person_action": "appended", "followup_added": false}`; the second → `Administrator/Emails/2026-08-25 Budget close date.md` (`created`, `fyi`). Fifteen mails seen and not saved; three named in the report (`Offsite venue options`, `Invoice 4471`, `Parking permit renewal`).
 
 5. Notes:
 
 ```
-vault_changed_notes(since="2026-08-21T18:10:00+02:00")
+vault_collect(action="changed", since="2026-08-21T18:10:00+02:00")
 ```
 
 ```json
@@ -111,10 +111,10 @@ vault_changed_notes(since="2026-08-21T18:10:00+02:00")
 
    The meeting note is a record not yet ingested; the daily note is not a record and its excerpt states nothing the wiki lacks; the two emails were written in step 4.
 
-6. Records first. Two `vault_save_chat` calls for the two chats kept in step 3 (none for Priya's):
+6. Records first. Two `vault_save(kind="chat")` calls for the two chats kept in step 3 (none for Priya's):
 
 ```
-vault_save_chat(chat=<the "Q3 budget" entry>, messages=<its 3 messages>, self_names=["Hux Waitt"], created_by="administrator/0.4.0")
+vault_save(kind="chat", chat=<the "Q3 budget" entry>, messages=<its 3 messages>, self_names=["Hux Waitt"], created_by="administrator/0.4.0")
 ```
 
 ```json
@@ -124,7 +124,7 @@ vault_save_chat(chat=<the "Q3 budget" entry>, messages=<its 3 messages>, self_na
 
    The Tom Lee chat → one record `Administrator/Teams/2026-08-22 Tom Lee.md` (`created`, `people: [{"name": "Tom Lee", "page": "…/People/Tom Lee.md"}]`).
 
-   Per record the `wiki` skill's steps. The two chat records reuse the match and the brief of step 3 (no second `vault_wiki_match`, no second search); `Topics/acme-supplier-contract`, read there for the Tom chat, serves the meeting note and Tom's mail too: fact `n30x` "Payment terms are net 30" (since 2026-08-12).
+   Per record the `wiki` skill's steps. The two chat records reuse the match and the brief of step 3 (no second page match, no second search); `Topics/acme-supplier-contract`, read there for the Tom chat, serves the meeting note and Tom's mail too: fact `n30x` "Payment terms are net 30" (since 2026-08-12).
 
    Order by time: Tom's mail (Sat 22 09:05), Tom's chat (Sat 22 11:02), the supplier sync (Sat 22 13:00), the Q3 chat of Mon 24, Jane's mail (Tue 25 08:50), the Q3 chat of Tue 25. Tom's mail repeats net 30 on the 22nd; the meeting note the same day says net 45 — same day, so `contest`, not `supersede`.
 
@@ -141,7 +141,7 @@ vault_save_chat(chat=<the "Q3 budget" entry>, messages=<its 3 messages>, self_na
 7. Ingest, oldest first — six calls, the first one:
 
 ```
-vault_wiki_ingest(record_path="Administrator/Emails/2026-08-22 Q3 supplier contract – signature needed.md", created_by="administrator/0.4.0", pages=[
+vault_wiki_write(record_path="Administrator/Emails/2026-08-22 Q3 supplier contract – signature needed.md", created_by="administrator/0.4.0", pages=[
   {"path": "Administrator/Wiki/Topics/acme-supplier-contract.md", "ops": [
     {"op": "contest", "id": "n30x", "text": "Payment terms are net 45 (contract v3)"},
     {"op": "open", "text": "Sign and return contract v3", "owner": "me", "due": "2026-08-29"}]},
@@ -153,9 +153,9 @@ vault_wiki_ingest(record_path="Administrator/Emails/2026-08-22 Q3 supplier contr
 8. Stamps:
 
 ```
-vault_collect_sources(action="advance", source="teams", at="2026-08-25T17:40:31+02:00")
-vault_collect_sources(action="advance", source="outlook", at="2026-08-25T17:40:48+02:00")
-vault_collect_sources(action="advance", source="notes", at="2026-08-25T17:41:15+02:00")
+vault_collect(action="advance", source="teams", at="2026-08-25T17:40:31+02:00")
+vault_collect(action="advance", source="outlook", at="2026-08-25T17:40:48+02:00")
+vault_collect(action="advance", source="notes", at="2026-08-25T17:41:15+02:00")
 ```
 
    each → `{"advanced": ["<source>"], "refused": []}`.
@@ -163,9 +163,9 @@ vault_collect_sources(action="advance", source="notes", at="2026-08-25T17:41:15+
 9. Blocks. `outlook_list_events(start="2026-08-25T00:00:00", end="2026-08-25T23:59:59", include_recurrences=true, limit=50, fields=["subject","start","end","occurrence_key"], response_format="json")` → two of five events start with the prefixes: `[Focus] ACME supplier contract` 09:00–10:30 (`occurrence_key: "0400…|2026-08-25T09:00:00+02:00"`), `[Admin] Email and small tasks` 14:00–14:45. `vault_find("time-block", {"week": "2026-W35"}, fields=[])` → found; `vault_read("Administrator/Time-blocks/2026-W35.md")` shows no Held row for either key. Question (nothing else in that turn): "Today's blocks: 09:00–10:30 [Focus] ACME supplier contract, 14:00–14:45 [Admin] Email and small tasks — held, moved or skipped? (a word each, a note is welcome)". User: "held, skipped — the sync ran over".
 
 ```
-vault_append_row(path="Administrator/Time-blocks/2026-W35.md", section="Held", row=["Tue 25 Aug", "[Focus] ACME supplier contract 09:00–10:30", "held", ""],
+vault_row(action="append", path="Administrator/Time-blocks/2026-W35.md", section="Held", row=["Tue 25 Aug", "[Focus] ACME supplier contract 09:00–10:30", "held", ""],
                  dedupe_key="0400…|2026-08-25T09:00:00+02:00", key_label="occurrence_key", header=["Day","Block","Result","Note"])
-vault_append_row(path="Administrator/Time-blocks/2026-W35.md", section="Held", row=["Tue 25 Aug", "[Admin] Email and small tasks 14:00–14:45", "skipped", "the sync ran over"],
+vault_row(action="append", path="Administrator/Time-blocks/2026-W35.md", section="Held", row=["Tue 25 Aug", "[Admin] Email and small tasks 14:00–14:45", "skipped", "the sync ran over"],
                  dedupe_key="0400…|2026-08-25T14:00:00+02:00", key_label="occurrence_key", header=["Day","Block","Result","Note"])
 ```
 
@@ -173,7 +173,7 @@ vault_append_row(path="Administrator/Time-blocks/2026-W35.md", section="Held", r
 
 10. Report:
 
-> Teams: 3 chats, 8 messages → 3 chat records created; 1 chat skipped: no work content — Priya Nair. Outlook: 27 mails seen, 2 saved (also worth saving: Offsite venue options, Invoice 4471, Parking permit renewal). Notes: 4 changed, 1 meeting note ingested. Pages: Topics/q3-budget (deadline superseded, close date added, 1 open), Topics/acme-supplier-contract (1 contested, 2 open), People/Jane Doe, People/Tom Lee (records). Review: 1 open — `/administrator:wiki resolve review`. Blocks: 1 held, 1 skipped.
+> Teams: 3 chats, 8 messages → 3 chat records created; 1 chat skipped: no work content — Priya Nair. Outlook: 27 mails seen, 9 bulk / 1 by your rules dropped, 2 saved (also worth saving: Offsite venue options, Invoice 4471, Parking permit renewal). Notes: 4 changed, 1 meeting note ingested. Pages: Topics/q3-budget (deadline superseded, close date added, 1 open), Topics/acme-supplier-contract (1 contested, 2 open), People/Jane Doe, People/Tom Lee (records). Review: 1 open — `/administrator:wiki resolve review`. Blocks: 1 held, 1 skipped.
 > Last collected: Tue 25 Aug 17:41.
 > obsidian://open?vault=Vault&file=Administrator%2FWiki%2FTopics%2Fq3-budget.md
 > obsidian://open?vault=Vault&file=Administrator%2FWiki%2FTopics%2Facme-supplier-contract.md
@@ -183,17 +183,17 @@ vault_append_row(path="Administrator/Time-blocks/2026-W35.md", section="Held", r
 
 Same vault the next morning, `/administrator:collect-information today` on Wed 26 Aug 09:05 in a Claude Code session started from a laptop where the `teams` extra is not installed.
 
-1. `vault_collect_sources(action="read")` → `ask: false` (every stamp 15.4 h old), `default_since: "2026-08-25T17:40:31+02:00"`. The argument `today` sets `since = "2026-08-26T00:00:00+02:00"` and no question is asked.
+1. `vault_collect(action="read")` → `ask: false` (every stamp 15.4 h old), `default_since: "2026-08-25T17:40:31+02:00"`. The argument `today` sets `since = "2026-08-26T00:00:00+02:00"` and no question is asked.
 2. The `teams_*` tools are there; `teams_status()` → `{"reader_installed": false, "cache_found": true, "hint": "install the `teams` extra: `uv sync --extra teams` in the checkout, then restart Claude Code"}`. One line in the report, the Teams stamp is left alone.
 3. No chats, so nothing to judge.
-4. `outlook_list_mails(folder="inbox", since="2026-08-26T00:00:00+02:00", …)` → 3 items, all automated; `folder="sent"` → 0. No `vault_wiki_match` call, nothing saved.
-5. `vault_changed_notes(since="2026-08-26T00:00:00+02:00")` → `{"count": 0, "total": 0, "notes": []}`.
+4. `outlook_list_mails(folder="inbox", since="2026-08-26T00:00:00+02:00", …)` → 3 items; `vault_rules(action="match", items=<the 3>)` → `counts: {"bulk": 3, "never_save": 0, "kept": 0}`, so nothing is read. `folder="sent"` → 0. No page match, nothing saved.
+5. `vault_collect(action="changed", since="2026-08-26T00:00:00+02:00")` → `{"count": 0, "total": 0, "notes": []}`.
 6. Nothing to propose, so the proposal turn is skipped and the user is told so.
 7. No ingest.
-8. `vault_collect_sources(action="advance", source="outlook", at="2026-08-26T09:05:20+02:00")` and the same for `notes`; `teams` is not advanced.
+8. `vault_collect(action="advance", source="outlook", at="2026-08-26T09:05:20+02:00")` and the same for `notes`; `teams` is not advanced.
 9. `outlook_list_events(start="2026-08-26T00:00:00", end="2026-08-26T23:59:59", …)` → one `[Focus] Q3 budget` block at 09:00–10:30, still running now. `vault_read("Administrator/Time-blocks/2026-W35.md")` shows no Held row for it. Question: "Today's block: 09:00–10:30 [Focus] Q3 budget — held, moved or skipped?". User: "still on it, ask me later". No row is written.
 10. Report:
 
-> Teams: not read — install the `teams` extra: `uv sync --extra teams` in the checkout, then restart Claude Code. Outlook: 3 mails seen, all automated, none saved. Notes: nothing changed since midnight. Wiki: no changes proposed. Blocks: 1 unanswered.
+> Teams: not read — install the `teams` extra: `uv sync --extra teams` in the checkout, then restart Claude Code. Outlook: 3 mails seen, 3 bulk / 0 by your rules dropped, none saved. Notes: nothing changed since midnight. Wiki: no changes proposed. Blocks: 1 unanswered.
 > Last collected: Wed 26 Aug 09:05 (Teams still Tue 25 Aug 17:40).
 > Tokens this turn: 3 910

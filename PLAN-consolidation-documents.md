@@ -1,13 +1,15 @@
 # Plan — tools consolidated, bulk mail dropped in code, safety rails, document records (administrator 0.4.1)
 
+(Built: the table below yields 20 tools, not 18 — 12 unchanged + 8 merged; the code and tests say 20. The vault schema cap the tests enforce is 28,000 chars; measured 23,417 after the consolidation.)
+
 Runs after the token-cuts pass (shorter tool descriptions, terse skills, smaller collect caps, lint items on request, the token estimate with calibration) is verified and committed. Two passes, each verified by a fresh agent and committed in both repos; no pause between them. Names below were confirmed by the user; plain words everywhere; the banned-word list applies.
 
 Detailed designs: `scratchpad/designs/design-consolidation-bulk.md` (pass A) and `scratchpad/designs/design-documents.md` (pass B).
 
-## Pass A — 18 tools, bulk mail, safety rails
+## Pass A — 20 tools, bulk mail, safety rails
 
 ### A1. Consolidation (server `src/administrator_vault/server.py`, tests, every plugin file)
-34 vault tools become 18. Module functions keep their names; only the tool layer changes; every old tool name disappears from the server and the plugin (a grep for each old name must come back empty).
+34 vault tools become 20. Module functions keep their names; only the tool layer changes; every old tool name disappears from the server and the plugin (a grep for each old name must come back empty).
 
 | New | Absorbs | Shape |
 | --- | --- | --- |
@@ -21,7 +23,7 @@ Detailed designs: `scratchpad/designs/design-consolidation-bulk.md` (pass A) and
 | `vault_find` | `vault_list` | no `identity` = list |
 | unchanged | `vault_status`, `vault_init`, `vault_read`, `vault_write`, `vault_rules`, `vault_inbox_prepare`, `vault_write_daily`, `vault_prep_context`, `vault_weekly_facts`, `vault_priorities_write`, `vault_wiki_read`, `vault_load_history` | |
 
-Answers keep their shapes. Descriptions stay inside the token-cuts caps (vault total ≤ 22,000 chars; a merged tool never longer than the sum of its parts). The plugin: every command, skill, reference and example; the contract (`wiki_schema.md` = `skills/wiki/references/wiki.md`); README; `skills/administrator/SKILL.md` + `references/vault.md`. Tests: the MCP-layer tests call the new names; the tool-count test says 18.
+Answers keep their shapes. Descriptions stay inside the token-cuts caps (vault total under the tests' cap of 28,000 chars; a merged tool never longer than the sum of its parts). The plugin: every command, skill, reference and example; the contract (`wiki_schema.md` = `skills/wiki/references/wiki.md`); README; `skills/administrator/SKILL.md` + `references/vault.md`. Tests: the MCP-layer tests call the new names; the tool-count test says 20.
 
 ### A2. Bulk mail dropped in code
 - Outlook server (`src/outlook_mcp/client/mail.py`): every listed mail gains `bulk` (bool) and `bulk_why`. Signals, any one enough: transport headers (`PropertyAccessor`, PR_TRANSPORT_MESSAGE_HEADERS, read once per item, only when `bulk` is requested, errors → not bulk) holding `List-Unsubscribe`, `Precedence: bulk/list/junk`, `Auto-Submitted` other than `no`, `X-Auto-Response-Suppress`; a sender local part matching `no-?reply|noreply|donotreply|do-not-reply|newsletter|news|marketing|notification(s)?|mailer|bounce|alerts?|digest` or a display name holding `newsletter` / `no reply`; a message class of a meeting response, read receipt or out-of-office. Tests with the fake COM objects: each signal, the cache, a failing accessor.

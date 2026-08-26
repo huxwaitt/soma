@@ -5,7 +5,7 @@ Two runs on Saturday 2026-08-22, user `hux@example.com`, vault `MyVault`. Every 
 ## Run 1 — `/administrator:inbox` at 08:31
 
 1. `vault_status` → all flags true. `outlook_whoami(response_format="json")` → `utc_offset: "+02:00"`, `local_time: "2026-08-22T08:31:02+02:00"`.
-2. `vault_list("daily", limit=1, fields=["date", "inbox_checked"])` → `[{path: "Administrator/Daily/2026-08-21.md", frontmatter: {date: "2026-08-21", inbox_checked: "2026-08-21T18:02:00+02:00"}}]`. Say: "Checking mail since Fri 21 Aug 18:02."
+2. `vault_find("daily", limit=1, fields=["date", "inbox_checked"])` → `[{path: "Administrator/Daily/2026-08-21.md", frontmatter: {date: "2026-08-21", inbox_checked: "2026-08-21T18:02:00+02:00"}}]`. Say: "Checking mail since Fri 21 Aug 18:02."
 3. `outlook_list_mails(folder="inbox", unread_only=true, since="2026-08-21T18:02:00+02:00", limit=100, fields=["entry_id","internet_message_id","from_address","from","subject","received","preview"], preview_chars=80, response_format="json")` at 08:31:10 → `count: 23`, `has_more: false`. Each item is about 60 tokens.
 4. `vault_inbox_prepare(items=<the 23 items>, date="2026-08-22")` →
 
@@ -60,7 +60,7 @@ Calls: 9 (10 with the bulk action). Tokens in the turn: about 10k, of which the 
 
 ## Run 2 — `/administrator:daily` at 15:40, same day
 
-1. `vault_list("daily", limit=1, fields=["date","inbox_checked"])` → `inbox_checked: "2026-08-22T08:31:10+02:00"` (the only key the morning run changed).
+1. `vault_find("daily", limit=1, fields=["date","inbox_checked"])` → `inbox_checked: "2026-08-22T08:31:10+02:00"` (the only key the morning run changed).
 2. `outlook_list_mails(... since="2026-08-22T08:31:10+02:00" ...)` at 15:40:05 → 3 items.
 3. `vault_inbox_prepare(items, date="2026-08-22")` → `to_label` has 2 (one `label: "noise"` by rule, one `label: null`), `already_seen: []`, `never_save: ["…"]`.
 4. Label the one: Carol Ng, "Re: Contract draft", preview "attached the draft, let me know" → `[{"entry_id":"00000000B1…","label":"fyi","reason":"Sent the draft; wait is over"}]`.
@@ -74,7 +74,7 @@ Calls: 9 (10 with the bulk action). Tokens in the turn: about 10k, of which the 
 
    Under `## Update 2026-08-22T15:40:05+02:00` the server wrote `### Inbox (since 2026-08-22T08:31:10+02:00)` with rows 16 and 17, `### To do` / `### Waiting on` only if needed, `### Calendar` with two rows (each ending in `<!-- occurrence_key: … -->`) and `### Watch out` with "Clash: Budget review with Jane (13:00–14:00) overlaps Dentist (13:30–14:30)" and "No prep note: Budget review with Jane" — both computed in code, nothing passed as `watch_out`.
 
-7. Carol Ng replied on a subject with an open item → `vault_wiki_search(query="", open_items=true, owner="others", page="Wiki/People/Carol Ng")` → one item, `id: "4m2t"` → `vault_wiki_apply(path="Wiki/People/Carol Ng", ops=[{"op": "done", "id": "4m2t", "src": "user"}])` → applied.
+7. Carol Ng replied on a subject with an open item → `vault_wiki_search(query="", open_items=true, owner="others", page="Wiki/People/Carol Ng")` → one item, `id: "4m2t"` → `vault_wiki_write(pages=[{"path": "Wiki/People/Carol Ng", "ops": [{"op": "done", "id": "4m2t", "src": "user"}]}])` → applied.
 8. Report:
 
    > 3 new since 08:31: 1 never-save, 1 by rule, 1 by me. Carol Ng sent the contract draft → her open item is ticked.
@@ -92,4 +92,4 @@ Monday run: 14 `to_label` items with `label: null`, six of them from `alerts@mon
 
 > You labelled 6 mails from alerts@monitoring.example as fyi. Add the rule `alerts@monitoring.example → fyi` to Rules.md so they skip the model next time?
 
-User: "yes" → `vault_append_row("Administrator/Rules.md", "Labels", ["alerts@monitoring.example", "from", "fyi"])` → `appended: true`. Say: "Rule added; edit Administrator/Rules.md to change it." No `dedupe_key`, no other change to the file. "no" or silence → nothing is written and the proposal is not repeated this run.
+User: "yes" → `vault_row(action="append", path="Administrator/Rules.md", section="Labels", row=["alerts@monitoring.example", "from", "fyi"])` → `appended: true`. Say: "Rule added; edit Administrator/Rules.md to change it." No `dedupe_key`, no other change to the file. "no" or silence → nothing is written and the proposal is not repeated this run.

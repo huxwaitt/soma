@@ -55,15 +55,15 @@ vault_load_history(action="next")
  "note": "Outlook inbox, 2026-05-28–2026-06-04: list it with the call above, turn the list oldest first, drop skip_ids and automated mail, and work on the first 25."}
 ```
 
-   That call, with `response_format="json"` added and nothing else changed, returns 31 mails newest first. Turned round, six are plainly automated (two newsletters, three meeting responses, one no-reply build report) and are dropped without a call; 25 are left, oldest first.
+   That call, with `response_format="json"` added and nothing else changed (its `fields` already name `bulk` and `bulk_why`), returns 31 mails newest first. Turned round, one `vault_rules(action="match", items=<the 31>)` → `counts: {"bulk": 6, "never_save": 0, "kept": 25}` — two newsletters on `bulk: List-Unsubscribe header`, three on `bulk: meeting response`, one on `bulk: sender address no-reply@ci.example`. The 25 kept are worked oldest first and the batch line says "6 bulk / 0 by your rules dropped".
 
-4. The batch — `collect-information` step 4 (the relevance gate for mail): one `vault_wiki_match(text=<subject + preview>, people=[<from_address>], domains=[<domain>], limit=3)` per mail. Four have a page hit or a candidate: the ACME kickoff thread (2), one from Jane Doe about the Q3 sheet, one from Tom Lee about payment terms. The other 21 are counted, not opened. The four are read with the `save` skill's `outlook_get_mail(..., trim_quoted=true, fields=[...])` and written with `vault_save_email(..., created_by="administrator/0.4.0")`.
+4. The batch — `collect-information` step 4 (the relevance gate for mail): one `vault_wiki_search(query=<subject + preview>, pages=true, people=[<from_address>], domains=[<domain>], limit=3)` per mail. Four have a page hit or a candidate: the ACME kickoff thread (2), one from Jane Doe about the Q3 sheet, one from Tom Lee about payment terms. The other 21 are counted, not opened. The four are read with the `save` skill's `outlook_get_mail(..., trim_quoted=true, fields=[...])` and written with `vault_save(kind="email", ..., created_by="administrator/0.4.0")`.
 
    Then step 6 — the proposal, and nothing else in that turn:
 
    > **Topics/acme-supplier-contract** — new page from 2 records: kickoff 28 May, ACME to send the draft contract (open, owner Tom Lee, due 12 Jun). **People/Tom Lee** — "handles the ACME purchase orders" (add). **People/Jane Doe** — "owns the Q3 forecast sheet" (add); last contact 2 Jun. **Review** — 1 expected: net 30 in the 2 Jun mail against net 45 on the page. Apply these? (name a line to drop it)
 
-   User: "yes". Step 7: one `vault_wiki_ingest(record_path=…, pages=[…], created_by="administrator/0.4.0")` per record, oldest first, then the second pass per record (the `wiki` skill's ingest step 5) — the 2 Jun mail also names the delivery week, which goes straight into a second, smaller ingest for that record.
+   User: "yes". Step 7: one `vault_wiki_write(record_path=…, pages=[…], created_by="administrator/0.4.0")` per record, oldest first, then the second pass per record (the `wiki` skill's ingest step 5) — the 2 Jun mail also names the delivery week, which goes straight into a second, smaller ingest for that record.
 
 5. Reporting the batch back:
 
@@ -94,7 +94,7 @@ vault_load_history(action="done", payload={
    > Batch 1: 4 saved, pages `Topics/acme-supplier-contract`, `People/Tom Lee`, `People/Jane Doe`; next window 1–8 Jun (Outlook inbox) — continue?
    > obsidian://open?vault=Vault&file=Administrator%2FWiki%2FTopics%2Facme-supplier-contract.md
 
-   User: "yes" → step 3 again. User: "stop" → "Stopped after batch 1 of about 39; the Outlook inbox is at 1 Jun 16:20. `/administrator:load-history` picks it up there."
+   User: "yes" → step 3 again. User: "stop" → "Stopped after batch 1 of about 39; the Outlook inbox is at 1 Jun 16:20. `/administrator:load-history` picks it up there." User: "yes to all, stop at 500k" → example 3.
 
 ## Example 2 — picking up where it stopped
 
@@ -134,7 +134,7 @@ vault_load_history(action="next")
  "note": "Batch 7 is still open, so this is the same window again. Report it with action='done' before asking for another one."}
 ```
 
-   `reissued: true`, so nothing new was started. The three `skip_ids` are the 27 July mails batch 6 already worked; they are dropped from the listing without a call. The listing gives 12; three are skipped as seen, one is an out-of-office reply, so eight are worked — fewer than the 25 expected, so the window is exhausted.
+   `reissued: true`, so nothing new was started. The three `skip_ids` are the 27 July mails batch 6 already worked; they are dropped from the listing without a call. The listing gives 12; three are skipped as seen and `vault_rules(action="match")` drops one on `bulk: out-of-office reply`, so eight are worked — fewer than the 25 expected, so the window is exhausted.
 
    The batch runs as in example 1. Two mails match pages, both saved, ingested after one yes.
 
@@ -174,3 +174,19 @@ vault_load_history(action="done", payload={
    > Done: 96 records over 34 batches (inbox 41, sent 22, Teams 33), 61 pages touched. The wiki now holds 28 May to 25 Aug; `/administrator:collect-information` carries on from there. Run `/administrator:lint` — 61 pages were written in one go and it is what checks them against each other.
 
 A `plan` with an earlier `since` starts another pass. It walks the whole range from that date forward again, but its answer carries a `kept_ids` count — the ids the finished pass read come with it, so the days already covered come back as `skip_ids` and nothing is read twice. `plan(reset=true)` is what forgets them.
+
+## Example 3 — "yes to all, stop at 500k"
+
+The user answers the "continue?" of batch 1 with it. Batch 2 runs as usual, and its `done` carries the mode and what the batch cost:
+
+```json
+{"saved": [...], "skipped_ids": [...], "listed": 27, "reached": "2026-06-07T11:40:00+02:00",
+ "exhausted": false, "pages": ["Wiki/Topics/acme-supplier-contract"], "calls": 12,
+ "tokens": {"in": 38000, "out": 5200}, "auto": true, "cap": 500000}
+```
+
+The answer's `note` ends "carrying on, 43200 tokens spent of 500000" instead of "continue?", so batch 3 starts in the same turn. Each batch still shows its bullets grouped by page, its "Expected ~N in / ~M out" line and its one-line report; no question is asked between them. `next` answers `{… "auto": true, "cap": 500000, "cost": {"in": 38000, "out": 5200, "total": 43200}}`, and step 3b adds the next estimate to `cost.total`: at batch 11 that sum passes 500000, so nothing is opened and the run asks once —
+
+> Batch 10 done, 462,000 tokens spent of the 500,000 cap; the next batch looks like ~44,000 more. Carry on?
+
+A "no" ends the session (`auto: false` on the next `done`); a "yes, make it 800k" sends `cap: 800000` and the run goes on. A refusal, a Review contradiction only the user can settle, or a merge stops it the same way, at that point and no later.

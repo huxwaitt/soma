@@ -23,12 +23,12 @@ Skip phrase: "save without wiki" (or "no wiki") → write the record, skip the i
 
 ## Ingest (after a record is written)
 
-1. `vault_wiki_match(text=<subject + first 300 chars>, people=[<sender or attendee addresses>], domains=[<sender domains>], limit=8)` → the index line of each matching page and the topic candidates that have none (`subject`, `records`, `days`, `over_threshold`).
+1. `vault_wiki_search(query=<subject + first 300 chars>, pages=true, people=[<sender or attendee addresses>], domains=[<sender domains>], limit=8)` → the index line of each matching page and the topic candidates that have none (`subject`, `records`, `days`, `over_threshold`).
 2. `vault_wiki_read(path, sections=["lead","facts"])` on at most 3 matched pages → the lead and `facts: [{id, text, since, src}]`; use those ids, never invent one. Add `"open"` when the record closes or moves something owed.
 3. Compare the record with each page's Facts; emit ops only for what it adds, changes or confirms. One bullet per claim, at most 25 words, present tense, no hedging, `since` from the record date unless the text says otherwise. Do not restate the summary or add what the record does not hold; an unplaceable fact stays out.
-4. One call: `vault_wiki_ingest(record_path=<path>, pages=[{path | new: {type, title, aliases, lead, summary}, ops: [...]}], created_by="administrator/0.4.0")`. `src` and `since` default to the record's id and date (its `internet_message_id`, `occurrence_key`, or a chat's `<chat_id>|<date>`). An empty op list is fine: code still writes the Records and History lines. Back come `applied` and `refused` per page (refusals are answers, not errors), `candidate` and `confirmed_decisions`; the record gets its `wiki:` key.
-5. **Second pass, same turn.** With the record still in front of you, answer one question: *which facts in it are not on the pages yet?* Read your ops, and the `refused` ones, against the record and list what is missing - a date, a name, a number, a promise. A non-empty list is a second, smaller `vault_wiki_ingest` with the same `record_path`, before you reply. Never ask whether the first was good, only what it left out. Every time in `collect-information` and `load-history`; in `save` and `notes` over 1500 characters.
-6. A candidate over the threshold with no page: propose it in the same turn ("Create topic `q3-budget` from these 2 records?") and create it with `vault_wiki_create(type, title, aliases, lead, summary, facts, src, created_by, extra={…})` on a yes, or at once when the user named it.
+4. One call: `vault_wiki_write(record_path=<path>, pages=[{path | new: {type, title, aliases, lead, summary}, ops: [...]}], created_by="administrator/0.4.0")`. `src` and `since` default to the record's id and date (its `internet_message_id`, `occurrence_key`, or a chat's `<chat_id>|<date>`). An empty op list is fine: code still writes the Records and History lines. Back come `applied` and `refused` per page (refusals are answers, not errors), `candidate` and `confirmed_decisions`; the record gets its `wiki:` key.
+5. **Second pass, same turn.** With the record still in front of you, answer one question: *which facts in it are not on the pages yet?* Read your ops, and the `refused` ones, against the record and list what is missing - a date, a name, a number, a promise. A non-empty list is a second, smaller `vault_wiki_write` with the same `record_path`, before you reply. Never ask whether the first was good, only what it left out. Every time in `collect-information` and `load-history`; in `save` and `notes` over 1500 characters.
+6. A candidate over the threshold with no page: propose it in the same turn ("Create topic `q3-budget` from these 2 records?") and create it with `vault_wiki_write(pages=[{new: {type, title, aliases, lead, summary, facts, …}}], src, created_by)` on a yes, or at once when the user named it.
 
 ## Ops
 
@@ -36,17 +36,17 @@ Fact ops, each with `src` (the record's `internet_message_id` / `occurrence_key`
 
 Page ops: `lead` (≤ 80 words, the one text the model rewrites freely; a `draft` page becomes `active`), `summary` (≤ 160 chars, the index line), `status` (topic: `active` / `at-risk` / `blocked` / `dormant` / `closed`; decision: `current` / `superseded` / `dropped`, the last only from the user; others drop the first two), `title`, `alias` (add only), `related`, `role` (page, ≤ 4 words), `steps` (howto only), `owner`, `org`. Topic only: `due`, `outcome` (what "done" means), `milestone` (text, due), `risk` (8 at most), `link` (url **or** page, label, 10 at most). Decision only: `superseded_by`, `reversal`.
 
-Commitments, on any page with an `## Open` section: `open` (text, owner, due, since), `done` (id), `reschedule` (id, due). Ops without `src` are refused except `lead`, `summary`, `title`, `related` and `role`; at ingest `src` defaults to the record, so this bites in `vault_wiki_apply`, where it defaults to `user`.
+Commitments, on any page with an `## Open` section: `open` (text, owner, due, since), `done` (id), `reschedule` (id, due). Ops without `src` are refused except `lead`, `summary`, `title`, `related` and `role`; with a `record_path` `src` defaults to the record, so this bites in a write without one, where it defaults to `user`.
 
 ## Commitments
 
 One `## Open` line is one commitment, with an owner (`me`, a person page, or a plain name; `me` by default), a `due` date and its record - the line format is in `references/wiki.md`, a call in `references/examples.md`. Put it on the page of the **subject** it is about; with no such page, on the **counterpart's person page**, which holds both what they owe and what the user owes them.
 
-Close one by reading it back with `vault_wiki_search(open_items=true, owner="others", page=<page>)` and sending `done` with its id and `src: user`; a new date is `reschedule` with a `due`. `Follow-ups.md` is generated from these lines (`## Open` = what others owe, `## Done` = the newest 50 closed) and rewritten after every wiki write; never put rows in it - `vault_append_row` and `vault_move_row` refuse it.
+Close one by reading it back with `vault_wiki_search(open_items=true, owner="others", page=<page>)` and sending `done` with its id and `src: user`; a new date is `reschedule` with a `due`. `Follow-ups.md` is generated from these lines (`## Open` = what others owe, `## Done` = the newest 50 closed) and rewritten after every wiki write; never put rows in it - `vault_row` refuses it.
 
 ## Decisions
 
-When a record is explicit - "we agreed", "we are going with", "approved" - write the decision page in the same ingest, without asking: a `new` spec of type `decision` whose **first fact** is the choice in one sentence, then what follows from it (at most 8 facts), with `decided` (ISO date) and `by` (person pages that exist) required. Code sets `status: current`, flags it `unconfirmed-decision` and writes one Review line; say in one line that it was written and waits for a yes. The user confirms with "resolve review" (`vault_wiki_review(action="resolve", item=…, resolution_ops=[{"op": "confirm", "id": <first fact>}])`) or by ticking that line, and drops it with a `status` op of `dropped`.
+When a record is explicit - "we agreed", "we are going with", "approved" - write the decision page in the same ingest, without asking: a `new` spec of type `decision` whose **first fact** is the choice in one sentence, then what follows from it (at most 8 facts), with `decided` (ISO date) and `by` (person pages that exist) required. Code sets `status: current`, flags it `unconfirmed-decision` and writes one Review line; say in one line that it was written and waits for a yes. The user confirms with "resolve review" (`vault_wiki_keep(action="review", review_action="resolve", item=…, resolution_ops=[{"op": "confirm", "id": <first fact>}])`) or by ticking that line, and drops it with a `status` op of `dropped`.
 
 A decision page is added to, never rewritten: what turned out differently is a **new** decision linked with `superseded_by`, or a fact on the topic page. The whole run, call by call: `references/examples.md`.
 
@@ -67,7 +67,7 @@ A decision page is added to, never rewritten: what turned out differently is a *
 | `verify-failed` | The page did not read back as written; the old text is back, no op stands. | Say so - a Review line names what differed - and do not resend blindly. |
 | `exists` | That title, alias or address already has a page; `path` and `match` come back. | Use that page. |
 
-A code-owned key (`created`, `updated`, `verified`, `sources`, `open_items`, `flags`) in `vault_wiki_create(extra=…)` or an ingest `new` spec is a tool error, not a refusal: drop it and call again. So is a decision without `decided` or `by`.
+A code-owned key (`created`, `updated`, `verified`, `sources`, `open_items`, `flags`) in a `new` spec is a tool error, not a refusal: drop it and call again. So is a decision without `decided` or `by`.
 
 ## Read step (prep, find, draft, a chat question)
 
@@ -75,13 +75,13 @@ One call, not a match and three reads: `vault_wiki_search(query=<the question in
 
 A fact whose line ends **`(one source, unconfirmed since <date>)`** rests on one kind of source and nothing has confirmed it since. Never state it flat: say where it stands, ask the user, or read the record it came from; in a draft, hedge it or leave it out. Wording in `references/examples.md`.
 
-Without `brief` the call returns the ranked facts as a list (`kinds`, `limit`, `since`, `page`, `include_superseded`), best first, at most three per page; `open_items=true` returns the commitments instead (`owner="me" | "others"`, `due_before`, `page`, `include_done`), oldest first, at most 200, `others` being what people owe the user. Ids, dates, amounts, `"quoted phrases"` and `/regex/` match as written. `## Notes` is never read, `Index.md` and `Log.md` never whole - `vault_wiki_match` and `vault_wiki_log` return slices. Fields: `references/wiki.md`.
+Without `brief` the call returns the ranked facts as a list (`kinds`, `limit`, `since`, `page`, `include_superseded`), best first, at most three per page; `open_items=true` returns the commitments instead (`owner="me" | "others"`, `due_before`, `page`, `include_done`), oldest first, at most 200, `others` being what people owe the user. Ids, dates, amounts, `"quoted phrases"` and `/regex/` match as written. `## Notes` is never read, `Index.md` and `Log.md` never whole - `vault_wiki_search(pages=true)` and `vault_wiki_keep(action="log")` return slices. Fields: `references/wiki.md`.
 
 ## Rules
 
 - Pages change only through `vault_wiki_*`: never the host file tools, never `vault_write` on a wiki path, never a row in `Follow-ups.md`.
 - Nothing is deleted; a wrong fact is superseded, retired or contested, and contradictions go to Review, never settled silently.
 - `## Notes` belongs to the user: read it only when `draft` needs voice lines, never write it.
-- Merges (`vault_wiki_merge(keep, drop)`, refused on a decision) and topic creation from a lint proposal happen only after a yes.
-- An answer carrying `adopted: [{page, changes}]` means the user edited pages by hand and code read those edits back; say so in one line first, naming the page and what changed.
+- Merges (`vault_wiki_keep(action="merge", keep, drop)`, refused on a decision) and topic creation from a lint proposal happen only after a yes.
+- An answer carrying `adopted: [{page, changes}]` means the user edited pages by hand and a writing call read those edits back; say so in one line first, naming the page and what changed. A read tool says `hand_edits: n` instead — no page is rewritten by a read; say how many and carry on, the next write adopts them.
 - Every reply that changed pages lists them with `obsidian://open` links, one per page, plus the Review count when it grew.
