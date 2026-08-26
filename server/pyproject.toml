@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "outlook-classic-mcp"
+version = "0.4.1"
+description = "Local MCP server for classic Outlook desktop on Windows (COM, no Azure app required)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Anas Shaikh" }]
+keywords = ["mcp", "outlook", "model-context-protocol", "claude", "windows"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: Microsoft :: Windows",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Communications :: Email",
+  "Topic :: Office/Business",
+]
+dependencies = [
+  "mcp<=1.29",  # capped to mcp less than 1.29 raised by the issue identified by @DanoPTT thanks for raising this issue. migration to mcp 2.0 is a new pending issue.
+  "pydantic>=2.6",
+  "pywin32>=306; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+dev = ["build>=1.0", "twine>=5.0", "pytest>=8.0"]
+search = [
+    "openpyxl>=3.1.5",
+    "pypdf>=6.16.1",
+]
+# ccl_chromium_reader has no release on PyPI, so it is pinned to the commit this
+# was built and tested against. To move it: check the upstream history, put the new
+# commit hash after the @, run `uv sync --extra teams` and `uv run pytest -q tests/test_teams.py`.
+teams = ["ccl_chromium_reader @ git+https://github.com/cclgroupltd/ccl_chromium_reader@ef840de30221c4d65bc96d2f4d9057e9ef2f526d"]
+
+[project.scripts]
+outlook-mcp = "outlook_mcp.entrypoint:main"
+soma-vault = "soma_vault.entrypoint:main"
+local-ms-teams = "local_ms_teams.entrypoint:main"
+
+[project.urls]
+Homepage = "https://github.com/anasahmed07/Outlook-Classic-MCP"
+Issues = "https://github.com/anasahmed07/Outlook-Classic-MCP/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"outlook_mcp.ui" = ["*.html"]
+"soma_vault" = ["views/*.base", "wiki_schema.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

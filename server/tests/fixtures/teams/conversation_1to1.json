@@ -1,0 +1,14 @@
+{
+  "id": "19:22222222-2222-2222-2222-222222222222_33333333-3333-3333-3333-333333333333@unq.gbl.spaces",
+  "type": "Chat",
+  "threadProperties": {},
+  "members": [
+    {"mri": "8:orgid:22222222-2222-2222-2222-222222222222", "displayName": "Me Myself"},
+    {"mri": "8:orgid:33333333-3333-3333-3333-333333333333", "displayName": "Jane Doe"}
+  ],
+  "lastMessageTimeUtc": 1787470200000,
+  "lastMessage": {
+    "content": "Great, 12:30 at the canteen then.",
+    "imDisplayName": "Jane Doe (ACME)"
+  }
+}

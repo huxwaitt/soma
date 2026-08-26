@@ -1,0 +1,809 @@
+"""The vault on disk: root lookup, path rules, and every read/write the tools do.
+
+All paths that go in or come out are vault-relative with forward slashes,
+for example ``Soma/Emails/2026-08-21 Q3 budget.md``. Every write is
+refused outside ``Soma/``.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import zipfile
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Optional
+
+from soma_vault import frontmatter as fmt
+from soma_vault import notes
+from soma_vault.notes import ADMIN_DIR, NoteError
+
+VIEWS_DIR = Path(__file__).with_name("views")
+
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
+_COMMENT_RE = re.compile(r"<!--\s*([A-Za-z_]+):\s*(.*?)\s*-->")
+
+
+class VaultError(ValueError):
+    """Vault not usable or a path rule was broken."""
+
+
+# ------------------------------------------------------------------ root/paths
+
+
+def vault_root() -> Path:
+    raw = os.environ.get("SOMA_VAULT", "").strip()
+    if not raw:
+        raise VaultError(
+            "SOMA_VAULT is not set. Set it to the absolute path of your "
+            "Obsidian vault (for example C:\\Users\\you\\Documents\\Vault) and start a new session."
+        )
+    p = Path(raw)
+    if not p.is_absolute():
+        raise VaultError(f"SOMA_VAULT must be an absolute path, got {raw!r}.")
+    if not p.is_dir():
+        raise VaultError(f"SOMA_VAULT points to {raw!r}, which is not a directory.")
+    return p
+
+
+def vault_name(root: Path) -> str:
+    return os.environ.get("SOMA_VAULT_NAME", "").strip() or root.name
+
+
+def under_user_profile(root: Path) -> bool:
+    profile = Path(os.environ.get("USERPROFILE") or Path.home())
+    try:
+        root.resolve().relative_to(profile.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def rel(root: Path, path: Path) -> str:
+    return path.relative_to(root).as_posix()
+
+
+def resolve(root: Path, relative: str) -> Path:
+    """Turn a vault-relative path into an absolute one, refusing anything
+    outside ``Soma/``."""
+    raw = (relative or "").strip().replace("\\", "/")
+    if not raw:
+        raise VaultError("Path is empty.")
+    if raw.startswith("/") or re.match(r"^[A-Za-z]:", raw):
+        raise VaultError(f"Path must be vault-relative, not absolute: {relative!r}.")
+    parts = [p for p in raw.split("/") if p not in ("", ".")]
+    if any(p == ".." for p in parts):
+        raise VaultError(f"Path may not contain '..': {relative!r}.")
+    if not parts or parts[0] != ADMIN_DIR:
+        raise VaultError(f"Refused: {relative!r} is outside {ADMIN_DIR}/. The plugin only writes there.")
+    p = root.joinpath(*parts)
+    try:
+        p.resolve().relative_to((root / ADMIN_DIR).resolve())
+    except ValueError:
+        raise VaultError(f"Refused: {relative!r} resolves outside {ADMIN_DIR}/.") from None
+    return p
+
+
+def read_text(p: Path) -> str:
+    return p.read_text(encoding="utf-8").replace("\r\n", "\n")
+
+
+def write_text(p: Path, text: str) -> None:
+    p.parent.mkdir(parents=True, exist_ok=True)
+    if not text.endswith("\n"):
+        text += "\n"
+    p.write_text(text, encoding="utf-8", newline="\n")
+
+
+def now_iso() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+# ---------------------------------------------------------------- status/init
+
+
+def status() -> dict[str, Any]:
+    raw = os.environ.get("SOMA_VAULT", "").strip()
+    p = Path(raw) if raw else None
+    exists = bool(p and p.exists())
+    is_dir = bool(p and p.is_dir())
+    admin = p / ADMIN_DIR if p else None
+    out: dict[str, Any] = {
+        "vault": raw,
+        "exists": exists,
+        "is_dir": is_dir,
+        "soma_dir_exists": bool(admin and admin.is_dir()),
+        "folders": {f: bool(admin and (admin / f).is_dir()) for f in notes.FOLDERS},
+        "files": {f: bool(admin and (admin / f).is_file()) for f in notes.FILES},
+        "old_people_dir": bool(admin and (admin / "People").is_dir()),  # a 0.1.0 vault: offer vault_wiki_keep(migrate)
+        "under_user_profile": bool(p and is_dir and under_user_profile(p)),
+        "vault_name": vault_name(p) if p else "",
+    }
+    return out
+
+
+FOLLOWUPS_NOTE = (
+    "Generated from the Open items of the wiki pages — edit or tick the item on its page, "
+    "or say 'done' in chat; changes here are overwritten."
+)
+
+
+def followups_template(created_by: str) -> str:
+    head = "| " + " | ".join(notes.FOLLOWUPS_OPEN_HEADER) + " |\n| --- | --- | --- | --- | --- |\n"
+    done = "| " + " | ".join(notes.FOLLOWUPS_DONE_HEADER) + " |\n| --- | --- | --- | --- | --- |\n"
+    fm = fmt.format_frontmatter({"type": "followups", "source": "wiki", "generated": True, "open": 0, "created_by": created_by})
+    return fm + "\n# Follow-ups\n\n" + FOLLOWUPS_NOTE + "\n\n## Open\n\n" + head + "\n## Done\n\n" + done
+
+
+def check_peak_hours(peak_hours: Optional[list[str]]) -> list[str]:
+    """The peak_hours list checked (each ``HH:MM-HH:MM``); the default when None."""
+    if peak_hours is None:
+        return list(PREFERENCE_DEFAULTS["peak_hours"])
+    out = [str(r).strip() for r in peak_hours]
+    for r in out:
+        if not re.match(r"^\d{2}:\d{2}-\d{2}:\d{2}$", r):
+            raise VaultError(f"Peak hours must look like HH:MM-HH:MM, got {r!r}.")
+    return out
+
+
+def preferences_template(work_start: str, work_end: str, buffer_minutes: int, created_by: str, peak_hours: Optional[list[str]] = None) -> str:
+    fm = fmt.format_frontmatter(
+        {
+            "type": "preferences",
+            "source": "soma",
+            "work_start": work_start,
+            "work_end": work_end,
+            "timezone": "local — the timezone Outlook reports in outlook_whoami; all times in this file are in it",
+            "buffer_minutes": buffer_minutes,
+            "no_meeting_blocks": [f"Fri 13:00-{work_end}"],
+            "max_meetings_per_day": 5,
+            "default_duration": 30,
+            "default_location": "Teams",
+            "preferred_days": ["Tue", "Wed", "Thu"],
+            "peak_hours": check_peak_hours(peak_hours),
+            "focus_block_minutes": PREFERENCE_DEFAULTS["focus_block_minutes"],
+            "focus_blocks_per_day": PREFERENCE_DEFAULTS["focus_blocks_per_day"],
+            "admin_blocks_per_day": PREFERENCE_DEFAULTS["admin_blocks_per_day"],
+            "admin_block_minutes": PREFERENCE_DEFAULTS["admin_block_minutes"],
+            "slack_share": PREFERENCE_DEFAULTS["slack_share"],
+            "collect_folders": [],
+            "document_folders": [],
+            "created_by": created_by,
+        }
+    )
+    return fm + (
+        "\n# Scheduling preferences\n\n"
+        "Edit the frontmatter above. The plugin reads it before suggesting or booking any meeting "
+        "and before planning focus and admin blocks. Plain words on what each key does:\n\n"
+        "- `work_start` / `work_end` — the only hours a slot may be suggested in. 24-hour `\"HH:MM\"`, quoted.\n"
+        "- `timezone` — a note to yourself; the plugin always works in the local time Outlook reports. "
+        "Change your Windows timezone, not this line, if you travel.\n"
+        "- `buffer_minutes` — free minutes the plugin keeps before and after every existing meeting. `0` switches it off.\n"
+        "- `no_meeting_blocks` — weekday plus a time range, one per line, that are never offered: "
+        "`\"Fri 13:00-17:30\"`, `\"Mon 09:00-10:00\"`. Weekday names: Mon Tue Wed Thu Fri Sat Sun. "
+        "An empty list `[]` means none.\n"
+        "- `max_meetings_per_day` — days that already have this many meetings are skipped. `0` means no limit.\n"
+        "- `default_duration` — minutes, used when you do not say how long.\n"
+        "- `default_location` — used when you do not say where. `\"Teams\"`, a room name, or `\"\"` for none.\n"
+        "- `preferred_days` — days listed here are shown first when there is a choice. An empty list `[]` means no preference.\n"
+        "- `peak_hours` — the hours you think best, as ranges `\"09:00-12:00\"`, one per line; focus blocks are placed there first.\n"
+        "- `focus_block_minutes` — length of one focus block; nothing shorter is booked.\n"
+        "- `focus_blocks_per_day` — how many focus blocks a day may get at most.\n"
+        "- `admin_blocks_per_day` — how many admin blocks (email and small tasks) a day may get at most.\n"
+        "- `admin_block_minutes` — length of one admin block.\n"
+        "- `slack_share` — the share of the work day left unbooked for what comes up: `0.2` keeps a fifth free. "
+        "Days where meetings already eat past this share get no blocks.\n"
+        "- `collect_folders` — extra folders /soma:collect-information reads for changed notes, "
+        "as paths relative to the vault root (`\"Projects\"`, `\"Journal/2026\"`). They are only read, never written. "
+        "An empty list `[]` means only the Soma/ notes.\n"
+        "- `document_folders` — folders whose files (pdf, docx, pptx, xlsx, txt, md, csv) "
+        "/soma:collect-information offers to read into the vault as document records. "
+        "Relative to the vault root, or a full path anywhere on the machine "
+        "(`\"C:/Users/you/Documents/Contracts\"`). They are only read, never written. "
+        "An empty list `[]` means no folder is watched.\n\n"
+        "## Notes\n\n"
+        "Anything you write below this line is yours; the plugin never touches it.\n"
+    )
+
+
+def priorities_template(created_by: str) -> str:
+    fm = fmt.format_frontmatter({"type": "priorities", "source": "soma", "created_by": created_by})
+    return fm + (
+        "\n# Priorities\n\n"
+        "What matters most right now, ranked. /soma:time-block reads this list when it plans focus blocks: "
+        "rank 1 gets every other block, the rest follow in order. Keep it to three to five lines. "
+        "A line is a wiki topic page link or plain words. This file is yours: the plugin only replaces the numbered list, "
+        "and only after you confirm a suggestion.\n\n"
+        "## Priorities\n\n"
+        "1. (your first priority — a topic page link such as [[Wiki/Topics/acme-supplier-contract]] or plain words)\n"
+    )
+
+
+QUESTIONS_PATH = f"{ADMIN_DIR}/Wiki/Questions.md"
+
+
+def questions_template(created_by: str) -> str:
+    fm = fmt.format_frontmatter({"type": "wiki-questions", "source": "soma", "created_by": created_by})
+    return fm + (
+        "\n# Questions\n\n"
+        "The questions you want the wiki to answer, and the page that should answer each one. "
+        "Every lint run asks the wiki these questions and reports the ones it could not answer, "
+        "so you can see whether the wiki is getting better or worse. This file is yours: the plugin reads it "
+        "and never rewrites it — the one thing it changes here is a link that followed a page you renamed.\n\n"
+        "One line per question under the heading below: the question, an arrow, and a link to the page "
+        "that holds the answer. Put `f:<id>` after the link when one particular fact is the answer — the "
+        "fact ids are shown by /soma:wiki and by the search. A line whose page does not exist "
+        "yet is listed and not counted. Like this:\n\n"
+        "```markdown\n"
+        "- When are the Q3 numbers due? → [[Wiki/Topics/example]]\n"
+        "- What did we agree with the supplier? → [[Wiki/Topics/example]] f:abcd\n"
+        "```\n\n"
+        "## Questions\n\n"
+    )
+
+
+# Every preferences key with its default; read_preferences() fills these in when the file lacks a key.
+PREFERENCE_DEFAULTS: dict[str, Any] = {
+    "work_start": "09:00",
+    "work_end": "17:00",
+    "buffer_minutes": 15,
+    "no_meeting_blocks": [],
+    "max_meetings_per_day": 5,
+    "default_duration": 30,
+    "default_location": "Teams",
+    "preferred_days": [],
+    "peak_hours": ["09:00-12:00"],
+    "focus_block_minutes": 90,
+    "focus_blocks_per_day": 2,
+    "admin_blocks_per_day": 2,
+    "admin_block_minutes": 45,
+    "slack_share": 0.2,
+    "collect_folders": [],
+    "document_folders": [],
+}
+PREFERENCES_PATH = f"{ADMIN_DIR}/Preferences.md"
+
+
+def _coerce_preference(key: str, value: Any) -> Any:
+    """A value of the key's own kind (the frontmatter parser leaves floats as text)."""
+    default = PREFERENCE_DEFAULTS[key]
+    if isinstance(default, list):
+        if isinstance(value, str):
+            return [value] if value.strip() else []
+        return [str(v) for v in (value or []) if str(v).strip()]
+    if isinstance(default, bool):
+        return bool(value)
+    if isinstance(default, int):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+    if isinstance(default, float):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+    return str(value)
+
+
+def read_preferences() -> dict[str, Any]:
+    """Preferences.md as one dict: {path, preferences, missing}.
+
+    ``preferences`` holds every key of PREFERENCE_DEFAULTS (the file's value,
+    else the default) plus any extra key the user added; ``missing`` lists
+    the keys the file does not have. A vault without the file gives the
+    defaults with every key missing."""
+    root = vault_root()
+    p = root / PREFERENCES_PATH
+    fm: dict[str, Any] = {}
+    if p.is_file():
+        try:
+            fm = fmt.split_note(read_text(p))[0]
+        except (fmt.FrontmatterError, UnicodeDecodeError):
+            fm = {}
+    prefs: dict[str, Any] = {}
+    missing: list[str] = []
+    for key, default in PREFERENCE_DEFAULTS.items():
+        if key in fm and fm[key] not in (None, ""):
+            prefs[key] = _coerce_preference(key, fm[key])
+        else:
+            prefs[key] = list(default) if isinstance(default, list) else default
+            missing.append(key)
+    for key, value in fm.items():
+        if key not in prefs and key not in ("type", "source", "created_by", "timezone"):
+            prefs[key] = value
+    return {"path": PREFERENCES_PATH if p.is_file() else None, "preferences": prefs, "missing": missing}
+
+
+BACKUP_DIR = f"{ADMIN_DIR}/_backup"
+BACKUP_SKIP = ("_cache", "_backup")  # the caches and the earlier copies are not worth keeping
+
+
+def backup_zip(root: Path) -> Optional[str]:
+    """A copy of Soma/ before this version reads the wiki back for the
+    first time, or None when there is nothing to keep.
+
+    A vault written by an older version holds pages the two-way pass has never
+    seen: the first writing call reads them all in and writes them again. The
+    zip is made once — when there are wiki pages and no Wiki/_cache/state.json
+    yet — and holds every file under Soma/ apart from _cache/ and
+    _backup/."""
+    from soma_vault import wiki_reconcile, wiki_search  # local imports: both read this module
+
+    admin = root / ADMIN_DIR
+    if not admin.is_dir() or (root / wiki_reconcile.STATE_PATH).is_file():
+        return None
+    if any((root / BACKUP_DIR).glob("*.zip")):  # made once: a zip is already there from an earlier init
+        return None
+    if not wiki_search._page_files(root):
+        return None
+    keep = [
+        p for p in sorted(admin.rglob("*"))
+        if p.is_file() and not set(p.relative_to(admin).parts[:-1]) & set(BACKUP_SKIP)
+    ]
+    if not keep:
+        return None
+    stamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+    out = root / BACKUP_DIR / f"{stamp}.zip"
+    n = 2
+    while out.exists():  # a second run within the same second
+        out = root / BACKUP_DIR / f"{stamp}-{n}.zip"
+        n += 1
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        for p in keep:
+            z.write(p, "/".join(p.relative_to(admin).parts))
+    return rel(root, out)
+
+
+def init(
+    work_start: str = "09:00",
+    work_end: str = "17:00",
+    buffer_minutes: int = 15,
+    overwrite: bool = False,
+    created_by: str = "soma-vault",
+    peak_hours: Optional[list[str]] = None,
+) -> dict[str, Any]:
+    """Create the Soma/ tree, Follow-ups.md, Preferences.md,
+    Priorities.md, Wiki/Questions.md and the _views/*.base files. ``overwrite``
+    re-writes Preferences.md and the views; Follow-ups.md, Priorities.md and
+    Questions.md are never overwritten (they hold the user's data). ``backup``
+    in the answer is the zip of Soma/ kept before this version reads
+    an older vault's pages back, or None when there was nothing to keep."""
+    for t in (work_start, work_end):
+        if not re.match(r"^\d{2}:\d{2}$", t):
+            raise VaultError(f"Work hours must look like HH:MM, got {t!r}.")
+    peak_hours = check_peak_hours(peak_hours)
+    root = vault_root()
+    backup = backup_zip(root)  # before anything is written: an older vault gets one copy
+    created: list[str] = []
+    skipped: list[str] = []
+    admin = root / ADMIN_DIR
+    for folder in ("",) + notes.FOLDERS:
+        p = admin / folder if folder else admin
+        if p.is_dir():
+            skipped.append(rel(root, p) + "/")
+        else:
+            p.mkdir(parents=True, exist_ok=True)
+            created.append(rel(root, p) + "/")
+
+    fu = admin / "Follow-ups.md"
+    if fu.exists():
+        skipped.append(rel(root, fu))
+    else:
+        write_text(fu, followups_template(created_by))
+        created.append(rel(root, fu))
+
+    pref = admin / "Preferences.md"
+    if pref.exists() and not overwrite:
+        skipped.append(rel(root, pref))
+    else:
+        write_text(pref, preferences_template(work_start, work_end, buffer_minutes, created_by, peak_hours))
+        created.append(rel(root, pref))
+
+    prio = admin / "Priorities.md"
+    if prio.exists():
+        skipped.append(rel(root, prio))  # the user's ranked list; never rewritten
+    else:
+        write_text(prio, priorities_template(created_by))
+        created.append(rel(root, prio))
+
+    from soma_vault.workflows import rules_template  # local import: workflows imports store
+
+    rules = admin / "Rules.md"
+    if rules.exists():
+        skipped.append(rel(root, rules))  # holds the user's rules; never overwritten
+    else:
+        write_text(rules, rules_template(created_by))
+        created.append(rel(root, rules))
+
+    questions = root / QUESTIONS_PATH
+    if questions.exists():
+        skipped.append(rel(root, questions))  # the user's own list of questions; never rewritten
+    else:
+        write_text(questions, questions_template(created_by))
+        created.append(rel(root, questions))
+
+    from soma_vault import wiki  # local import: wiki imports store
+
+    created.extend(wiki.init_files(root, created_by))
+
+    if VIEWS_DIR.is_dir():
+        for src in sorted(VIEWS_DIR.glob("*.base")):
+            dst = admin / "_views" / src.name
+            if dst.exists() and not overwrite:
+                skipped.append(rel(root, dst))
+            else:
+                write_text(dst, src.read_text(encoding="utf-8"))
+                created.append(rel(root, dst))
+    return {"created": created, "skipped": skipped, "backup": backup}
+
+
+# ---------------------------------------------------------------- find/list
+
+
+def _iter_notes(root: Path, note_type: str):
+    folder = root / notes.folder_of(note_type)
+    if not folder.is_dir():
+        return
+    for p in sorted(folder.glob("*.md")):
+        try:
+            fm, _block, _body = fmt.split_note(read_text(p))
+        except (fmt.FrontmatterError, UnicodeDecodeError):
+            continue
+        if fm.get("type") != note_type:
+            continue
+        yield p, fm
+
+
+def _pick(fm: dict[str, Any], fields: Optional[list[str]]) -> dict[str, Any]:
+    """Only the named frontmatter keys (all of them when ``fields`` is empty)."""
+    if not fields:
+        return fm
+    return {k: fm[k] for k in fields if k in fm}
+
+
+def find(note_type: str, identity: Any, fields: Optional[list[str]] = None) -> dict[str, Any]:
+    root = vault_root()
+    ident = notes.normalize_identity(note_type, identity)
+    hits = [(p, fm) for p, fm in _iter_notes(root, note_type) if notes.matches(note_type, fm, ident)]
+    hits.sort(key=lambda h: notes.sort_value(note_type, h[1]), reverse=True)
+    if not hits:
+        return {"found": False, "path": None, "frontmatter": None, "matches": []}
+    p, fm = hits[0]
+    return {
+        "found": True,
+        "path": rel(root, p),
+        "frontmatter": _pick(fm, fields),
+        "matches": [rel(root, h[0]) for h in hits],
+    }
+
+
+def list_notes(
+    note_type: str, since: Optional[str] = None, limit: int = 200, fields: Optional[list[str]] = None
+) -> list[dict[str, Any]]:
+    root = vault_root()
+    items = [(p, fm) for p, fm in _iter_notes(root, note_type)]
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(since)
+        except ValueError:
+            raise VaultError(f"'since' must be an ISO date or datetime, got {since!r}.") from None
+        since_key = notes.sort_value(note_type, {notes.schema(note_type)["date_key"]: since_dt.isoformat()})
+        items = [(p, fm) for p, fm in items if notes.sort_value(note_type, fm) >= since_key]
+    items.sort(key=lambda h: notes.sort_value(note_type, h[1]), reverse=True)
+    return [{"path": rel(root, p), "frontmatter": _pick(fm, fields)} for p, fm in items[:limit]]
+
+
+# ---------------------------------------------------------------- read/write
+
+
+def _split_heading(text: str) -> tuple[str, str]:
+    """A body heading as (locator, heading): "p3 — Pricing" -> ("p3", "Pricing");
+    a heading without a locator comes back as ("", the whole text).
+
+    A locator is one word ("p3", "s4", "m2") or, for a sheet, the name that
+    is also the heading ("Sales EU — Sales EU"), so a sheet whose name holds
+    a space can still be asked for by that name."""
+    whole = text.strip()
+    half = (len(whole) - 3) // 2
+    if len(whole) >= 7 and whole[half:half + 3] == " — " and whole[:half] == whole[half + 3:]:
+        return whole[:half], whole[:half]  # a sheet name that holds " — " itself, written twice
+    left, sep, right = text.partition(" — ")
+    left, right = left.strip(), right.strip()
+    if sep and left and (" " not in left or left == right):
+        return left, right
+    return "", whole
+
+
+def _one_section(body: str, wanted: str) -> dict[str, Any]:
+    """The named part of a body: its locator, its heading and its text.
+
+    ``wanted`` is a locator ("p3", "s2", "Sheet1"), the heading text, or the
+    whole heading line without the leading hashes. The last part with that
+    name wins, so a record whose '## Update' replaced a part answers with the
+    text that is true now."""
+    lines = body.split("\n")
+    heads: list[tuple[int, int, str]] = []  # (line index, heading level, text)
+    for i, line in enumerate(lines):
+        m = _HEADING_RE.match(line)
+        if m:
+            heads.append((i, len(m.group(1)), m.group(2).strip()))
+    key = wanted.strip().lower()
+    for n, (i, level, text) in reversed(list(enumerate(heads))):
+        locator, heading = _split_heading(text)
+        if key not in (text.strip().lower(), locator.lower(), heading.lower()):
+            continue
+        end = next((j for j, lv, _t in heads[n + 1:] if lv <= level), len(lines))
+        part = "\n".join(lines[i + 1:end]).strip("\n")
+        return {"locator": locator, "heading": heading or text.strip(), "text": part, "chars": len(part)}
+    have = ", ".join(t for _i, _lv, t in heads) or "none"
+    raise VaultError(f"No section {wanted!r} in that note. It has: {have}.")
+
+
+def read(path: str, section: Optional[str] = None) -> dict[str, Any]:
+    root = vault_root()
+    p = resolve(root, path)
+    if not p.is_file():
+        raise VaultError(f"No such note: {path!r}.")
+    fm, _block, body = fmt.split_note(read_text(p))
+    sections = [m.group(2) for line in body.split("\n") if (m := _HEADING_RE.match(line))]
+    if section:
+        return {"path": rel(root, p), "frontmatter": fm,
+                "section": _one_section(body, section), "sections": sections}
+    return {"path": rel(root, p), "frontmatter": fm, "body": body, "sections": sections}
+
+
+def _free_filename(folder: Path, base: str) -> Path:
+    stem, ext = base[:-3], ".md"
+    candidate = folder / base
+    n = 2
+    while candidate.exists():
+        candidate = folder / f"{stem} ({n}){ext}"
+        n += 1
+    return candidate
+
+
+def write(note_type: str, frontmatter: dict[str, Any], body: str, mode: str = "create") -> dict[str, Any]:
+    if mode not in ("create", "append", "upsert"):
+        raise VaultError(f"mode must be create, append or upsert, got {mode!r}.")
+    root = vault_root()
+    fm = dict(frontmatter or {})
+    fm.setdefault("type", note_type)
+    fm = notes.with_core_keys(note_type, fm)
+    notes.validate(note_type, fm)
+    ident = notes.identity_of(note_type, fm)
+    if not any(ident.values()):
+        raise NoteError(f"{note_type} note has no identity ({', '.join(ident)} all empty).")
+
+    if note_type == "person":
+        from soma_vault import wiki  # local import: wiki imports store
+
+        return wiki.person_write(fm, body, mode)  # person notes are wiki pages; the wiki keeps their shape
+    hit = find(note_type, ident)
+    if hit["found"]:
+        if mode == "create":
+            raise VaultError(f"A {note_type} note with this identity already exists: {hit['path']}.")
+        return _append(root, hit["path"], fm, body, ident)
+    if mode == "append":
+        raise VaultError(f"No {note_type} note with identity {ident} to append to.")
+    return _create(root, note_type, fm, body, ident)
+
+
+def _create(root: Path, note_type: str, fm: dict[str, Any], body: str, ident: dict[str, Any]) -> dict[str, Any]:
+    folder = root / notes.folder_of(note_type)
+    folder.mkdir(parents=True, exist_ok=True)
+    p = _free_filename(folder, notes.base_filename(note_type, fm))
+    text = fmt.format_frontmatter(fm) + "\n" + (body or "").replace("\r\n", "\n").rstrip("\n") + "\n"
+    write_text(p, text)
+    return {"path": rel(root, p), "action": "created", "identity": ident}
+
+
+def _blank(value: Any) -> bool:
+    return value is None or value == "" or value == []
+
+
+def _append(root: Path, path: str, fm: dict[str, Any], body: str, ident: dict[str, Any]) -> dict[str, Any]:
+    p = resolve(root, path)
+    text = read_text(p)
+    old_fm, block, old_body = fmt.split_note(text)
+    updates = {
+        k: fm[k] for k in notes.REPLACEABLE_KEYS
+        # an append may change a key, never blank one that already holds something
+        if k in fm and fm[k] != old_fm.get(k) and not (_blank(fm[k]) and not _blank(old_fm.get(k)))
+    }
+    changed_keys = list(updates)
+    new_block = fmt.replace_keys(block, updates) if updates else block
+    if "aliases" in fm and isinstance(fm["aliases"], list):
+        old_aliases = old_fm.get("aliases") or []
+        if isinstance(old_aliases, str):
+            old_aliases = [old_aliases] if old_aliases else []
+        merged = list(old_aliases)
+        for a in fm["aliases"]:
+            if a and a not in merged:
+                merged.append(a)
+        if merged != list(old_aliases):
+            new_block = fmt.replace_list_key(new_block, "aliases", merged)
+            changed_keys.append("aliases")
+    stamp = now_iso()
+    new_body = old_body.rstrip("\n") + "\n\n## Update " + stamp + "\n\n" + (body or "").rstrip("\n") + "\n"
+    write_text(p, "---\n" + new_block + "\n---\n\n" + new_body.lstrip("\n"))
+    return {
+        "path": rel(root, p),
+        "action": "appended",
+        "identity": ident,
+        "update_heading": "Update " + stamp,
+        "frontmatter_changed": changed_keys,
+    }
+
+
+# ---------------------------------------------------------------- tables
+
+
+def _section_range(lines: list[str], section: str) -> Optional[tuple[int, int]]:
+    """(heading index, end index exclusive) of the ``## <section>`` block."""
+    start = None
+    level = 0
+    for i, line in enumerate(lines):
+        m = _HEADING_RE.match(line)
+        if not m:
+            continue
+        if start is None:
+            if m.group(2).strip() == section.strip():
+                start, level = i, len(m.group(1))
+        elif len(m.group(1)) <= level:
+            return start, i
+    return (start, len(lines)) if start is not None else None
+
+
+def _table_rows(lines: list[str], lo: int, hi: int) -> list[int]:
+    """Indexes of the lines of the first table inside lines[lo:hi]."""
+    rows: list[int] = []
+    for i in range(lo, hi):
+        if lines[i].lstrip().startswith("|"):
+            rows.append(i)
+        elif rows:
+            break
+    return rows
+
+
+def _unescape_cell(text: str) -> str:
+    return text.replace("\\|", "|")
+
+
+def _cells(line: str) -> list[str]:
+    """Cells of a table line, with ``\\|`` turned back into ``|``.
+
+    The inverse of ``_row_line``: a cell (or a hidden key comment inside it,
+    such as an ``occurrence_key`` ``GID|start``) may hold a pipe, which is
+    stored escaped so the table stays one row per line."""
+    s = line.strip()
+    if s.startswith("|"):
+        s = s[1:]
+    if s.endswith("|"):
+        s = s[:-1]
+    return [_unescape_cell(c.strip()) for c in re.split(r"(?<!\\)\|", s)]
+
+
+def _row_line(cells: list[str]) -> str:
+    return "| " + " | ".join(c.replace("|", "\\|") for c in cells) + " |"
+
+
+def _comment_key(line: str) -> Optional[str]:
+    m = _COMMENT_RE.search(line)
+    return _unescape_cell(m.group(2)) if m else None
+
+
+def _refuse_generated(p: Path, text: str, what: str) -> None:
+    """A file the code writes from the wiki pages takes no rows: the item belongs
+    on the page it is about."""
+    try:
+        fm = fmt.split_note(text)[0]
+    except (fmt.FrontmatterError, ValueError):
+        return
+    if fm.get("generated") is True:
+        raise VaultError(
+            f"{p.name} is written from the wiki pages, so a row cannot be {what} here. "
+            "Put the item on the page it is about (vault_wiki_write with an open op), "
+            "or close it there (a done op); this file is written again after every change."
+        )
+
+
+def _header_for(p: Path, section: str, n: int) -> list[str]:
+    if p.name == "Follow-ups.md":
+        return notes.FOLLOWUPS_DONE_HEADER if section.strip().lower() == "done" else notes.FOLLOWUPS_OPEN_HEADER
+    raise VaultError(
+        f"Section '{section}' in {p.name} has no table yet; pass 'header' (a list of {n} column names)."
+    )
+
+
+def _ensure_table(lines: list[str], p: Path, section: str, n: int, header: Optional[list[str]]) -> list[int]:
+    rng = _section_range(lines, section)
+    if rng is None:
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.extend([f"## {section}", ""])
+        rng = (len(lines) - 2, len(lines))
+    lo, hi = rng
+    rows = _table_rows(lines, lo + 1, hi)
+    if rows:
+        return rows
+    cols = header or _header_for(p, section, n)
+    table = [_row_line(cols), "| " + " | ".join("---" for _ in cols) + " |"]
+    if lo + 1 < len(lines) and not lines[lo + 1].strip():
+        at = lo + 2
+        lines[at:at] = table + [""]
+        first = at
+    else:
+        at = lo + 1
+        lines[at:at] = [""] + table + [""]
+        first = at + 1
+    return [first, first + 1]
+
+
+def append_row(
+    path: str,
+    section: str,
+    row: list[str],
+    dedupe_key: Optional[str] = None,
+    header: Optional[list[str]] = None,
+    key_label: str = "entry_id",
+) -> dict[str, Any]:
+    root = vault_root()
+    p = resolve(root, path)
+    if not p.is_file():
+        raise VaultError(f"No such note: {path!r}.")
+    if not row:
+        raise VaultError("row is empty.")
+    cells = [str(c) for c in row]
+    text = read_text(p)
+    _refuse_generated(p, text, "added")
+    lines = text.split("\n")
+    if dedupe_key:
+        for i, line in enumerate(lines):
+            if line.lstrip().startswith("|") and _comment_key(line) == dedupe_key:
+                return {"appended": False, "path": rel(root, p), "reason": "duplicate", "line": i + 1}
+        cells[-1] = (cells[-1] + f" <!-- {key_label}: {dedupe_key} -->").strip()
+    rows = _ensure_table(lines, p, section, len(cells), header)
+    ncols = len(_cells(lines[rows[0]]))
+    if len(cells) != ncols:
+        raise VaultError(f"Row has {len(cells)} cells but the table under '{section}' has {ncols} columns.")
+    line = _row_line(cells)
+    lines.insert(rows[-1] + 1, line)
+    write_text(p, "\n".join(lines))
+    return {"appended": True, "path": rel(root, p), "section": section, "row": line}
+
+
+def move_row(
+    path: str,
+    from_section: str,
+    to_section: str,
+    dedupe_key: str,
+    set_last_cell: Optional[str] = None,
+) -> dict[str, Any]:
+    root = vault_root()
+    p = resolve(root, path)
+    if not p.is_file():
+        raise VaultError(f"No such note: {path!r}.")
+    if not dedupe_key:
+        raise VaultError("dedupe_key is required to find the row.")
+    text = read_text(p)
+    _refuse_generated(p, text, "moved")
+    lines = text.split("\n")
+    rng = _section_range(lines, from_section)
+    if rng is None:
+        return {"moved": False, "path": rel(root, p), "reason": f"no section '{from_section}'"}
+    rows = _table_rows(lines, rng[0] + 1, rng[1])
+    idx = next((i for i in rows[2:] if _comment_key(lines[i]) == dedupe_key), None)
+    if idx is None:
+        return {"moved": False, "path": rel(root, p), "reason": "not found"}
+    cells = _cells(lines[idx])
+    if set_last_cell is not None:
+        m = _COMMENT_RE.search(cells[-1])
+        cells[-1] = (set_last_cell + " " + m.group(0)).strip() if m else set_last_cell
+    del lines[idx]
+    target = _ensure_table(lines, p, to_section, len(cells), None)
+    line = _row_line(cells)
+    lines.insert(target[-1] + 1, line)
+    write_text(p, "\n".join(lines))
+    return {"moved": True, "path": rel(root, p), "from": from_section, "to": to_section, "row": line}

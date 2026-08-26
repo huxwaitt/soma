@@ -1,0 +1,176 @@
+# Gotchas
+
+Every quirk and failure mode worth knowing, organized by *what the user sees*. Read this before doing anything that has external side effects, and consult the matching entry the moment something looks weird.
+
+## "You said you sent it but I don't see it in Sent Items."
+
+Almost always **Outlook's Programmatic Access security setting** silently blocking the send. On corporate-managed Outlook installs, sending mail from automation can be gated by Trust Center. Symptoms: `send_mail` / `reply_mail` / `forward_mail` returns success, the mail never appears in Sent Items, no error is surfaced to you.
+
+**Tell the user**: open Outlook → File → Options → Trust Center → Trust Center Settings → Programmatic Access. The setting that lets the integration send is "Never warn me about suspicious activity". On locked-down corporate machines IT may have to whitelist the Python interpreter as a trusted publisher, in which case there's nothing the user can do at the application layer.
+
+`delete_mail` is also gated by this setting.
+
+## Sender filter "from_address=alice@example.com" returns nothing
+
+**Fixed in 0.4.0.** `from_address` in every result is now resolved to a real SMTP address (MAPI sender-SMTP proptags, then `GetExchangeUser().PrimarySmtpAddress`), and the `list_mails` / `export_mails` `from_address` filter matches against those same properties server-side. `outlook_search_mails(scope="from", ...)` continues to work too.
+
+If an address *still* comes back as `/O=EXCHANGELABS/...`, Outlook could not resolve it (cached-mode address book missing, external contact without an SMTP entry). Fall back to a display-name fragment in the filter.
+
+## Times look wrong / shifted by a few hours
+
+All datetimes the integration returns are in the **user's local timezone with an explicit UTC offset** (e.g. `2026-06-10T16:33:22+05:00`). Present them as-is — do **not** convert them to UTC or any other timezone. `outlook_whoami` reports the user's timezone name, current local time, and offset if you need to reason about it.
+
+## "Search doesn't find the email I described"
+
+`outlook_search_mails` matches items containing **all** the query words in any order — not the exact phrase, and not fuzzy. If a multi-word query misses, drop to the one or two most distinctive words. Keep in mind it searches **one folder at a time** (default: inbox) — check Sent or other folders explicitly if relevant.
+
+## Toggling a rule changed the user's actual mail flow before they confirmed
+
+`outlook_toggle_rule` modifies a live mail rule the moment it returns successfully. There's no staging buffer, no preview, no undo. If you call it on the wrong rule name, the user's mail is now being filed (or not filed) differently for real.
+
+**Always**: `outlook_list_rules` first → confirm the **exact** rule name with the user → only then `outlook_toggle_rule`.
+
+## "Set my OOO to on for the next two weeks" — and it just doesn't
+
+The integration has `outlook_get_out_of_office` (read state) but no tool to set it. The auto-reply state lives in an Exchange property that requires EWS or Graph to write, neither of which the integration uses.
+
+**Tell the user** to set OOO via Outlook → File → Automatic Replies. After they do, you can confirm it took effect with `outlook_get_out_of_office`.
+
+## "Why did everyone get an email when I just rescheduled the meeting?"
+
+Updating an event with attendees usually triggers Outlook to send an updated-meeting notification. Likewise, deleting an event with attendees sends a cancellation. There is no flag to suppress this.
+
+**Workaround**: warn the user up front. If they want a quiet local-only change, they have to do it in Outlook directly with "Don't send updates" — the integration can't suppress it.
+
+## Created a meeting and the invite went out before the user reviewed
+
+`outlook_create_event` with `attendees=[...]` sends the invite **the moment the call succeeds**. There is no draft state for meeting invites the way there is for plain mail (`save_only=true`).
+
+**Mitigation**: confirm subject, time, and attendee list with the user before calling. If the user wants to compose carefully, create the event without `attendees` first, then have them add attendees manually in Outlook.
+
+## "I replied — can you save that to drafts so I can edit it first?"
+
+Call `outlook_reply_mail(entry_id, body, reply_all=..., save_only=true)`. Nothing is sent; the draft lands in Drafts, threaded under the original, with the recipients and quoted text Outlook would have used. The result carries the draft's `entry_id`. `outlook_forward_mail` has the same flag.
+
+Do **not** build the reply by hand with `outlook_send_mail(save_only=true)` any more — that draft is a new message with no conversation headers, so it does not show up in the thread.
+
+Tell the user the draft is in the Drafts folder for them to review.
+
+## `advanced_search` returns nothing, or only old mail, or takes ages
+
+`outlook_advanced_search` is Outlook's Instant Search (`Application.AdvancedSearch`), which reads the **Windows Search index**, not the mailbox. Three things follow:
+
+- **Indexing must be on.** If Outlook is not in the indexed locations (Windows Settings → Searching Windows, or Outlook → File → Options → Search → Indexing Options) or the index is still building, the search returns `count: 0` with `timed_out: false`. That is "not indexed", not "no such mail". Fall back to `search_mails` per folder (plus `search_attachments` for filenames) and tell the user why.
+- **Unindexed stores return nothing.** Archive PSTs and shared mailboxes that are not in the index contribute zero results even with `scope="all"`. Attachment contents only match where Windows has a filter for the file type (PDF needs the PDF filter; password-protected files are never indexed).
+- **The first search after a cold start is slow.** The index handle warms up on first use; 5–15 s is normal, later calls are fast. `timed_out: true` means the `timeout_sec` passed while results were still arriving — what was collected so far is returned; re-run with a higher `timeout_sec` (max 55) if the count looks short.
+
+Results come back from the index in no particular order; the server sorts them newest-first, so `limit` keeps the most recent mails.
+
+## Item not found / EntryID errors after a move
+
+Moving an item with `outlook_move_mail` returns a `new_entry_id`. The original `entry_id` no longer resolves.
+
+**Always** use `new_entry_id` for any subsequent action on the moved item. If you've lost track, re-list the destination folder.
+
+## "Schedule it daily for the next 6 months" — and then they want to change cadence
+
+`outlook_update_event` cannot modify the recurrence pattern. It only rewrites scalar fields (subject, start, end, location, body).
+
+**Fix**: to change cadence (or end date or interval), delete the event and recreate it with the new `recurrence` object. If it has attendees, this means a cancellation + a new invite — warn the user.
+
+## Set categories overwrote the existing tags
+
+`outlook_set_category` **replaces** the categories field, it doesn't append. Categories are stored as a comma-separated string and the tool overwrites that whole string.
+
+**Pattern**: read first, merge, then set.
+
+```
+existing = outlook_get_mail(entry_id, include_body=false).categories
+new_value = ", ".join(filter(None, [existing, "Important"]))
+outlook_set_category(entry_id=entry_id, categories=new_value)
+```
+
+To **clear** all categories, pass an empty string.
+
+## "Find Sarah's email address" returns nothing
+
+On corporate accounts the personal Contacts folder is usually **empty** — colleagues live in the org directory (Global Address List). `outlook_search_contacts` searches both saved contacts and the directory (`include_directory=true` by default; directory hits have `source: "directory"` and no `entry_id`). For a direct name→address lookup, `outlook_resolve_name` is faster and authoritative; if it reports not-resolved the name was ambiguous — try the full name or fall back to `search_contacts`.
+
+## "It says my category 'Urgent' doesn't exist."
+
+`outlook_set_category` doesn't validate the names against the profile's defined categories. If you set a category that isn't defined, Outlook will accept the string but the item won't get the color and the user won't see a recognizable tag in the UI.
+
+**Best practice**: `outlook_list_categories` first; only assign names that come back from there. If the user wants a brand-new category, they need to create it in Outlook (Home → Categorize → All Categories → New) — there is no `create_category` tool.
+
+## Attachment / output_dir failures
+
+The integration enforces a **user-profile sandbox** on all filesystem paths. Passing `D:\stuff\file.pdf` or `\\fileserver\share\foo` will fail with a sandbox error.
+
+**Tell the user** their options:
+
+1. Move the file under their user profile (`C:\Users\<them>\...`) — easiest.
+2. Set the env var `OUTLOOK_MCP_ALLOW_ANY_PATH=1` in the integration's environment to disable the sandbox — they have to restart the integration after changing it. Use only when they really need it (e.g. corporate file shares).
+
+## Path errors specifically about "must be absolute"
+
+Relative paths like `Documents/file.pdf` always fail. Always pass `C:\\Users\\<user>\\Documents\\file.pdf` (or with forward slashes — both work).
+
+## First call of the session takes 5–10 seconds
+
+Outlook's COM surface needs to warm up the first time. Subsequent calls are fast. **Don't retry** as if the slow first call had failed; you'll just queue up duplicate sends.
+
+## The user closed Outlook mid-session
+
+Fine since v0.2.5: the integration detects the lost COM connection on the next call, relaunches OUTLOOK.EXE, reconnects, and retries that call automatically. Expect that one call to take 15–30 seconds (cold Outlook start) instead of failing. **Don't retry it yourself** while it's in flight — you'd queue duplicate operations.
+
+If the call still errors with "could not be relaunched", Outlook genuinely failed to start (crash-recovery dialog, profile prompt, pending update). Tell the user to open Outlook manually, then retry.
+
+## "Outlook is open but the integration says it isn't ready"
+
+The user is probably running the **new** Outlook (`olk.exe`), which doesn't expose COM. Only **classic** Outlook (`OUTLOOK.EXE`, the one bundled with Microsoft 365) is supported.
+
+**Tell the user**: in the new Outlook, top-right, toggle "New Outlook" off. Then reopen and the integration will reconnect.
+
+## DASL filter syntax errors when using `scope='dasl'`
+
+`scope='dasl'` passes the entire `query` string into Outlook's `Items.Restrict` as a raw `@SQL=` filter — it must be valid DASL.
+
+**Examples that work**:
+
+```
+@SQL="urn:schemas:httpmail:subject" LIKE '%budget%'
+@SQL="urn:schemas:httpmail:hasattachment" = 1
+@SQL="urn:schemas:httpmail:read" = 0 AND "urn:schemas:httpmail:importance" = 2
+```
+
+If you don't actually need DASL, use `scope='subject_body'` / `'subject'` / `'from'` instead — they construct the filter for you and handle escaping.
+
+## Unread count looks wrong
+
+`unread` on a mail item reflects whether the item is unread. `unread_count` on a folder (from `list_folders`) is Outlook's cached count and can lag the actual state by seconds, especially right after a sync.
+
+If the numbers disagree, trust the per-item `unread` flag.
+
+## Multi-mailbox: list_mails on "inbox" hit the wrong mailbox
+
+`folder="inbox"` always resolves to the **default** mailbox's Inbox. If the user has multiple stores (a primary + a shared mailbox + an archive), the shortcut won't reach the others.
+
+**Fix**: use a store-qualified path. `outlook_list_folders(root=null)` shows the top-level store names; pass `"<Store Display Name>/Inbox"`. Confirm the active mailbox with `outlook_whoami` if you're not sure which is which.
+
+## Free/busy comes back empty, or `find_meeting_times` says someone is "unknown"
+
+`outlook_get_free_busy` / `outlook_find_meeting_times` read Exchange free/busy through `Recipient.FreeBusy`. Three limits:
+
+- **People outside the tenant have blank free/busy.** External addresses resolve (or not) but publish no availability, so they appear in `unknown` with `has_data=false`. `find_meeting_times` ignores them when picking slots — tell the user those attendees were **not** checked rather than implying they are free.
+- **Granularity is the interval.** Outlook returns one status per `interval_minutes`; a 10-minute call inside a 30-minute slot marks the whole slot busy, and `find_meeting_times` works on a 15-minute grid. Lower `interval_minutes` for finer detail (longer strings, slower).
+- **It needs Exchange.** On IMAP/POP profiles, or when Outlook is offline with no cached free/busy, every address lands in `unknown`. There is no fallback to scanning the other person's calendar.
+
+## Send error mentions "ResolveAll" or "recipient could not be resolved"
+
+The address you passed to `attendees=` (or in `to`/`cc`/`bcc`) couldn't be resolved against the user's address book or directory. Possible causes:
+
+- A typo in the address.
+- An internal alias that the user's directory recognizes (`alice`) but Outlook needs the full SMTP form for (`alice@example.com`).
+- An external address being rejected because the user's tenant blocks external invites.
+
+**Recover**: ask the user for the full SMTP address; retry.

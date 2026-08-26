@@ -1,0 +1,19 @@
+{
+  "id": "19:aaaa0000bbbb1111cccc2222dddd3333@thread.v2",
+  "type": "Chat",
+  "threadProperties": {
+    "topic": "Q3 budget crew",
+    "threadType": "chat"
+  },
+  "members": [
+    {"mri": "8:orgid:22222222-2222-2222-2222-222222222222", "displayName": "Me Myself"},
+    {"mri": "8:orgid:33333333-3333-3333-3333-333333333333", "displayName": "Jane Doe"},
+    {"mri": "8:orgid:44444444-4444-4444-4444-444444444444", "displayName": "Bob Stone (ACME)"}
+  ],
+  "lastMessageTimeUtc": "2026-08-24T12:05:00Z",
+  "lastMessage": {
+    "content": "<p>Sure, on its way.</p>",
+    "imDisplayName": "Me Myself (ACME)",
+    "originalArrivalTime": "2026-08-24T12:05:00Z"
+  }
+}

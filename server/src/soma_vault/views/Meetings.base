@@ -1,0 +1,81 @@
+filters:
+  and:
+    - file.inFolder("Soma/Meetings")
+    - note.type == "meeting"
+formulas:
+  start_date: 'if(note.start.isType("date"), note.start, date(note.start))'
+  week: 'formula.start_date.format("GGGG-[W]WW")'
+  day: 'formula.start_date.format("ddd D MMM HH:mm")'
+  people: "note.attendee_links.length"
+properties:
+  file.name:
+    displayName: Meeting
+  formula.week:
+    displayName: Week
+  formula.day:
+    displayName: When
+  note.location:
+    displayName: Where
+  note.organizer_link:
+    displayName: Organizer
+  formula.people:
+    displayName: Attendees
+  note.status:
+    displayName: Status
+  note.is_recurring:
+    displayName: Recurring
+views:
+  - type: table
+    name: By week
+    groupBy:
+      property: formula.week
+      direction: DESC
+    order:
+      - file.name
+      - formula.day
+      - note.organizer_link
+      - formula.people
+      - note.is_recurring
+      - note.status
+    sort:
+      - property: note.start
+        direction: DESC
+  - type: table
+    name: Upcoming
+    filters:
+      and:
+        - note.status == "upcoming"
+    order:
+      - file.name
+      - formula.day
+      - note.location
+      - note.organizer_link
+      - formula.people
+    sort:
+      - property: note.start
+        direction: ASC
+  - type: table
+    name: Held
+    filters:
+      and:
+        - note.status == "held"
+    order:
+      - file.name
+      - formula.day
+      - note.organizer_link
+      - formula.people
+    sort:
+      - property: note.start
+        direction: DESC
+  - type: table
+    name: Cancelled
+    filters:
+      and:
+        - note.status == "cancelled"
+    order:
+      - file.name
+      - formula.day
+      - note.organizer_link
+    sort:
+      - property: note.start
+        direction: DESC

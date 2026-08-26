@@ -1,0 +1,60 @@
+filters:
+  and:
+    - file.inFolder("Soma/Wiki/People")
+    - note.type == "person"
+formulas:
+  linked_notes: "file.links.length"
+  since_contact: 'if(note.last_contact, if(note.last_contact.isType("date"), note.last_contact, date(note.last_contact)).relative(), "no email yet")'
+properties:
+  file.name:
+    displayName: Person
+  note.email:
+    displayName: Email
+  note.org:
+    displayName: Org
+  note.last_contact:
+    displayName: Last contact
+  formula.since_contact:
+    displayName: Since
+  formula.linked_notes:
+    displayName: Emails + meetings
+views:
+  - type: table
+    name: People
+    order:
+      - file.name
+      - note.email
+      - note.org
+      - note.last_contact
+      - formula.since_contact
+      - formula.linked_notes
+    sort:
+      - property: note.last_contact
+        direction: DESC
+  - type: table
+    name: Quiet for 30 days
+    filters:
+      and:
+        - note.last_contact != ""
+        - 'if(note.last_contact.isType("date"), note.last_contact, date(note.last_contact)) < now() - "30d"'
+    order:
+      - file.name
+      - note.email
+      - note.last_contact
+      - formula.since_contact
+    sort:
+      - property: note.last_contact
+        direction: ASC
+  - type: table
+    name: By company
+    groupBy:
+      property: note.org
+      direction: ASC
+    order:
+      - file.name
+      - note.email
+      - note.last_contact
+      - formula.linked_notes
+    sort:
+      - property: file.name
+        direction: ASC
