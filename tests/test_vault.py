@@ -8,7 +8,7 @@ import json
 import pytest
 
 from administrator_vault import frontmatter as fmt
-from administrator_vault import notes, store
+from administrator_vault import notes, store, wiki_lint
 from administrator_vault.server import build_server
 
 CB = "administrator/0.0.4"
@@ -111,7 +111,7 @@ def test_init_creates_everything(vault):
     views = {p.name for p in (vault / "Administrator" / "_views").glob("*.base")}
     assert views == {"People.base", "Follow-ups.base", "Meetings.base", "Emails.base", "Wiki.base"}
     wiki_dir = vault / "Administrator" / "Wiki"
-    assert {p.name for p in wiki_dir.glob("*.md")} == {"Index.md", "Log.md", "Review.md", "Wiki.md"}
+    assert {p.name for p in wiki_dir.glob("*.md")} == {"Index.md", "Log.md", "Review.md", "Wiki.md", "Questions.md"}
     schema_text = (wiki_dir / "Wiki.md").read_text(encoding="utf-8")
     assert "type: wiki-schema" in schema_text and "# The wiki — how pages work" in schema_text and "## Your notes on this schema" in schema_text
     assert all((wiki_dir / f).is_dir() for f in ("People", "Orgs", "Topics", "Howto"))
@@ -159,6 +159,25 @@ def test_init_creates_priorities_and_the_planner_preferences(vault):
     prio.write_text("---\ntype: priorities\n---\n# mine\n\n## Priorities\n\n1. [[Wiki/Topics/q3-budget]]\n", encoding="utf-8")
     res = store.init(overwrite=True, created_by=CB)
     assert "Administrator/Priorities.md" in res["skipped"] and "# mine" in prio.read_text(encoding="utf-8")
+
+
+def test_init_creates_the_questions_file(vault):
+    q = vault / "Administrator" / "Wiki" / "Questions.md"
+    text = q.read_text(encoding="utf-8")
+    fm = fmt.split_note(text)[0]
+    assert fm["type"] == "wiki-questions" and fm["source"] == "administrator" and fm["created_by"] == CB
+    assert "# Questions" in text and "## Questions" in text
+    # the two examples sit in a code block above the list, so the list itself is
+    # empty and lint proposes no page named "example" on a brand new vault
+    lines = [l for l in text.split("\n") if l.startswith("- ")]
+    assert len(lines) == 2 and all("→ [[Wiki/Topics/example]]" in l for l in lines) and lines[1].endswith("f:abcd")
+    assert text.index("```markdown") < text.index("## Questions")
+    assert wiki_lint.read_questions(vault) == []
+    assert "Wiki/Questions.md" in notes.FILES and store.status()["files"]["Wiki/Questions.md"] is True
+    # the user's own list: a second init, with overwrite, leaves it alone
+    q.write_text("---\ntype: wiki-questions\n---\n# mine\n\n## Questions\n\n- mine? → [[Wiki/Topics/q3-budget]]\n", encoding="utf-8")
+    res = store.init(overwrite=True, created_by=CB)
+    assert "Administrator/Wiki/Questions.md" in res["skipped"] and "# mine" in q.read_text(encoding="utf-8")
 
 
 def test_chat_and_time_block_note_rules():

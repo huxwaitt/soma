@@ -26,7 +26,7 @@ import json
 import math
 import os
 import re
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
@@ -65,6 +65,9 @@ BRIEF_LINKED = 3
 QUERY_LOG_MAX = 2000
 QUERY_LOG_KEEP = 1000
 OPEN_ITEMS_MAX = 200
+UNANSWERED_MIN = 2  # a question asked once is not yet a gap in the wiki
+UNANSWERED_DAYS = 30
+ONE_SOURCE_DAYS = 180  # one source and no confirmation since then: the brief says so
 
 _WORD_RE = re.compile(r"\w{2,}", re.UNICODE)
 _QUOTED_QUERY_RE = re.compile(r'"([^"]+)"')
@@ -722,9 +725,23 @@ def page_candidates(text: str, root: Optional[Path] = None) -> dict[str, tuple[i
 # ------------------------------------------------------------------ brief
 
 
+def _hedge(doc: Optional[dict[str, Any]], today: str) -> str:
+    """" (one source, unconfirmed since <date>)" for a fact that rests on one
+    source and has not been confirmed for half a year, so the model hedges or
+    asks instead of stating it."""
+    if not doc or (doc.get("streams") or 0) != 1:
+        return ""
+    conf = _s(doc.get("conf")) or _s(doc.get("since"))
+    days = _days_between(conf, today)
+    if days is None or days <= ONE_SOURCE_DAYS:
+        return ""
+    return f" (one source, unconfirmed since {conf})"
+
+
 def brief(question: str, max_chars: int = 1500, root: Optional[Path] = None, today: Optional[str] = None) -> dict[str, Any]:
     """One stitched answer: the best three pages with their lead, facts and open
-    items, then the decisions and dated facts of the pages they link to."""
+    items, then the decisions and dated facts of the pages they link to. A fact
+    with one source and no confirmation in 180 days is marked as such."""
     root = root or store.vault_root()
     today = _s(today)[:10] or _today()
     ix = Index.load(root)
@@ -746,13 +763,14 @@ def brief(question: str, max_chars: int = 1500, root: Optional[Path] = None, tod
         lead = " ".join(_s(entry.get("lead") or entry.get("summary")).split())
         if lead:
             rows.append({"line": lead[:BRIEF_LEAD_CHARS].rstrip() + (" …" if len(lead) > BRIEF_LEAD_CHARS else "")})
+        by_id = {d["fact_id"]: d for d in entry.get("docs") or [] if d.get("fact_id")}
         n = 0
         for h in hits:
             if h["page"] != stem or not h["fact_id"] or n >= BRIEF_FACTS or (stem, h["fact_id"]) in seen:
                 continue
             seen.add((stem, h["fact_id"]))
             n += 1
-            rows.append({"line": f"- {h['text']} (f:{h['fact_id']}, {h['since']})",
+            rows.append({"line": f"- {h['text']} (f:{h['fact_id']}, {h['since']}){_hedge(by_id.get(h['fact_id']), today)}",
                          "fact": {"page": stem, "id": h["fact_id"], "text": h["text"], "since": h["since"]}})
         rows += [{"line": l} for l in entry.get("open") or []]
     linked = 0
@@ -770,7 +788,7 @@ def brief(question: str, max_chars: int = 1500, root: Optional[Path] = None, tod
                     seen.add((target, doc["fact_id"]))
                     linked += 1
                     rows.append({
-                        "line": f"Related: [[{target}|{other['title']}]] — {doc['text']} (f:{doc['fact_id']}, {doc['since']})",
+                        "line": f"Related: [[{target}|{other['title']}]] — {doc['text']} (f:{doc['fact_id']}, {doc['since']}){_hedge(doc, today)}",
                         "fact": {"page": target, "id": doc["fact_id"], "text": doc["text"], "since": doc["since"]},
                     })
     text = ""
@@ -842,9 +860,35 @@ def read_query_log(root: Path) -> list[tuple[str, str, int, str]]:
     return out
 
 
-def unanswered(root: Path, days: int = 30) -> list[dict[str, Any]]:
-    """Questions the wiki could not answer, for the lint check. Filled later."""
-    return []
+def _norm_query(query: str) -> str:
+    """Two askings of the same question in other words count as one: lower case,
+    one space between words, no question mark or full stop at the end."""
+    return " ".join(_s(query).lower().split()).rstrip("?!. ")
+
+
+def unanswered(root: Path, days: int = UNANSWERED_DAYS, today: Optional[str] = None,
+               min_times: int = UNANSWERED_MIN) -> list[dict[str, Any]]:
+    """The questions the wiki could not answer: asked in the last ``days``,
+    no hit at all, and asked at least ``min_times`` times. Most asked first,
+    as ``[{query, times, last}]`` with the newest wording of the question."""
+    rows = read_query_log(root)
+    if not rows:
+        return []
+    day = _s(today)[:10] or _today()
+    floor = (date.fromisoformat(day) - timedelta(days=max(0, int(days or 0)))).isoformat()
+    groups: dict[str, dict[str, Any]] = {}
+    for when, query, hits, _top in rows:
+        key = _norm_query(query)
+        if hits or not key or key == "-" or when[:10] < floor:  # "-" is a call with no question
+            continue
+        g = groups.setdefault(key, {"query": query, "times": 0, "last": when[:10]})
+        g["times"] += 1
+        if when[:10] >= g["last"]:  # the wording the user used last is the one shown
+            g["last"] = when[:10]
+            g["query"] = " ".join(_s(query).split())
+    out = [g for g in groups.values() if g["times"] >= max(1, int(min_times or 1))]
+    out.sort(key=lambda g: (-g["times"], g["query"]))
+    return out
 
 
 # ------------------------------------------------------------------ the tool

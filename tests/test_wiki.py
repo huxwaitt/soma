@@ -1159,3 +1159,71 @@ def test_a_decision_can_come_from_an_ingest_with_its_facts(vault):
     # a later record may not rewrite it
     r2 = wiki.ingest(email(2), [{"path": page["path"], "ops": [{"op": "add", "text": "Something else"}]}])
     assert r2["pages"][0]["refused"][0]["reason"] == "append-only"
+
+
+# ------------------------------------------------------------------ conflicts at ingest
+
+
+def test_add_is_refused_when_a_fact_holds_another_date_for_the_same_thing(vault):
+    path = topic(vault)
+    fid = wiki.apply(path, [{"op": "add", "text": "Final numbers are due 2026-08-29", "since": "2026-08-22"}])["applied"][0]["id"]
+    r = wiki.apply(path, [{"op": "add", "text": "Final numbers are due 2026-09-05", "since": "2026-08-25"}])
+    ref = r["refused"][0]
+    assert ref["reason"] == "conflicts-with" and ref["id"] == fid
+    assert ref["current"] == "Final numbers are due 2026-08-29" and ref["since"] == "2026-08-22"
+    assert "supersede" in ref["detail"] and "contest" in ref["detail"]
+    assert [f["text"] for f in wiki.read(path)["facts"]] == ["Final numbers are due 2026-08-29"]
+    # the way out the refusal names: supersede when the new day is the newer one
+    r2 = wiki.apply(path, [{"op": "supersede", "id": fid, "text": "Final numbers are due 2026-09-05", "since": "2026-08-25"}])
+    assert r2["written"] is True and r2["refused"] == []
+    assert [f["text"] for f in wiki.read(path)["facts"]] == ["Final numbers are due 2026-09-05"]
+    # and contest when it is the older or the unsure one
+    r3 = wiki.apply(path, [{"op": "contest", "id": r2["applied"][0]["id"], "text": "Final numbers are due 2026-08-29"}])
+    assert r3["applied"][0]["result"] == "review"
+
+
+def test_add_is_refused_when_a_fact_holds_another_amount_for_the_same_thing(vault):
+    path = wiki.create("org", "Acme", lead="Acme prints the reports.")["path"]
+    wiki.apply(path, [{"op": "add", "text": "Payment terms are net 30 days", "since": "2026-08-22"}])
+    r = wiki.apply(path, [{"op": "add", "text": "Payment terms are net 45 days", "since": "2026-08-25"}])
+    assert r["refused"][0]["reason"] == "conflicts-with" and r["refused"][0]["current"] == "Payment terms are net 30 days"
+    # the same amount said again is no disagreement
+    assert wiki.apply(path, [{"op": "add", "text": "Invoices are paid net 30 days by the finance desk", "since": "2026-08-25"}])["written"] is True
+    # neither is a fact that names no amount at all
+    assert wiki.apply(path, [{"op": "add", "text": "Acme prints the annual report", "since": "2026-08-25"}])["written"] is True
+
+
+def test_a_price_and_a_percentage_are_amounts_however_they_are_written(vault):
+    path = wiki.create("org", "Acme", lead="Acme prints the reports.")["path"]
+    wiki.apply(path, [{"op": "add", "text": "The licence costs 4500 EUR a year", "since": "2026-08-22"}])
+    # the name, the sign after and the sign before are one and the same amount
+    assert wiki.apply(path, [{"op": "add", "text": "The licence costs 4500€ a year", "since": "2026-08-25"}])["written"] is True
+    r = wiki.apply(path, [{"op": "add", "text": "The licence costs €9000 a year", "since": "2026-08-25"}])
+    assert r["refused"][0]["reason"] == "conflicts-with" and r["refused"][0]["current"] == "The licence costs 4500 EUR a year"
+    # a percentage at the end of a fact is an amount as well
+    wiki.apply(path, [{"op": "add", "text": "The volume discount is 20%", "since": "2026-08-22"}])
+    r2 = wiki.apply(path, [{"op": "add", "text": "The volume discount is 15%", "since": "2026-08-25"}])
+    assert r2["refused"][0]["reason"] == "conflicts-with" and r2["refused"][0]["current"] == "The volume discount is 20%"
+
+
+def test_small_bare_numbers_are_not_values_and_do_not_conflict(vault):
+    path = topic(vault)
+    ops = [{"op": "add", "text": f"Fact {i} " + "x" * 20, "since": "2026-08-22"} for i in (10, 11)]
+    r = wiki.apply(path, ops)
+    assert r["written"] is True and r["refused"] == [] and len(wiki.read(path)["facts"]) == 2
+    # two facts that share only one word are two subjects, not one disagreement
+    r2 = wiki.apply(path, [{"op": "add", "text": "Deadline 2026-08-29", "since": "2026-08-22"},
+                           {"op": "add", "text": "Offsite 2026-09-30", "since": "2026-08-22"}])
+    assert r2["written"] is True and r2["refused"] == []
+
+
+def test_a_decision_page_is_never_checked_for_conflicts(vault):
+    jane(vault)
+    res = wiki.create("decision", "Ship on the new stack", lead="We go with the new stack.", summary="New stack.",
+                      facts=[{"text": "Cutover happens on 2026-09-01", "since": "2026-08-22", "src": "<m1@example.com>"},
+                             {"text": "Cutover happens on 2026-10-01", "since": "2026-08-22", "src": "<m1@example.com>"}],
+                      extra={"decided": "2026-08-22", "by": ["[[Wiki/People/Jane Doe]]"]})
+    assert res["created"] is True and res["refused"] == [] and len(wiki.read(res["path"])["facts"]) == 2
+    # a later add is refused for being a decision, not for disagreeing
+    r = wiki.apply(res["path"], [{"op": "add", "text": "Cutover happens on 2026-11-01", "since": "2026-08-25"}])
+    assert r["refused"][0]["reason"] == "append-only"

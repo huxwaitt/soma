@@ -238,6 +238,25 @@ def test_brief_stitches_the_top_pages_and_keeps_the_cap(vault):
     assert small["chars"] <= 200 and small["pages"] and len(small["facts"]) <= len(out["facts"])
 
 
+def test_the_brief_says_when_a_fact_rests_on_one_source_and_is_old(vault):
+    seed(vault)
+    write_page(
+        vault, f"{W}/Topics/parking-rules.md", {"summary": "Where to park at the office."}, "Parking rules",
+        lead="Where to park at the office.",
+        facts=[("qrst", "The gate code is 4711", "2024-01-05", ["<m9@example.com>"]),          # one source, long ago
+               ("uvwx", "Visitors park in row C", "2026-08-10", ["<m8@example.com>", "user"]),  # two sources
+               ("yzab", "The barrier is open on Fridays", "2026-08-11", ["<m7@example.com>"])],  # one source, recent
+    )
+    out = ws.brief("where do I park at the office", today="2026-08-26")
+    assert "- The gate code is 4711 (f:qrst, 2024-01-05) (one source, unconfirmed since 2024-01-05)" in out["text"]
+    assert "- Visitors park in row C (f:uvwx, 2026-08-10)\n" in out["text"] + "\n"
+    assert "- The barrier is open on Fridays (f:yzab, 2026-08-11)\n" in out["text"] + "\n"
+    assert out["text"].count("(one source, unconfirmed since") == 1
+    # the same fact in a list answer carries the two numbers the mark is made of
+    hit = next(h for h in ws.search("gate code", today="2026-08-26") if h["fact_id"] == "qrst")
+    assert hit["streams"] == 1 and hit["confirmed"] > 180
+
+
 def test_open_items_of_a_page_and_of_the_matching_pages(vault):
     seed(vault)
     one = ws.open_items(page="Wiki/Topics/quarterly-numbers")
@@ -272,8 +291,31 @@ def test_every_query_is_logged_and_the_log_is_trimmed(vault):
     assert len(rows) == ws.QUERY_LOG_KEEP and rows[-1][1] == "budget"
 
 
-def test_unanswered_is_empty_for_now(vault):
-    assert ws.unanswered(vault) == []
+def test_unanswered_groups_the_questions_that_found_nothing(vault):
+    seed(vault)
+    rows = [
+        ("2026-08-20T09:00:00+02:00", "Where is the offsite?", 0, "-"),
+        ("2026-08-21T09:00:00+02:00", "where is the offsite", 0, "-"),  # the same question, other spelling
+        ("2026-08-22T09:00:00+02:00", "who signs the offer", 2, "Wiki/People/Jane Doe"),  # answered
+        ("2026-08-22T10:00:00+02:00", "what is the parking rule", 0, "-"),  # asked once only
+        ("2026-06-01T09:00:00+02:00", "how do I book a room", 0, "-"),  # further back than 30 days
+        ("2026-06-02T09:00:00+02:00", "How do I book a room?", 0, "-"),
+        ("2026-08-22T11:00:00+02:00", "-", 0, "-"),  # a call with no question at all
+        ("2026-08-22T12:00:00+02:00", "-", 0, "-"),
+    ]
+    (vault / ws.QUERY_LOG).parent.mkdir(parents=True, exist_ok=True)
+    (vault / ws.QUERY_LOG).write_text(
+        "\n".join("\t".join([w, q, str(h), t]) for w, q, h, t in rows) + "\n", encoding="utf-8")
+    assert ws.unanswered(vault, today="2026-08-23") == [
+        {"query": "where is the offsite", "times": 2, "last": "2026-08-21"}]
+    # the wording used last is the one shown; a longer window sees the older pair as well
+    assert [(g["query"], g["times"]) for g in ws.unanswered(vault, days=120, today="2026-08-23")] == [
+        ("How do I book a room?", 2), ("where is the offsite", 2)]
+    assert [g["query"] for g in ws.unanswered(vault, today="2026-08-23", min_times=1)] == [
+        "where is the offsite", "what is the parking rule"]
+    assert ws.unanswered(vault, days=0, today="2026-08-23") == []
+    # a search with no question never becomes "no page answers "-" — create one?"
+    assert not any(g["query"] == "-" for g in ws.unanswered(vault, today="2026-08-23", min_times=1))
 
 
 # ------------------------------------------------------------------ match on the engine

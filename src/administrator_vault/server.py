@@ -37,7 +37,8 @@ op lists (add, update, supersede, confirm, retire, contest, lead, summary,
 status, title, alias, related, role, open, done, reschedule, steps, due,
 owner, org, outcome, milestone, risk, link, superseded_by, reversal). Open
 items carry an owner and a due date, and Follow-ups.md is
-written from them. vault_wiki_lint runs its checks, vault_wiki_merge folds one page
+written from them. vault_wiki_lint runs its checks (and asks the wiki the
+questions the user keeps in Wiki/Questions.md), vault_wiki_merge folds one page
 into another (only on a yes), vault_wiki_migrate moves a 0.1.0 vault's
 People/ folder into the wiki (dry run first).
 
@@ -170,7 +171,7 @@ def register(mcp: FastMCP) -> None:
     )
     @_guard
     def vault_status() -> str:
-        """Report where the vault is and which Administrator/ folders and files exist. Never fails on a missing vault; read the flags."""
+        """Report where the vault is and which Administrator/ folders and files exist (files includes Wiki/Questions.md, the user's list of questions the wiki should answer). Never fails on a missing vault; read the flags."""
         return _json(store.status())
 
     @mcp.tool(
@@ -186,7 +187,7 @@ def register(mcp: FastMCP) -> None:
         created_by: CreatedBy = "administrator-vault",
         peak_hours: PeakHours = None,
     ) -> str:
-        """Create Administrator/ with its folders (Wiki/ with People, Orgs, Topics, Howto and an empty Index.md / Log.md / Review.md), Follow-ups.md, Preferences.md (from the given work hours and peak hours; peak_hours defaults to ["09:00-12:00"]) and the _views/*.base files. Existing files are kept unless overwrite=true (Follow-ups.md, Rules.md, Priorities.md and the Wiki files are always kept)."""
+        """Create Administrator/ with its folders (Wiki/ with People, Orgs, Topics, Howto and an empty Index.md / Log.md / Review.md), Follow-ups.md, Preferences.md (from the given work hours and peak hours; peak_hours defaults to ["09:00-12:00"]), Wiki/Questions.md (the user's questions and the page that should answer each, with two examples shown above an empty list) and the _views/*.base files. Existing files are kept unless overwrite=true (Follow-ups.md, Rules.md, Priorities.md, Questions.md and the Wiki files are always kept)."""
         return _json(store.init(work_start, work_end, buffer_minutes, overwrite, created_by, peak_hours))
 
     @mcp.tool(
@@ -396,7 +397,7 @@ def register(mcp: FastMCP) -> None:
         page: Annotated[Optional[str], Field(description="Keep to this one page (path, stem or wikilink).")] = None,
         include_done: Annotated[bool, Field(description="Open items only: also answer with the items already ticked.")] = False,
     ) -> str:
-        """Ranked facts read from the wiki pages themselves: [{page, kind, title, fact_id, text, since, src, score, why[], superseded, streams, confirmed}], best first, at most three facts per page. brief=true answers with {text, pages[], facts[], chars} — the top pages with their lead, facts, open items and the dated facts of the pages they link to. open_items=true answers with the commitments [{page, stem, type, title, owner_name, id, text, owner, due, since, src, record, done}], oldest since first, at most 200 of them (limit is not used there). Notes are never read."""
+        """Ranked facts read from the wiki pages themselves: [{page, kind, title, fact_id, text, since, src, score, why[], superseded, streams, confirmed}], best first, at most three facts per page. streams is how many kinds of source back the fact (mail, meeting, chat, the user) and confirmed how many days ago it was last confirmed: streams 1 with confirmed over 180 means one source and nothing since, so say it with a hedge or ask. brief=true answers with {text, pages[], facts[], chars} — the top pages with their lead, facts, open items and the dated facts of the pages they link to, with such facts marked "(one source, unconfirmed since <date>)". open_items=true answers with the commitments [{page, stem, type, title, owner_name, id, text, owner, due, since, src, record, done}], oldest since first, at most 200 of them (limit is not used there). Notes are never read."""
         return _json(wiki_search.search_tool(query, kinds, limit, since, include_superseded, brief, max_chars, open_items, owner, due_before, page, include_done))
 
     @mcp.tool(
@@ -491,7 +492,7 @@ def register(mcp: FastMCP) -> None:
         fix: Annotated[bool, Field(description="Apply the safe fixes: regenerate the index, recompute code-owned keys, fix section order, turn dangling links in code-owned sections into plain text, tick open items whose record action is done, set stale topics to dormant, rotate History / Log.")] = False,
         created_by: CreatedBy = wiki.CREATED_BY,
     ) -> str:
-        """The wiki checks (index vs files, dangling links, orphans, frontmatter, sections, oversized, stale, due in the past, open items done, duplicate pages, records never ingested, topic candidates, History / Log rotation, pages to ask the model about, unconfirmed facts, and 19 overdue: the user's own open items past their due date). Flags (orphan, stale, oversized, possible-duplicate) and Review lines are written in both modes; fix=true also applies the safe fixes. Decision pages are left out of the stale check. Returns {date, fix, pages, counts, checks: {0..15, 19}, flagged, review_added, written, cache}, plus confirmed_decisions: [page stems] when the user ticked an 'unconfirmed decision' line in Review.md (the one line a tick alone settles). checks['0'] is the pass that reads back what the user changed by hand in Obsidian; it runs at the start of every wiki tool, and when it took something over the answer carries adopted: [{page, changes}] — pass that on in one line. checks['14'].ask_model lists the pages touched since the last lint: read their facts and report pairs that cannot both be true with a contest op."""
+        """The wiki checks (index vs files, dangling links, orphans, frontmatter, sections, oversized, stale, due in the past, open items done, duplicate pages, records never ingested, topic candidates, History / Log rotation, pages to ask the model about, unconfirmed facts, 19 overdue: the user's own open items past their due date, 20 questions: how many of the questions in Wiki/Questions.md the wiki answers, and 21 unanswered: the questions the wiki could not answer, each asked more than once in the last 30 days). Flags (orphan, stale, oversized, possible-duplicate) and Review lines are written in both modes; fix=true also applies the safe fixes. Decision pages are left out of the stale check. Returns {date, fix, pages, counts, checks: {0..21}, flagged, review_added, written, cache}, plus confirmed_decisions: [page stems] when the user ticked an 'unconfirmed decision' line in Review.md (the one line a tick alone settles). checks['0'] is the pass that reads back what the user changed by hand in Obsidian; it runs at the start of every wiki tool, and when it took something over the answer carries adopted: [{page, changes}] — pass that on in one line. checks['14'].ask_model lists the pages touched since the last lint: read their facts and report pairs that cannot both be true with a contest op. checks['20'] is {name, asked, found, misses: [{question, expected, top}], unknown} and checks['21'] {name, count, days, items: [{query, times, last}]}; every run appends one Log.md line with all the counts ("questions 17/20, unanswered 3"), so vault_wiki_log shows whether the wiki is getting better."""
         return _json(wiki_lint.lint(fix, created_by))
 
     @mcp.tool(

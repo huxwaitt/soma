@@ -150,6 +150,20 @@ _DATE_TOKEN_RE = re.compile(
 )
 _LOG_RE = re.compile(r"^- \[([^\]]+)\] (\S+) \| (\S+) \| (.*)$")
 _CHAT_LINE_RE = re.compile(r"^- \d{2}:\d{2} \*\*(.+?)\*\*: (.*?)\s*(?:<!--.*?-->)?\s*$")
+# a date or an amount inside a fact: an ISO date, a number with a currency on
+# either side of it, a number with a unit, or a bare number of four digits or more
+_VALUE_RE = re.compile(
+    r"\d{4}-\d{2}-\d{2}"
+    r"|[€$£] ?\d+(?:[.,]\d+)*"
+    r"|\d+(?:[.,]\d+)* ?[%€$£]"
+    r"|\d+(?:[.,]\d+)* ?(?:eur|usd|gbp|k|m|days?|weeks?|months?|h|hours?)\b"
+    r"|\b\d{4,}\b",
+    re.IGNORECASE,
+)
+# the same amount written with the sign or with the name is one value
+_CURRENCY = (("€", "eur"), ("$", "usd"), ("£", "gbp"))
+# words that say nothing about what a fact is about
+_CONTENT_STOP = {"we", "us", "me", "my", "it", "its", "they", "them", "be", "by", "at", "as", "has", "have", "had", "not", "per", "than", "will", "would"}
 _STOP = {"re", "fw", "aw", "wg", "of", "a", "an", "in", "on", "to", "the", "and", "for", "with", "from", "about", "into", "your", "our", "this", "that", "are", "was", "is"}
 _ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz234567"
 _PAGE_ID_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"  # Crockford base32: no I, L, O, U
@@ -195,6 +209,28 @@ def _norm_name(text: str) -> str:
 
 def _tokens(text: str) -> set[str]:
     return {w for w in re.findall(r"[a-z0-9äöüß]{2,}", _s(text).lower()) if w not in _STOP}
+
+
+def _values(text: str) -> set[str]:
+    """The dates and amounts a fact states — what two facts can disagree about.
+
+    A small bare number ("net 45", "Fact 10") is not one: there are too many of
+    them and they mean too little.
+    """
+    out = set()
+    for m in _VALUE_RE.finditer(_s(text)):
+        v = re.sub(r"\s+", "", m.group(0).lower())
+        for sign, name in _CURRENCY:  # "€500", "500€" and "500 EUR" are one amount
+            if sign in v:
+                v = v.replace(sign, "") + name
+                break
+        out.add(v[:-1] if v.endswith("s") else v)
+    return out
+
+
+def _content_tokens(text: str) -> set[str]:
+    """The words a fact is about: its words without the values and the small words."""
+    return _tokens(_VALUE_RE.sub(" ", _s(text))) - _CONTENT_STOP
 
 
 def _stem(path: str) -> str:
@@ -1207,6 +1243,23 @@ def _apply_one(page: Page, op: str, raw: dict[str, Any], ctx: _Ctx) -> dict[str,
             _extend_src(dup, src)
             ctx.verified.append(since)
             return {"op": "add", "result": "confirm", "id": dup.id, "detail": "same text already on the page; treated as confirm."}
+        # a new fact that names a date or an amount, next to a fact about the
+        # same thing naming a different one: the page would hold both as true.
+        # A decision page is never checked; it is added to, never corrected.
+        new_values = _values(text) if page.type != "decision" else set()
+        if new_values:
+            new_content = _content_tokens(text)
+            for f in page.facts:
+                old_values = _values(f.text)
+                if not old_values or (old_values & new_values):
+                    continue
+                old_content = _content_tokens(f.text)
+                alike = bool(new_content) and bool(old_content) and (new_content <= old_content or old_content <= new_content)
+                if alike or len(new_content & old_content) >= 2:
+                    raise WikiRefusal(
+                        "conflicts-with", id=f.id, current=f.text, since=f.since,
+                        detail="A fact on this page states another date or amount for the same thing. Use supersede (newer) or contest (older or unsure).",
+                    )
         facts_max = FACTS_MAX_BY_TYPE.get(page.type, FACTS_MAX)
         if len(page.facts) >= facts_max:
             raise WikiRefusal("facts-cap", facts=len(page.facts), max_facts=facts_max, detail=CAP_HINT)

@@ -16,7 +16,7 @@ FOLDERS = (
     "Daily", "Emails", "Meetings", "Attachments", "Weekly", "Teams", "Time-blocks", "_views",
     "Wiki", "Wiki/People", "Wiki/Orgs", "Wiki/Topics", "Wiki/Decisions", "Wiki/Howto",
 )
-FILES = ("Follow-ups.md", "Preferences.md", "Rules.md", "Priorities.md")
+FILES = ("Follow-ups.md", "Preferences.md", "Rules.md", "Priorities.md", "Wiki/Questions.md")
 
 # type -> (folder under Administrator/, required frontmatter keys, date key)
 SCHEMAS: dict[str, dict[str, Any]] = {

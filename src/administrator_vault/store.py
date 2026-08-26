@@ -212,6 +212,29 @@ def priorities_template(created_by: str) -> str:
     )
 
 
+QUESTIONS_PATH = f"{ADMIN_DIR}/Wiki/Questions.md"
+
+
+def questions_template(created_by: str) -> str:
+    fm = fmt.format_frontmatter({"type": "wiki-questions", "source": "administrator", "created_by": created_by})
+    return fm + (
+        "\n# Questions\n\n"
+        "The questions you want the wiki to answer, and the page that should answer each one. "
+        "Every lint run asks the wiki these questions and reports the ones it could not answer, "
+        "so you can see whether the wiki is getting better or worse. This file is yours: the plugin reads it "
+        "and never rewrites it — the one thing it changes here is a link that followed a page you renamed.\n\n"
+        "One line per question under the heading below: the question, an arrow, and a link to the page "
+        "that holds the answer. Put `f:<id>` after the link when one particular fact is the answer — the "
+        "fact ids are shown by /administrator:wiki and by the search. A line whose page does not exist "
+        "yet is listed and not counted. Like this:\n\n"
+        "```markdown\n"
+        "- When are the Q3 numbers due? → [[Wiki/Topics/example]]\n"
+        "- What did we agree with the supplier? → [[Wiki/Topics/example]] f:abcd\n"
+        "```\n\n"
+        "## Questions\n\n"
+    )
+
+
 # Every preferences key with its default; read_preferences() fills these in when the file lacks a key.
 PREFERENCE_DEFAULTS: dict[str, Any] = {
     "work_start": "09:00",
@@ -293,9 +316,9 @@ def init(
     peak_hours: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     """Create the Administrator/ tree, Follow-ups.md, Preferences.md,
-    Priorities.md and the _views/*.base files. ``overwrite`` re-writes
-    Preferences.md and the views; Follow-ups.md and Priorities.md are never
-    overwritten (they hold the user's data)."""
+    Priorities.md, Wiki/Questions.md and the _views/*.base files. ``overwrite``
+    re-writes Preferences.md and the views; Follow-ups.md, Priorities.md and
+    Questions.md are never overwritten (they hold the user's data)."""
     for t in (work_start, work_end):
         if not re.match(r"^\d{2}:\d{2}$", t):
             raise VaultError(f"Work hours must look like HH:MM, got {t!r}.")
@@ -341,6 +364,13 @@ def init(
     else:
         write_text(rules, rules_template(created_by))
         created.append(rel(root, rules))
+
+    questions = root / QUESTIONS_PATH
+    if questions.exists():
+        skipped.append(rel(root, questions))  # the user's own list of questions; never rewritten
+    else:
+        write_text(questions, questions_template(created_by))
+        created.append(rel(root, questions))
 
     from administrator_vault import wiki  # local import: wiki imports store
 

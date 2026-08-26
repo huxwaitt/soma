@@ -9,7 +9,7 @@ from datetime import date, timedelta
 import pytest
 
 from administrator_vault import frontmatter as fmt
-from administrator_vault import store, wiki, wiki_lint, workflows
+from administrator_vault import store, wiki, wiki_lint, wiki_search, workflows
 from administrator_vault.server import build_server
 
 CB = "administrator/0.4.0"
@@ -127,6 +127,16 @@ def test_lint_report_hits_every_check(vault):
     assert len(c["14"]["ask_model"]) == 8 and c["14"]["since"] is None
     # 15 unconfirmed
     assert c["15"]["count"] == 1 and c["15"]["pages"] == {"Wiki/Topics/stale-thing": [{"id": "abcd", "text": "Old single-source fact", "since": "2020-01-10"}]}
+    # 16 consistency: the five one-way links in the seed, reported and not yet fixed
+    assert c["16"]["count"] == 5 and {i["kind"] for i in c["16"]["items"]} == {"link"} and c["16"]["fixed"] is False
+    assert {(i["page"], i["other"]) for i in c["16"]["items"]} == {
+        ("Wiki/People/J Doe", "Wiki/People/Big Person"), ("Wiki/People/J Doe", "Wiki/Topics/budget-q3"),
+        ("Wiki/People/J Doe", "Wiki/Topics/messy"), ("Wiki/Topics/budget-q3", "Wiki/Topics/q3-budget"),
+        ("Wiki/Topics/long-history", "Wiki/Topics/q3-budget"),
+    }
+    # 17 close: the topic with a due date and nothing new since 2020; 18 thin: nothing yet, every page is young
+    assert [i["page"] for i in c["17"]["items"]] == ["Wiki/Topics/stale-thing"] and c["18"]["count"] == 0
+    assert any("no update in 90 days: close it?" in l for l in r["review_added"])
     # flags were written (both modes), index regenerated, cache + log line present
     assert set(r["flagged"]) == {"Wiki/Topics/stale-thing", "Wiki/Topics/long-history", "Wiki/People/Big Person", "Wiki/Topics/q3-budget", "Wiki/Topics/budget-q3", "Wiki/People/Jane Doe", "Wiki/People/J Doe"}
     assert fm_of(vault, f"{W}/Topics/stale-thing.md")["flags"] == ["orphan", "stale"]
@@ -135,7 +145,9 @@ def test_lint_report_hits_every_check(vault):
     assert "Wiki/Topics/messy" not in r["flagged"] and fm_of(vault, f"{W}/Topics/messy.md")["sources"] == 99  # report only without fix
     assert "- [[Wiki/Topics/stale-thing|Stale thing]]" in text_of(vault, f"{W}/Index.md")
     assert r["cache"] == f"{W}/_cache/lint-{r['date']}.json" and json.loads(text_of(vault, r["cache"]))["counts"] == r["counts"]
-    assert wiki.log(page="Wiki")["lines"][-1].endswith("lint | Wiki | - | 8 pages, 7 flagged, 3 review lines, 7 written")
+    line = wiki.log(page="Wiki")["lines"][-1]  # one line per run with every count on it
+    assert "lint | Wiki | - | 8 pages, 7 flagged, 4 review lines, 7 written, " in line
+    assert "consistency 5, close 1, thin 0" in line and "questions 0/0" in line and line.endswith("unanswered 0")
     assert fm_of(vault, f"{W}/Topics/stale-thing.md")["status"] == "active"
     # second run: flags unchanged, nothing rewritten, only pages touched since the last lint go to the model
     r2 = wiki_lint.lint(fix=False)
@@ -159,9 +171,9 @@ def test_lint_fix_applies_the_safe_fixes(vault):
     # 5: section order fixed, unknown section kept and reported
     text = text_of(vault, f"{W}/Topics/messy.md")
     assert text.index("## Facts") < text.index("## People") and "## Random" in text and c["5"]["items"][0]["unknown"] == ["Random"]
-    # 7: stale topic set to dormant and logged; stale people are not
-    assert fm_of(vault, f"{W}/Topics/stale-thing.md")["status"] == "dormant" and c["7"]["items"][0]["set_dormant"] is True
-    assert any("stale" in l and "dormant" in l for l in wiki.log(page="stale-thing")["lines"])
+    # 7: a stale topic with a due date is left for check 17 to ask about (it stays active); one without a due is set dormant
+    assert fm_of(vault, f"{W}/Topics/stale-thing.md")["status"] == "active" and c["7"]["items"][0]["set_dormant"] is False
+    assert c["17"]["count"] == 1 and c["17"]["items"][0]["page"] == "Wiki/Topics/stale-thing"
     # 9: the open item moved to History
     text = text_of(vault, f"{W}/Topics/q3-budget.md")
     assert "- [ ] Send Q3" not in text and '— done "Send Q3 numbers to Jane" — owner: me · since ' in text
@@ -172,9 +184,15 @@ def test_lint_fix_applies_the_safe_fixes(vault):
     assert (vault / W / "_history" / "Log-2026.md").is_file() and wiki.log(limit=500)["total"] < 10
     # 1: index regenerated with every page
     assert c["1"]["fixed"] is True and text_of(vault, f"{W}/Index.md").count("- [[Wiki/") == 8
-    # Review: duplicates + stale lines
+    # Review: duplicates + stale lines. Check 7 parked the stale topic as dormant,
+    # so check 17 does not ask "close it?" about it in the same run.
     rv = wiki.review("list")
-    assert len(rv["open"]) == 3 and any("merge [[Wiki/Topics/q3-budget]] into [[Wiki/Topics/budget-q3]]?" in o["text"] for o in rv["open"])
+    assert len(rv["open"]) == 4 and any("merge [[Wiki/Topics/q3-budget]] into [[Wiki/Topics/budget-q3]]?" in o["text"] for o in rv["open"])  # duplicate, stale, close-it, and the person merge
+    assert sum("no update in 90 days" in o["text"] for o in rv["open"]) == 1 and c["17"]["count"] == 1  # asked once, not parked by check 7
+    # 16: the one-way links got their other side, and a second run finds none
+    assert "- [[Wiki/Topics/budget-q3]]" in text_of(vault, f"{W}/Topics/q3-budget.md")
+    assert "- [[Wiki/People/J Doe]]" in text_of(vault, f"{W}/Topics/messy.md").split("## People")[1]
+    assert wiki_lint.lint(fix=True)["checks"]["16"]["count"] == 0
 
 
 def test_fix_takes_a_dead_link_out_of_an_open_item(vault):
@@ -195,7 +213,7 @@ def test_weekly_facts_has_wiki_counts(vault):
     seed(vault)
     wiki_lint.lint()
     w = workflows.weekly_facts("2026-W34", today="2026-08-22")["wiki"]
-    assert w == {"review_open": 3, "stale": 1, "uningested": 1, "candidates": 1}
+    assert w == {"review_open": 4, "stale": 1, "uningested": 1, "candidates": 1, "questions": "0/0", "unanswered": 0}
 
 
 def test_merge_with_redirect(vault):
@@ -256,7 +274,7 @@ def test_server_lint_and_merge_tools(vault):
 
     seed(vault)
     r = call("vault_wiki_lint", {"fix": True})
-    assert r["fix"] is True and set(r["checks"]) == {str(i) for i in range(0, 16)} | {"19"}  # 0 = the hand-edit pass, 16-18 come later
+    assert r["fix"] is True and set(r["checks"]) == {str(i) for i in range(0, 22)}  # 0 = the hand-edit pass
     m = call("vault_wiki_merge", {"keep": "Wiki/Topics/q3-budget", "drop": "Wiki/Topics/budget-q3"})
     assert m["redirect"] == "[[Wiki/Topics/q3-budget]]"
     assert fm_of(vault, f"{W}/Topics/budget-q3.md")["type"] == "redirect"
@@ -307,6 +325,70 @@ def test_check_19_asks_about_the_users_own_items_past_their_due_date(vault):
     assert any(o["text"] == line for o in wiki.review("list")["open"])
 
 
+def questions_file(vault, *lines):
+    p = vault / "Administrator" / "Wiki" / "Questions.md"
+    p.write_text("---\ntype: wiki-questions\nsource: administrator\n---\n# Questions\n\nMine.\n\n## Questions\n\n"
+                 + "".join(l + "\n" for l in lines), encoding="utf-8")
+    return p
+
+
+def test_check_20_asks_the_wiki_the_users_own_questions(vault):
+    path = wiki.create("topic", "Q3 budget", aliases=["Budget Q3"], lead="Jane collects the numbers.", summary="Numbers due.",
+                       facts=[{"text": "Deadline is 2026-08-29", "since": "2026-08-22", "src": "<a@example.com>"}])["path"]
+    fid = wiki.read(path)["facts"][0]["id"]
+    wiki.create("topic", "Expense policy", lead="Receipts within 30 days.", summary="Receipts.")
+    questions_file(
+        vault,
+        f"- When is the Q3 budget due? → [[Wiki/Topics/q3-budget]] f:{fid}",  # the fact itself must come back
+        "- Which receipts count? → [[Wiki/Topics/expense-policy]]",
+        "- What is the gate code for the car park? → [[Wiki/Topics/expense-policy]]",  # nothing answers this
+        "- Anything at all? → [[Wiki/Topics/never-written]]",  # no such page yet: not counted
+        "a line that is not a question",
+    )
+    r = wiki_lint.lint()
+    c = r["checks"]["20"]
+    assert c["name"] == "questions" and c["asked"] == 3 and c["found"] == 2
+    assert [m["question"] for m in c["misses"]] == ["What is the gate code for the car park?"]
+    assert c["misses"][0]["expected"] == "Wiki/Topics/expense-policy" and c["misses"][0]["top"] == []
+    assert c["unknown"] == [{"question": "Anything at all?", "expected": "Wiki/Topics/never-written"}]
+    assert r["counts"]["questions"] == "2/3"
+    assert "questions 2/3" in wiki.log(page="Wiki")["lines"][-1]
+    # asking them is not the same as being asked them: they do not land in queries.log
+    assert wiki_search.read_query_log(vault) == []
+    # the named fact has to be the one found, not just its page
+    questions_file(vault, "- When is the Q3 budget due? → [[Wiki/Topics/q3-budget]] f:zzzz")
+    c = wiki_lint.lint()["checks"]["20"]
+    assert c["asked"] == 1 and c["found"] == 0 and c["misses"][0]["expected"] == "Wiki/Topics/q3-budget f:zzzz"
+    assert f"Wiki/Topics/q3-budget f:{fid}" in c["misses"][0]["top"]
+
+
+def test_check_21_asks_about_the_questions_the_wiki_could_not_answer(vault):
+    wiki.create("topic", "Q3 budget", lead="Jane collects the numbers.", summary="Numbers due.")
+    day = date.today().isoformat()
+    old = (date.today() - timedelta(days=60)).isoformat()
+    rows = [
+        (f"{day}T09:00:00+02:00", "Where is the offsite?", 0, "-"),
+        (f"{day}T10:00:00+02:00", "where is the offsite", 0, "-"),  # the same question twice
+        (f"{day}T11:00:00+02:00", "who owns the budget", 1, "Wiki/Topics/q3-budget"),  # answered
+        (f"{day}T12:00:00+02:00", "what is the gate code", 0, "-"),  # asked once
+        (f"{old}T09:00:00+02:00", "how do I book a room", 0, "-"),  # too long ago
+        (f"{old}T10:00:00+02:00", "how do I book a room", 0, "-"),
+    ]
+    log = vault / wiki_search.QUERY_LOG
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text("\n".join("\t".join([w, q, str(h), t]) for w, q, h, t in rows) + "\n", encoding="utf-8")
+    r = wiki_lint.lint()
+    c = r["checks"]["21"]
+    assert c["name"] == "unanswered" and c["count"] == 1 and c["days"] == 30
+    assert c["items"] == [{"query": "where is the offsite", "times": 2, "last": day}]
+    assert r["counts"]["unanswered"] == 1 and "unanswered 1" in wiki.log(page="Wiki")["lines"][-1]
+    line = '- [ ] no page answers "where is the offsite" — create one?'
+    assert line in r["review_added"] and any(o["text"] == line for o in wiki.review("list")["open"])
+    # a second run does not ask twice
+    assert wiki_lint.lint()["review_added"] == []
+    assert workflows.weekly_facts("2026-W34", today="2026-08-22")["wiki"]["unanswered"] == 1
+
+
 def test_check_4_knows_the_keys_and_statuses_of_each_type(vault):
     old = (date.today() - timedelta(days=400)).isoformat()
     write_page(vault, f"{W}/Decisions/new-stack.md", {"type": "decision", "status": "current", "verified": old, "decided": "2026-08-22", "by": ["[[Wiki/People/Jane Doe]]"], "reversal": "A licence problem."}, "New stack")
@@ -349,3 +431,96 @@ def test_lint_settles_a_decision_the_user_ticked_in_review(vault):
     assert r["confirmed_decisions"] == ["Wiki/Decisions/new-stack"]
     assert "unconfirmed-decision" not in fm_of(vault, path)["flags"]
     assert not any("new-stack" in o["text"] for o in wiki.review("list")["open"])
+
+
+# ------------------------------------------------------------------ 16 consistency, 17 close, 18 thin
+
+
+def _ago(n):
+    return (date.today() - timedelta(days=n)).isoformat()
+
+
+def seed_consistency(vault):
+    """One page per case check 16 knows."""
+    now = date.today().isoformat()
+    write_page(vault, f"{W}/Orgs/acme.md", {"type": "org", "status": "active", "verified": now}, "Acme")
+    write_page(vault, f"{W}/People/Jane Doe.md", {"type": "person", "name": "Jane Doe", "email": "jane.doe@example.com",
+               "last_contact": "2026-08-22T09:14:00+02:00", "status": "active", "verified": now, "org": "[[Wiki/Orgs/acme]]"}, "Jane Doe")
+    write_page(vault, f"{W}/Topics/q3-budget.md", {"type": "topic", "status": "active", "verified": now, "owner": "Jane Doe", "due": "2026-08-29"},
+               "Q3 budget", facts=[("Numbers are due 2026-09-05", now, "<m1@example.com>")])
+    write_page(vault, f"{W}/Topics/offsite.md", {"type": "topic", "status": "active", "verified": now, "owner": "Nobody Here"}, "Offsite")
+    write_page(vault, f"{W}/Topics/rebuild.md", {"type": "topic", "status": "active", "verified": now}, "Rebuild", Related=["- [[Wiki/Topics/offsite]]"])
+
+
+def test_check_16_reports_what_two_pages_say_about_each_other(vault):
+    seed_consistency(vault)
+    c = wiki_lint.lint()["checks"]["16"]
+    assert c["name"] == "consistency" and c["count"] == 5 and c["fixed"] is False
+    kinds = {(i["kind"], i["page"]): i for i in c["items"]}
+    # 1 the org page does not list the person whose org key names it
+    assert kinds[("org-contacts", "Wiki/People/Jane Doe")]["other"] == "Wiki/Orgs/acme"
+    assert kinds[("org-contacts", "Wiki/People/Jane Doe")]["section"] == "Contacts"
+    # 2 one-way link between two topics
+    assert kinds[("link", "Wiki/Topics/rebuild")]["other"] == "Wiki/Topics/offsite"
+    # 3 an owner that is a plain name a person page carries
+    assert kinds[("owner", "Wiki/Topics/q3-budget")]["other"] == "Wiki/People/Jane Doe"
+    # 4 an owner no person page carries
+    assert kinds[("owner", "Wiki/Topics/offsite")]["other"] is None
+    # 5 the due date against a fact naming another day
+    due = kinds[("due", "Wiki/Topics/q3-budget")]
+    assert due["due"] == "2026-08-29" and due["text"] == "Numbers are due 2026-09-05"
+
+
+def test_check_16_fixes_the_links_and_quotes_the_rest_in_review(vault):
+    seed_consistency(vault)
+    r = wiki_lint.lint(fix=True)
+    assert r["counts"]["consistency"] == 5
+    # the person is on the org's Contacts, the topic has its other side back
+    assert "- [[Wiki/People/Jane Doe]]" in text_of(vault, f"{W}/Orgs/acme.md").split("## Contacts")[1]
+    assert "- [[Wiki/Topics/rebuild]]" in text_of(vault, f"{W}/Topics/offsite.md").split("## Related")[1]
+    # the plain-name owner became a link; the one nobody carries was left alone
+    assert fm_of(vault, f"{W}/Topics/q3-budget.md")["owner"] == "[[Wiki/People/Jane Doe]]"
+    assert fm_of(vault, f"{W}/Topics/offsite.md")["owner"] == "Nobody Here"
+    lines = [o["text"] for o in wiki.review("list")["open"]]
+    assert '- [ ] [[Wiki/Topics/offsite]] — owner: "Nobody Here" but no person page carries that name; link the person page or drop the key' in lines
+    assert '- [ ] [[Wiki/Topics/q3-budget]] — due: 2026-08-29 but f:abcd says "Numbers are due 2026-09-05"; which day holds?' in lines
+    # what was fixed stays fixed; what needs the user stays reported
+    assert wiki_lint.lint(fix=True)["checks"]["16"]["count"] == 2
+
+
+def test_checks_17_and_18_ask_about_a_project_that_stopped_and_a_page_with_one_record(vault):
+    old, now = _ago(100), date.today().isoformat()
+    # 17: a topic with a due date and nothing new for three months
+    write_page(vault, f"{W}/Topics/rebuild.md", {"type": "topic", "status": "active", "verified": old, "created": old, "due": "2026-12-01"}, "Rebuild",
+               facts=[("Two records back this", old, "<m1@example.com>"), ("And a second one", old, "<m2@example.com>")])
+    # not 17: the same page once it is closed or parked as dormant (check 7 asked
+    # that question already and the status is the answer); and one with no due date
+    write_page(vault, f"{W}/Topics/offsite.md", {"type": "topic", "status": "closed", "verified": old, "created": old, "due": "2026-12-01"}, "Offsite",
+               facts=[("Two records back this", old, "<m1@example.com>"), ("And a second one", old, "<m2@example.com>")])
+    write_page(vault, f"{W}/Topics/parked.md", {"type": "topic", "status": "dormant", "verified": old, "created": old, "due": "2026-12-01"}, "Parked",
+               facts=[("Two records back this", old, "<m1@example.com>"), ("And a second one", old, "<m2@example.com>")])
+    write_page(vault, f"{W}/Topics/no-due.md", {"type": "topic", "status": "active", "verified": old, "created": old}, "No due",
+               facts=[("Two records back this", old, "<m1@example.com>"), ("And a second one", old, "<m2@example.com>")])
+    # 18: a topic and an org still standing on one record after two months
+    write_page(vault, f"{W}/Topics/thin-topic.md", {"type": "topic", "status": "active", "verified": now, "created": _ago(70)}, "Thin topic",
+               facts=[("One record only", now, "<m3@example.com>")])
+    write_page(vault, f"{W}/Orgs/acme.md", {"type": "org", "status": "active", "verified": now, "created": _ago(70)}, "Acme")
+    # not 18: a thin org already closed — there is nothing left to retire
+    write_page(vault, f"{W}/Orgs/gone.md", {"type": "org", "status": "closed", "verified": now, "created": _ago(70)}, "Gone")
+    # not 18: a person and a decision, however thin and however old
+    write_page(vault, f"{W}/People/Jane Doe.md", {"type": "person", "name": "Jane Doe", "email": "jane.doe@example.com",
+               "last_contact": "2026-08-22T09:14:00+02:00", "status": "active", "verified": now, "created": _ago(70)}, "Jane Doe")
+    write_page(vault, f"{W}/Decisions/new-stack.md", {"type": "decision", "status": "current", "verified": now, "created": _ago(70),
+               "decided": "2026-06-01", "by": ["[[Wiki/People/Jane Doe]]"]}, "New stack")
+    r = wiki_lint.lint()
+    c = r["checks"]
+    assert c["17"]["name"] == "close" and [i["page"] for i in c["17"]["items"]] == ["Wiki/Topics/rebuild"]
+    assert c["17"]["items"][0]["due"] == "2026-12-01" and c["17"]["items"][0]["days"] == 100
+    assert c["18"]["name"] == "thin" and [i["page"] for i in c["18"]["items"]] == ["Wiki/Orgs/acme", "Wiki/Topics/thin-topic"]
+    assert {i["sources"] for i in c["18"]["items"]} == {0, 1}
+    lines = [o["text"] for o in wiki.review("list")["open"]]
+    assert "- [ ] [[Wiki/Topics/rebuild]] — no update in 90 days: close it?" in lines
+    assert "- [ ] [[Wiki/Orgs/acme]] — one record after 60 days: merge or retire?" in lines
+    assert "- [ ] [[Wiki/Topics/thin-topic]] — one record after 60 days: merge or retire?" in lines
+    assert r["counts"]["close"] == 1 and r["counts"]["thin"] == 2
+    assert "close 1, thin 2" in wiki.log(page="Wiki")["lines"][-1]  # the Log line carries every count

@@ -1,13 +1,12 @@
 """Wiki lint and merge: PLAN-wiki.md §8 / §8.1.
 
-``lint(fix)`` runs the checks over ``Administrator/Wiki/`` — 0 to 15 and 19
-(16 to 18 come with the next release, so the numbers have a gap). Checks
-1–13, 15 and 19 are decided in code; check 14 (contradictions) only returns the
+``lint(fix)`` runs the checks over ``Administrator/Wiki/`` — 0 to 21. Checks
+1–13 and 15 to 21 are decided in code; check 14 (contradictions) only returns the
 pages touched since the last lint so the model can read their Facts. Flags
 (``orphan``, ``stale``, ``oversized``, ``possible-duplicate``) and Review
 lines are written in both modes; the fixes marked "auto" in the plan run
 with ``fix=True``. Every run writes ``Wiki/_cache/lint-<date>.json`` and one
-Log.md line.
+Log.md line carrying every count, so the trend is readable in the log.
 
 ``merge(keep, drop)`` folds one page into another and leaves a redirect page
 behind so no link breaks. It is only ever called after the user said yes.
@@ -24,7 +23,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from administrator_vault import frontmatter as fmt
-from administrator_vault import store, wiki
+from administrator_vault import store, wiki, wiki_search
 from administrator_vault.notes import ADMIN_DIR
 from administrator_vault.store import VaultError, read_text, rel
 from administrator_vault.wiki import (
@@ -39,6 +38,11 @@ STALE_DAYS = {"topic": 60, "howto": 60, "person": 120, "org": 120, "me": 120}
 UNCONFIRMED_DAYS = 180
 UNCONFIRMED_MAX = 20
 UNINGESTED_MAX = 50
+CLOSE_DAYS = 90  # a topic with a due date and nothing new for this long is asked about
+THIN_DAYS = 60  # a topic, org or howto still standing on one record after this long
+SETTLED = ("closed", "dormant")  # the two statuses that already answer "close it?"
+QUESTIONS_TOP = 3  # a question counts as answered when its page is in the first three hits
+UNANSWERED_DAYS = wiki_search.UNANSWERED_DAYS  # how far back the questions the wiki could not answer are read
 LINT_FLAGS = ("orphan", "stale", "oversized", "possible-duplicate")
 REQUIRED_KEYS = ("type", "id", "title", "aliases", "summary", "status", "created", "updated", "verified", "sources", "open_items", "flags", "created_by")
 TYPE_KEYS = {
@@ -195,6 +199,76 @@ def _inbound(root: Path, pages: list[tuple[str, dict[str, Any]]]) -> dict[str, s
                 if s != my_stem:
                     hits[s].add(me)
     return hits
+
+
+# --------------------------------------------------------------- questions
+
+# "- <question> → [[Wiki/Topics/x]]" with an optional "f:<id>" naming the fact
+_QUESTION_RE = re.compile(
+    r"^\s*-\s*(?:\[[ xX]\]\s*)?(?P<q>.+?)\s*(?:→|->)\s*\[\[(?P<page>[^\]|#]+?)\s*(?:\|[^\]]*)?\]\]"
+    r"(?:\s*f:(?P<fact>[A-Za-z0-9_-]+))?\s*$"
+)
+
+
+def read_questions(root: Path) -> list[dict[str, str]]:
+    """The lines under ``## Questions`` in ``Wiki/Questions.md``, as
+    ``[{question, page, fact}]``: what the user wants the wiki to answer and the
+    page (or the one fact) that should answer it. The file is the user's; a line
+    that does not follow the form is left alone."""
+    p = root / store.QUESTIONS_PATH
+    if not p.is_file():
+        return []
+    out: list[dict[str, str]] = []
+    under = False
+    for line in read_text(p).split("\n"):
+        if line.startswith("## "):
+            under = line[3:].strip().lower() == "questions"
+            continue
+        m = _QUESTION_RE.match(line) if under else None
+        if not m:
+            continue
+        question = " ".join(m.group("q").split())
+        try:
+            stem = _stem(page_path(m.group("page").strip()))
+        except VaultError:
+            continue
+        if question:
+            out.append({"question": question, "page": stem, "fact": _s(m.group("fact"))})
+    return out
+
+
+def questions_score(root: Path, stems: Optional[set[str]] = None, top: int = QUESTIONS_TOP) -> dict[str, Any]:
+    """Ask the wiki every question in Questions.md and count the answers: a
+    question is answered when its page (or the fact it names) comes back in the
+    first ``top`` hits. Lines naming a page that does not exist yet are listed
+    under ``unknown`` and not counted. They are not written to ``queries.log``:
+    they are the measure, not questions somebody asked."""
+    rows = read_questions(root)
+    if stems is None:
+        stems = {_stem(p) for p, _fm in _all_pages(root)}
+    found = 0
+    asked = 0
+    misses: list[dict[str, Any]] = []
+    unknown: list[dict[str, str]] = []
+    for row in rows:
+        if row["page"] not in stems:
+            unknown.append({"question": row["question"], "expected": row["page"]})
+            continue
+        asked += 1
+        hits = wiki_search.search(row["question"], limit=top, root=root, log=False)
+        expected = row["page"] + (f" f:{row['fact']}" if row["fact"] else "")
+        if row["fact"]:
+            hit = any(h["fact_id"] == row["fact"] for h in hits)
+        else:
+            hit = any(h["page"] == row["page"] for h in hits)
+        if hit:
+            found += 1
+        else:
+            misses.append({
+                "question": row["question"], "expected": expected,
+                "top": [h["page"] + (f" f:{h['fact_id']}" if h["fact_id"] else "") for h in hits],
+            })
+    return {"name": "questions", "asked": asked, "found": found, "misses": misses, "unknown": unknown}
 
 
 # ------------------------------------------------------------------ lint
@@ -368,7 +442,7 @@ def lint(fix: bool = False, created_by: str = wiki.CREATED_BY) -> dict[str, Any]
             if age is not None and age > limit:
                 flags[path].append("stale")
                 item = {"page": page.stem, "verified": _s(fm.get("verified"))[:10], "days": age, "set_dormant": False}
-                if fix and page.type == "topic":
+                if fix and page.type == "topic" and not _s(fm.get("due")).strip():  # a topic with a due date is asked about by check 17 instead
                     fm["status"] = "dormant"
                     item["set_dormant"] = True
                     to_write.add(path)
@@ -474,7 +548,104 @@ def lint(fix: bool = False, created_by: str = wiki.CREATED_BY) -> dict[str, Any]
                         unconfirmed.setdefault(page.stem, []).append({"id": f.id, "text": f.text, "since": f.since})
         checks["15"] = {"name": "unconfirmed", "count": n_unc, "shown": min(n_unc, UNCONFIRMED_MAX), "pages": unconfirmed}
 
-        # 16-18 are taken by the next release; 19 overdue: the user's own items past their due date
+        # 16 consistency: what two pages say about each other, and what one page says twice
+        by_stem = {page.stem: path for path, page in pages.items()}
+        consistency: list[dict[str, Any]] = []
+        # the pages each page links to; a person's org key counts as a link
+        out: dict[str, set[str]] = {}
+        org_of: dict[str, str] = {}
+        for path, page in pages.items():
+            out[page.stem] = {t for t in wiki._link_sections(page) if t in by_stem and t != page.stem}
+            if page.type == "person" and _s(page.fm.get("org")).strip():
+                raw_org = _s(page.fm.get("org")).strip()
+                org = _link_target(raw_org)
+                if not (org in by_stem and pages[by_stem[org]].type == "org"):
+                    orgs = [(p, pg.fm) for p, pg in pages.items() if pg.type == "org"]
+                    hit = wiki._find_by_name(orgs, raw_org, [])
+                    org = _stem(hit[0]) if hit else ""
+                if org in by_stem and pages[by_stem[org]].type == "org":
+                    org_of[page.stem] = org
+                    out[page.stem].add(org)
+        for a in sorted(out):
+            for b in sorted(out[a]):
+                if a in out[b]:
+                    continue
+                other = pages[by_stem[b]]
+                section = wiki._section_for(other.type, pages[by_stem[a]].type)
+                consistency.append({
+                    "page": a, "kind": "org-contacts" if org_of.get(a) == b else "link",
+                    "other": b, "section": section, "fixed": fix,
+                })
+                if fix:
+                    _put_link(other.lines(section), a, "", section != "Related")
+                    out[b].add(a)
+                    to_write.add(by_stem[b])
+        # an owner is a person page
+        people = [(p, pg.fm) for p, pg in pages.items() if pg.type == "person"]
+        for path, page in pages.items():
+            owner = _s(page.fm.get("owner")).strip()
+            if page.type not in ("topic", "howto") or not owner:
+                continue
+            target = _link_target(owner)
+            if target in by_stem and pages[by_stem[target]].type == "person":
+                continue
+            hit = wiki._find_by_name(people, owner, [])
+            item = {"page": page.stem, "kind": "owner", "owner": owner, "other": _stem(hit[0]) if hit else None, "fixed": False}
+            if hit and fix:
+                page.fm["owner"] = f"[[{_stem(hit[0])}]]"
+                to_write.add(path)
+                item["fixed"] = True
+            elif not hit:
+                review_lines.append(f'- [ ] [[{page.stem}]] — owner: "{owner}" but no person page carries that name; link the person page or drop the key')
+            consistency.append(item)
+        # the due date against a fact on the same page naming another day for the same thing
+        for path, page in pages.items():
+            d = _s(page.fm.get("due"))[:10]
+            if page.type != "topic" or not _DATE_RE.match(d):
+                continue
+            about = wiki._content_tokens(page.title)
+            for f in page.facts:
+                days = {v for v in wiki._values(f.text) if _DATE_RE.match(v)}
+                if not days or d in days:
+                    continue
+                words = wiki._content_tokens(f.text)
+                if len(words & about) < 2 and not (words & {"due", "deadline"}):
+                    continue
+                consistency.append({"page": page.stem, "kind": "due", "due": d, "id": f.id, "text": f.text})
+                review_lines.append(f'- [ ] [[{page.stem}]] — due: {d} but f:{f.id} says "{f.text}"; which day holds?')
+        checks["16"] = {"name": "consistency", "count": len(consistency), "items": consistency, "fixed": fix}
+
+        # 17 a project nothing has moved for three months
+        # (a page already closed or parked as dormant is not asked about again:
+        # that question was put by check 7 and the status is the answer)
+        close = []
+        for path, page in pages.items():
+            d = _s(page.fm.get("due"))[:10]
+            if page.type != "topic" or not _DATE_RE.match(d) or _s(page.fm.get("status")) in SETTLED:
+                continue
+            age = _days_ago(_s(page.fm.get("verified") or page.fm.get("created")), today)
+            if age is not None and age > CLOSE_DAYS:
+                close.append({"page": page.stem, "due": d, "verified": _s(page.fm.get("verified"))[:10], "days": age})
+                review_lines.append(f"- [ ] [[{page.stem}]] — no update in {CLOSE_DAYS} days: close it?")
+        checks["17"] = {"name": "close", "count": len(close), "items": close}
+
+        # 18 a page that never grew past the record it was born from
+        # (a person page is left out: one mail is reason enough to keep it;
+        # so is a page already closed or dormant — retiring it adds nothing)
+        thin = []
+        for path, page in pages.items():
+            if page.type not in ("topic", "org", "howto") or _s(page.fm.get("status")) in SETTLED:
+                continue
+            age = _days_ago(_s(page.fm.get("created")), today)
+            if age is None or age <= THIN_DAYS:
+                continue
+            n = wiki.count_sources(root, page, id_cache)
+            if n <= 1:
+                thin.append({"page": page.stem, "sources": n, "days": age})
+                review_lines.append(f"- [ ] [[{page.stem}]] — one record after {THIN_DAYS} days: merge or retire?")
+        checks["18"] = {"name": "thin", "count": len(thin), "items": thin}
+
+        # 19 overdue: the user's own items past their due date
         overdue = []
         for path, page in pages.items():
             for o in page.opens:
@@ -485,6 +656,15 @@ def lint(fix: bool = False, created_by: str = wiki.CREATED_BY) -> dict[str, Any]
                 overdue.append({"page": page.stem, "id": o.id, "text": o.text, "due": _s(o.due)[:10]})
                 review_lines.append(f'- [ ] [[{page.stem}]] — overdue: "{o.text}" due {_s(o.due)[:10]} — done, reschedule, or drop')
         checks["19"] = {"name": "overdue", "count": len(overdue), "items": overdue}
+
+        # 20 questions: the user's own list in Questions.md, asked of the wiki
+        checks["20"] = questions_score(root, stems)
+
+        # 21 the questions the wiki could not answer, asked more than once
+        gaps = wiki_search.unanswered(root, UNANSWERED_DAYS, today_s)
+        checks["21"] = {"name": "unanswered", "count": len(gaps), "days": UNANSWERED_DAYS, "items": gaps}
+        for gap in gaps:
+            review_lines.append(f'- [ ] no page answers "{gap["query"]}" — create one?')
 
         # stale / orphan / oversized / duplicate pages with no other open Review line get one
         for path, page in pages.items():
@@ -520,9 +700,14 @@ def lint(fix: bool = False, created_by: str = wiki.CREATED_BY) -> dict[str, Any]
             "oversized": checks["6"]["count"], "stale": checks["7"]["count"], "due_past": checks["8"]["count"], "open_done": checks["9"]["count"],
             "duplicates": checks["10"]["count"], "uningested": checks["11"]["count"], "candidates": checks["12"]["count"],
             "history_over": len(long_hist), "ask_model": len(touched), "unconfirmed": n_unc,
+            "consistency": checks["16"]["count"], "close": checks["17"]["count"], "thin": checks["18"]["count"],
             "overdue": checks["19"]["count"], "hand_edits": len(edits["adopted"]),
+            "questions": f"{checks['20']['found']}/{checks['20']['asked']}", "unanswered": checks["21"]["count"],
         }
-        _log(root, "lint", "Wiki", "-", ("fix, " if fix else "") + f"{len(pages)} pages, {len(flagged)} flagged, {len(added)} review lines, {len(written)} written")
+        # one line per run with every count on it, so vault_wiki_log shows the trend
+        _log(root, "lint", "Wiki", "-", ("fix, " if fix else "")
+             + f"{len(pages)} pages, {len(flagged)} flagged, {len(added)} review lines, {len(written)} written, "
+             + ", ".join(f"{name.replace('_', ' ')} {value}" for name, value in summary.items()))
         finished = store.now_iso()
         report = {
             "date": today_s, "started": started, "finished": finished, "fix": fix, "pages": len(pages),
@@ -539,16 +724,21 @@ def lint(fix: bool = False, created_by: str = wiki.CREATED_BY) -> dict[str, Any]
     return report
 
 
-def summary(root: Path) -> dict[str, int]:
-    """The four counts the weekly note shows: open review items, stale pages,
-    un-ingested records, topic candidates over the threshold."""
+def summary(root: Path) -> dict[str, Any]:
+    """The counts the weekly note shows: open review items, stale pages,
+    un-ingested records, topic candidates over the threshold, how many of the
+    questions in Questions.md the wiki answers, and how many questions it could
+    not answer at all."""
     listing = _all_pages(root)
     stale = sum(1 for _p, fm in listing if "stale" in (fm.get("flags") or []))
+    score = questions_score(root, {_stem(p) for p, _fm in listing})
     return {
         "review_open": len(_review_text(root)[0]),
         "stale": stale,
         "uningested": uningested_records(root)[0],
         "candidates": len(_candidates_over(root, listing)),
+        "questions": f"{score['found']}/{score['asked']}",
+        "unanswered": len(wiki_search.unanswered(root, UNANSWERED_DAYS)),
     }
 
 
