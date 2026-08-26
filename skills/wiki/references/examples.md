@@ -44,7 +44,7 @@ vault_wiki_read(path="Administrator/Wiki/Topics/q3-budget.md", sections=["lead",
 4. One call:
 
 ```
-vault_wiki_write(record_path="Administrator/Emails/2026-08-22 Budget Q3.md", created_by="administrator/0.4.0", pages=[
+vault_wiki_write(record_path="Administrator/Emails/2026-08-22 Budget Q3.md", created_by="administrator/0.4.1", pages=[
   {"path": "Administrator/Wiki/Topics/q3-budget.md", "ops": [
     {"op": "supersede", "id": "7k2q", "text": "Deadline for the user's numbers is 2026-08-29", "since": "2026-08-22", "src": "<7f3a9c@example.com>"},
     {"op": "add", "text": "Forecast closes 2026-09-02", "since": "2026-08-22", "src": "<7f3a9c@example.com>"},
@@ -101,7 +101,7 @@ The page now has `verified: 2026-08-22`, the History line `superseded "Deadline 
 4. One call:
 
 ```
-vault_wiki_write(record_path="Administrator/Meetings/2026-08-25 1300 Weekly supplier sync.md", created_by="administrator/0.4.0", pages=[
+vault_wiki_write(record_path="Administrator/Meetings/2026-08-25 1300 Weekly supplier sync.md", created_by="administrator/0.4.1", pages=[
   {"path": "Administrator/Wiki/Topics/acme-supplier-contract.md", "ops": [
     {"op": "supersede", "id": "d2f8", "text": "Payment terms are net 45", "since": "2026-08-25", "src": "0400A1…|2026-08-25T13:00:00+02:00"},
     {"op": "supersede", "id": "q5hh", "text": "First September delivery is on 2026-09-08", "since": "2026-08-25", "src": "0400A1…|2026-08-25T13:00:00+02:00"},
@@ -131,7 +131,7 @@ The save writes `Administrator/Emails/2026-08-19 Budget timing.md`. Ingest:
 3. Compare. The mail disagrees, but it is dated 2026-08-19, before the current fact's `since` of 2026-08-22. The 29 Aug fact came from a later mail, so it very likely still holds — but the model does not decide that. `contest`, not `supersede`:
 
 ```
-vault_wiki_write(record_path="Administrator/Emails/2026-08-19 Budget timing.md", created_by="administrator/0.4.0", pages=[
+vault_wiki_write(record_path="Administrator/Emails/2026-08-19 Budget timing.md", created_by="administrator/0.4.1", pages=[
   {"path": "Administrator/Wiki/Topics/q3-budget.md", "ops": [
     {"op": "contest", "id": "m4rt", "text": "Deadline for the user's numbers is 2026-08-27", "src": "<e41c2@example.com>"}]}])
 ```
@@ -155,7 +155,7 @@ Had the model sent `supersede` with `since: "2026-08-19"` instead, the result wo
 When the user answers "29 is right, 27 was the old plan":
 
 ```
-vault_wiki_keep(action="review", review_action="resolve", item="1", resolution_ops=[{"op": "confirm", "id": "m4rt", "src": "user"}], created_by="administrator/0.4.0")
+vault_wiki_keep(action="review", review_action="resolve", item="1", resolution_ops=[{"op": "confirm", "id": "m4rt", "src": "user"}], created_by="administrator/0.4.1")
 ```
 
 → `{"resolved": "- [ ] [[Wiki/Topics/q3-budget]] — f:m4rt …", "page": "Wiki/Topics/q3-budget", "applied": {...}}`. The Review line moves to `## Done` with the date, the `contradiction` flag is cleared, and `m4rt` gains `user` as its newest source — which now pins it (`user-pin`) against any later record that tries to supersede it.
@@ -165,7 +165,7 @@ vault_wiki_keep(action="review", review_action="resolve", item="1", resolution_o
 The same meeting note says "we agreed to go with net 45 for the whole contract; the 2 % early-payment discount was dropped". That is a choice that now stands, so the decision page goes into the same ingest, without asking:
 
 ```
-vault_wiki_write(record_path="Administrator/Meetings/2026-08-25 1300 Weekly supplier sync.md", created_by="administrator/0.4.0", pages=[
+vault_wiki_write(record_path="Administrator/Meetings/2026-08-25 1300 Weekly supplier sync.md", created_by="administrator/0.4.1", pages=[
   {"new": {"type": "decision", "title": "Net 45 terms", "aliases": ["net-45"],
            "lead": "The ACME Parts contract runs on net 45 from v3 on. The 2 % early-payment discount was dropped in exchange.",
            "summary": "ACME Parts contract runs on net 45; the early-payment discount is dropped.",

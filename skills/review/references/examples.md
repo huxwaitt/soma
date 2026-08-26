@@ -42,7 +42,7 @@ Two `Accepted:` responses in Sent were skipped by the server; nothing was read b
 `vault_wiki_search(query="", open_items=true, owner="others")` → two items: Carol Ng / "Contract draft" on `Wiki/People/Carol Ng.md` (`id: "4m2t"`, `src: ["00000000AC…"]`, written by `inbox`) and "Delivery schedule September" on `Wiki/People/Tom Lee.md` (`id: "9r7d"`, `owner: "[[Wiki/People/Tom Lee]]"`, `src: ["00000000AB…"]`, written by `prep` from Tom's 19 Aug mail).
 
 - Item 1: no `src` match, but Tom's page holds an item with the same text → already listed.
-- Item 2: `vault_find("person", "priya.nair@northwind.example", fields=["name"])` → not found → one `vault_write("person", {type: person, name: "Priya Nair", email: "priya.nair@northwind.example", last_contact: "", aliases: [], created_by: "administrator/0.4.0"}, "", mode="create")` → `Administrator/Wiki/People/Priya Nair.md`.
+- Item 2: `vault_find("person", "priya.nair@northwind.example", fields=["name"])` → not found → one `vault_write("person", {type: person, name: "Priya Nair", email: "priya.nair@northwind.example", last_contact: "", aliases: [], created_by: "administrator/0.4.1"}, "", mode="create")` → `Administrator/Wiki/People/Priya Nair.md`.
 - Item 3: `vault_find("person", "bob.lee@example.com", fields=["name"])` → `Administrator/Wiki/People/Bob Lee.md`.
 
 ```
@@ -134,7 +134,7 @@ week: 2026-W34
 start: 2026-08-17
 end: 2026-08-23
 generated: 2026-08-22T10:20:00+02:00
-created_by: administrator/0.4.0
+created_by: administrator/0.4.1
 ---
 
 # Week 2026-W34 (2026-08-17 – 2026-08-23)

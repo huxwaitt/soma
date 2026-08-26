@@ -1,6 +1,6 @@
 # save — worked examples
 
-Three runs of `/administrator:save`: one mail, the same mail again, a whole thread. The tool results are cut to what the `fields=` lists return; nothing the model does not read is shown.
+Four runs of `/administrator:save`: one mail, the same mail again, a whole thread, a file path. The tool results are cut to what the `fields=` lists return; nothing the model does not read is shown.
 
 ## Example 1 — one mail with attachments
 
@@ -67,6 +67,14 @@ The note the helper wrote (for reference — the model never sees or types it):
 ---
 type: email
 source: outlook
+record_id: "<PAXPR04MB8765A1B2C3D4E5F6@PAXPR04MB8765.eurprd04.prod.outlook.com>"
+title: "RE: Q3 supplier contract – signature needed"
+date: "2026-08-21"
+people:
+  - "[[Wiki/People/Jane Doe]]"
+wiki: []
+ingested: ""
+created_by: administrator/0.4.1
 entry_id: "00000000AC1F…"
 internet_message_id: "<PAXPR04MB8765A1B2C3D4E5F6@PAXPR04MB8765.eurprd04.prod.outlook.com>"
 conversation_id: "CAFEBABE1234567890ABCDEF"
@@ -84,7 +92,6 @@ has_attachments: true
 attachments:
   - "[[Administrator/Attachments/2026-08-21 Q3 supplier contract – signature needed/Q3-supplier-contract-v3.pdf|Q3-supplier-contract-v3.pdf]]"
 msg_file: "[[Administrator/Attachments/2026-08-21 Q3 supplier contract – signature needed/2026-08-21 Q3 supplier contract – signature needed.msg|2026-08-21 Q3 supplier contract – signature needed.msg]]"
-created_by: administrator/0.4.0
 ---
 
 # RE: Q3 supplier contract – signature needed
@@ -103,7 +110,7 @@ Jane sends contract v3 with net-45 terms and asks for a signed copy by 29 Aug pl
 - [ ] Sign and return Q3 supplier contract v3 by 2026-08-29 — owner: me
 - [ ] Confirm delivery address is still the Leipzig warehouse — owner: me
 
-## Body
+## Content
 
 Hi Hux,
 
@@ -111,7 +118,7 @@ Attached is v3 with the payment terms changed to net 45 as we discussed. Could y
 
 One more thing: please confirm the delivery address is still the Leipzig warehouse.
 
-## Attachments
+## Files
 
 - [[Administrator/Attachments/2026-08-21 Q3 supplier contract – signature needed/2026-08-21 Q3 supplier contract – signature needed.msg|2026-08-21 Q3 supplier contract – signature needed.msg]] (original message)
 - [[Administrator/Attachments/2026-08-21 Q3 supplier contract – signature needed/Q3-supplier-contract-v3.pdf|Q3-supplier-contract-v3.pdf]] (180 KB)
@@ -120,16 +127,31 @@ One more thing: please confirm the delivery address is still the Leipzig warehou
 
 `Wiki/People/Jane Doe.md` was created with `company: ACME Parts GmbH`, `last_contact: 2026-08-21T16:42:10+02:00` and the line `- 2026-08-21 — [[Emails/2026-08-21 Q3 supplier contract – signature needed]] (todo)`. No open item (status `todo`), so `Follow-ups.md` does not change.
 
-6. Report:
+6. One exported attachment can be read in as its own record, so ask once, nothing else in that turn: "Read `Q3-supplier-contract-v3.pdf` into the vault too, so its text can go on the pages?" User: "yes".
+
+```
+vault_save(kind="document",
+  path="C:\\Users\\<you>\\Documents\\Vault\\Administrator\\Attachments\\2026-08-21 Q3 supplier contract – signature needed\\Q3-supplier-contract-v3.pdf",
+  summary="Supplier contract v3: net 45 payment terms, delivery to the Leipzig warehouse, signature due 29 Aug.",
+  action_items=["Sign and return contract v3 by 2026-08-29 — owner: me"],
+  from_email="Administrator/Emails/2026-08-21 Q3 supplier contract – signature needed.md")
+```
+
+→ `{"path": "Administrator/Documents/2026-08-21 Q3-supplier-contract-v3.md", "action": "created", "record_id": "76350e982c42c7c0", "format": "pdf", "parts": 12, "chars": 18422, "empty": false, "text_file": null, "sections": [{"locator": "p1", "heading": "page 1", "chars": 812}, …], "from_email": "[[Emails/2026-08-21 Q3 supplier contract – signature needed]]", "linked": true}`
+
+`linked: true` means the two records now name each other: the mail's `## Files` gained the document link through an `## Update`, and the document's `## Files` names the mail. The wiki step of step 7 then runs on the mail *and* on the document, with a `#p<n>` locator on every fact that came from one page of the pdf.
+
+7. Report:
 
 > Saved `Emails/2026-08-21 Q3 supplier contract – signature needed.md` (todo, 2 action items). New person note `Wiki/People/Jane Doe.md`. Exported the .msg and `Q3-supplier-contract-v3.pdf` to `Administrator/Attachments/2026-08-21 Q3 supplier contract – signature needed/`.
+> Read `Q3-supplier-contract-v3.pdf` into `Documents/2026-08-21 Q3-supplier-contract-v3.md` (pdf, 12 parts, 18422 characters); the two records link to each other.
 > obsidian://open?vault=Vault&file=Administrator%2FEmails%2F2026-08-21%20Q3%20supplier%20contract%20%E2%80%93%20signature%20needed.md
 
 ## Example 2 — the same command again
 
 Steps 1–2 as above. Step 3: `vault_find("email", …, fields=["status","msg_file","attachments"])` → `found: true`, frontmatter shows `msg_file` and `attachments` already set → no export question. `vault_find("person", …)` → `found: true`, so no `outlook_search_contacts`.
 
-`vault_save(kind="email", mail, summary=<same two sentences>, action_items=<same>, self_addresses=[...])` → `action: "appended"`. The helper put `Saved again via /administrator:save.` plus `### Summary` / `### Action items` under a `## Update 2026-08-22T…` heading; the `## Body` and frontmatter stay as they were. The person page is unchanged apart from `last_contact`; its `## Records` line was already there, so it is not doubled — the helper decides.
+`vault_save(kind="email", mail, summary=<same two sentences>, action_items=<same>, self_addresses=[...])` → `action: "appended"`. The helper put `Saved again via /administrator:save.` plus `### Summary` / `### Action items` under a `## Update 2026-08-22T…` heading; the `## Content` and frontmatter stay as they were. The person page is unchanged apart from `last_contact`; its `## Records` line was already there, so it is not doubled — the helper decides.
 
 > Already saved at `Emails/2026-08-21 Q3 supplier contract – signature needed.md`; appended an update. Nothing exported again.
 > obsidian://open?vault=Vault&file=…
@@ -154,38 +176,75 @@ User: "save the thread with Jane about the supplier contract"
  ]}
 ```
 
-   The newest item is the mail already fetched, so `mail` stays. Replace `mail.body_trimmed` with:
+   The newest item is the mail already fetched, so `mail` stays; the whole `items[]` list goes to `vault_save` as `thread=`, unchanged. The helper sorts it oldest first and writes one section per mail:
 
 ```markdown
-### 2026-08-20 09:15 — Hux Waitt
+### m1 — 2026-08-20 09:15 Hux Waitt
 
 Hi Jane,
 
 before I sign: can we move the payment terms to net 45? Everything else in v2 is fine.
 
-### 2026-08-21 11:03 — Jane Doe
+### m2 — 2026-08-21 11:03 Jane Doe
 
 Hi Hux,
 
 net 45 works. I'll send v3 this afternoon.
 
-### 2026-08-21 16:42 — Jane Doe
+### m3 — 2026-08-21 16:42 Jane Doe
 
 Hi Hux,
 
 Attached is v3 with the payment terms changed to net 45 as we discussed. …
 ```
 
-   Each section is that item's `body_trimmed` verbatim; nothing else from the thread goes in.
+   Each section is that item's `body_trimmed` verbatim; nothing else from the thread goes in. A fact taken from the second mail cites `src: "<record_id>#m2"`.
 
 3–4. As in example 1 (identity and attachments are the newest mail's).
 
-5. `vault_save(kind="email", mail=<newest mail with the thread body>, summary="Jane agreed to net 45 and sent contract v3; she asks for a signed copy by 29 Aug and confirmation of the Leipzig delivery address.", action_items=[...same two...], ..., self_addresses=["hux@example.com"])` → one note, `Emails/2026-08-21 Q3 supplier contract – signature needed.md`, whose `## Body` holds the three dated sections. One person note (Jane), none for the user's own sent mail.
+5. `vault_save(kind="email", mail=<the newest mail>, thread=<the items[] above>, summary="Jane agreed to net 45 and sent contract v3; she asks for a signed copy by 29 Aug and confirmation of the Leipzig delivery address.", action_items=[...same two...], ..., self_addresses=["hux@example.com"])` → one note, `Emails/2026-08-21 Q3 supplier contract – signature needed.md`, whose `## Content` holds the three numbered sections. One person note (Jane), none for the user's own sent mail.
 
 6. Report as in example 1, plus "3 mails in the thread (Sent Items, Inbox)".
 
+## Example 4 — a file instead of a mail
+
+User: `/administrator:save C:\Users\<you>\Downloads\ACME-kickoff.pptx`
+
+1. The argument is a path, not an `entry_id` and not search terms, so there is no Outlook call at all.
+
+2. One call:
+
+```
+vault_save(kind="document", path="C:\\Users\\<you>\\Downloads\\ACME-kickoff.pptx",
+  summary="", action_items=[])
+```
+
+   → `{"path": "Administrator/Documents/2026-08-24 ACME-kickoff.md", "action": "created", "record_id": "3f9c1ad2b7e40518", "format": "pptx", "parts": 18, "chars": 9140, "empty": false, "text_file": null, "sections": [{"locator": "s1", "heading": "ACME kickoff", "chars": 61}, {"locator": "s2", "heading": "Scope", "chars": 640}, …, {"locator": "s7", "heading": "Pricing", "chars": 980}, …], "from_email": "", "linked": false}`
+
+   The summary was left empty on purpose: the parts are only known after the read. Show the list — "18 slides: 1 ACME kickoff, 2 Scope, … 7 Pricing, …" — and offer the wiki step.
+
+3. `vault_wiki_search(query="ACME kickoff scope pricing", pages=true, limit=8)` → `Topics/acme-supplier-contract` and a candidate `acme kickoff`. Read the slides that match, largest first, at most five: `vault_read("Administrator/Documents/2026-08-24 ACME-kickoff.md", section="s7")` → `{"section": {"locator": "s7", "heading": "Pricing", "text": "Net 45 from 1 September. Volume tier 2 …", "chars": 980}, …}`, then `s2`, then `s11`.
+
+4. `vault_wiki_read("Wiki/Topics/acme-supplier-contract", sections=["lead","facts"])`, then one call:
+
+```
+vault_wiki_write(record_path="Administrator/Documents/2026-08-24 ACME-kickoff.md",
+  pages=[{"path": "Wiki/Topics/acme-supplier-contract",
+          "ops": [{"op": "add", "text": "Net 45 payment terms run from 1 September.", "src": "3f9c1ad2b7e40518#s7"},
+                  {"op": "confirm", "id": "b2k9", "src": "3f9c1ad2b7e40518#s2"}]}],
+  created_by="administrator/0.4.1")
+```
+
+   The `src` of each op is the record id plus the slide the fact was read on; without one, the bare record id is used. The document is one source however many facts cite it.
+
+5. Report:
+
+> Read `Downloads/ACME-kickoff.pptx` into `Documents/2026-08-24 ACME-kickoff.md` (pptx, 18 slides, 9140 characters). Wiki: `Topics/acme-supplier-contract` (net 45 from 1 Sep added from slide 7, scope confirmed from slide 2). Topic candidate `acme kickoff` — create a page for it?
+> obsidian://open?vault=Vault&file=Administrator%2FDocuments%2F2026-08-24%20ACME-kickoff.md
+
 ## What the model never does in these runs
 
-- Types the frontmatter, the `**From:**` / `**To:**` lines, the body of a single mail, or the `## Attachments` list — `vault_save` builds them from `mail`.
+- Types the frontmatter, the `**From:**` / `**To:**` lines, the body of a single mail, or the `## Files` list — `vault_save` builds them from `mail`.
+- Types the text of a document, or reads the whole record back to get at one part — `vault_read(path, section=…)` returns the part.
 - Reads `vault_read` on the email or person note — `vault_find(fields=...)` is enough.
 - Calls `vault_write`, `vault_row` or `outlook_search_contacts` when the helper or an earlier `vault_find` already covers it.

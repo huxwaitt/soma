@@ -7,7 +7,7 @@ description: Plans the week's focus and admin blocks as appointments in the user
 
 The planner (`vault_time_block(action="plan")`) does the placing; you show the week, ask once, create the appointments, and let `vault_time_block(action="write")` keep the plan. Why the blocks look the way they do — specific when-and-where plans, long blocks in peak hours, shallow work in a few batches, a fifth of the day left free, a weekly audit — is in `references/method.md` (load it when the user asks why, or wants to change a preference). Worked runs with every call and result: `references/examples.md` — load it the first time this runs in a session. Outlook mechanics follow the `outlook` skill; notes go only through `vault_*` tools (`skills/administrator/references/vault.md`).
 
-Once per session: `vault_status` (a false folder or file flag → `vault_init(created_by="administrator/0.4.0")`; vault unset or not a directory → stop and say so) and `outlook_whoami(response_format="json")` — `local_time` is "now" and "today"; the offset in it is the one every ISO string below carries.
+Once per session: `vault_status` (a false folder or file flag → `vault_init(created_by="administrator/0.4.1")`; vault unset or not a directory → stop and say so) and `outlook_whoami(response_format="json")` — `local_time` is "now" and "today"; the offset in it is the one every ISO string below carries.
 
 ## Steps
 
@@ -24,7 +24,7 @@ vault_priorities_write(action="candidates")
 → `{path, topics: [{title, page, status, owner, due, open_items, verified, summary}] (active topics, soonest due first, then most open items), followups: [{since, who, what, age_days}] (the open items other people owe, oldest first), weekly_open: [{subject, label, date}] (open act / reply rows of the latest weekly), current: [the numbered lines now in the file]}`; nothing is written. Propose 3–5 ranked priorities as a numbered list with one short reason each — a due date, open items, the oldest follow-up, an unfinished weekly item — then ask exactly "Use these as your priorities? (reorder, drop or add lines, or say yes)" and stop the turn. On a yes, or the edited list:
 
 ```
-vault_priorities_write(action="write", lines=["[[Wiki/Topics/acme-supplier-contract]]", "Q3 budget", …], created_by="administrator/0.4.0")
+vault_priorities_write(action="write", lines=["[[Wiki/Topics/acme-supplier-contract]]", "Q3 budget", …], created_by="administrator/0.4.1")
 ```
 
 → `{path, action: "written", lines, previous}`: the numbered list under `## Priorities` is replaced, everything else in the file stays. Go on with the plan in the same turn. A "no" leaves the file alone and the planner falls back to the wiki topics it finds itself. The plugin writes `Priorities.md` only with lines you confirmed; edit it in Obsidian any time.
@@ -82,7 +82,7 @@ No `attendees`, no `location`, no `is_online_meeting`, no `recurrence`. Result `
 ### 7. The plan note
 
 ```
-vault_time_block(action="write", week=<week>, blocks=<every block of the shown plan; new ones with entry_id and occurrence_key from the create results merged in, existing ones as they came>, created_by="administrator/0.4.0")
+vault_time_block(action="write", week=<week>, blocks=<every block of the shown plan; new ones with entry_id and occurrence_key from the create results merged in, existing ones as they came>, created_by="administrator/0.4.1")
 ```
 
 → `{path, action, week, blocks, planned}`. The note holds a `## Plan` table (one row per block, hidden `occurrence_key`), an empty `## Held` table that `/administrator:collect-information` fills day by day, and `## Notes`. `action: appended` = the week had a note; the new rows sit under `## Update`. Never `vault_write` this note yourself.

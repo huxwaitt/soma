@@ -40,7 +40,7 @@ attendee_links:
   - "[[Wiki/People/Tom Lee]]"
 is_recurring: false
 status: upcoming
-created_by: administrator/0.4.0
+created_by: administrator/0.4.1
 ---
 
 # <Subject as Outlook returned it>
@@ -93,7 +93,7 @@ A transcript never sits in the body `notes` creates: `vault_save(kind="transcrip
 | `attendee_links` | One `"[[Wiki/People/<Display Name>]]"` per entry in `attendees`, same order. |
 | `is_recurring` | `true` / `false` from the event. |
 | `status` | `upcoming` on creation by `prep` or `schedule`; `held` set by `notes`; `cancelled` set by `prep` when `outlook_get_event_by_key` no longer finds the occurrence or the subject starts with `Canceled:` / `Abgesagt:`. This is the only frontmatter key edited in place. |
-| `created_by` | `administrator/0.4.0`. |
+| `created_by` | `administrator/0.4.1`. |
 
 Header lines under the `# Subject`: `**When:**` is `YYYY-MM-DD HH:MM–HH:MM` (one date; if `end` is on another day write both dates). `**Organizer:**` is `me <address>` when the user organised it. `**Attendees:**` lists every attendee as a wikilink with `(required|optional|resource, <response>)` where `<response>` is the event's `attendees[].response` in plain words: `accepted`, `tentative`, `declined`, `no reply` (for `none` and `notresponded`), `organizer`.
 

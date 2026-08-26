@@ -57,13 +57,13 @@ vault_load_history(action="next")
 
    That call, with `response_format="json"` added and nothing else changed (its `fields` already name `bulk` and `bulk_why`), returns 31 mails newest first. Turned round, one `vault_rules(action="match", items=<the 31>)` → `counts: {"bulk": 6, "never_save": 0, "kept": 25}` — two newsletters on `bulk: List-Unsubscribe header`, three on `bulk: meeting response`, one on `bulk: sender address no-reply@ci.example`. The 25 kept are worked oldest first and the batch line says "6 bulk / 0 by your rules dropped".
 
-4. The batch — `collect-information` step 4 (the relevance gate for mail): one `vault_wiki_search(query=<subject + preview>, pages=true, people=[<from_address>], domains=[<domain>], limit=3)` per mail. Four have a page hit or a candidate: the ACME kickoff thread (2), one from Jane Doe about the Q3 sheet, one from Tom Lee about payment terms. The other 21 are counted, not opened. The four are read with the `save` skill's `outlook_get_mail(..., trim_quoted=true, fields=[...])` and written with `vault_save(kind="email", ..., created_by="administrator/0.4.0")`.
+4. The batch — `collect-information` step 4 (the relevance gate for mail): one `vault_wiki_search(query=<subject + preview>, pages=true, people=[<from_address>], domains=[<domain>], limit=3)` per mail. Four have a page hit or a candidate: the ACME kickoff thread (2), one from Jane Doe about the Q3 sheet, one from Tom Lee about payment terms. The other 21 are counted, not opened. The four are read with the `save` skill's `outlook_get_mail(..., trim_quoted=true, fields=[...])` and written with `vault_save(kind="email", ..., created_by="administrator/0.4.1")`.
 
    Then step 6 — the proposal, and nothing else in that turn:
 
    > **Topics/acme-supplier-contract** — new page from 2 records: kickoff 28 May, ACME to send the draft contract (open, owner Tom Lee, due 12 Jun). **People/Tom Lee** — "handles the ACME purchase orders" (add). **People/Jane Doe** — "owns the Q3 forecast sheet" (add); last contact 2 Jun. **Review** — 1 expected: net 30 in the 2 Jun mail against net 45 on the page. Apply these? (name a line to drop it)
 
-   User: "yes". Step 7: one `vault_wiki_write(record_path=…, pages=[…], created_by="administrator/0.4.0")` per record, oldest first, then the second pass per record (the `wiki` skill's ingest step 5) — the 2 Jun mail also names the delivery week, which goes straight into a second, smaller ingest for that record.
+   User: "yes". Step 7: one `vault_wiki_write(record_path=…, pages=[…], created_by="administrator/0.4.1")` per record, oldest first, then the second pass per record (the `wiki` skill's ingest step 5) — the 2 Jun mail also names the delivery week, which goes straight into a second, smaller ingest for that record.
 
 5. Reporting the batch back:
 

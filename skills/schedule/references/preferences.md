@@ -29,7 +29,8 @@ admin_blocks_per_day: 2
 admin_block_minutes: 45
 slack_share: 0.2
 collect_folders: []
-created_by: administrator/0.4.0
+document_folders: []
+created_by: administrator/0.4.1
 ---
 
 # Scheduling preferences
@@ -51,6 +52,7 @@ Edit the frontmatter above. The plugin reads it before suggesting or booking any
 - `admin_block_minutes` — length of one admin block.
 - `slack_share` — the share of the work day left unbooked for what comes up: `0.2` keeps a fifth free. Days where meetings already eat past this share get no blocks.
 - `collect_folders` — extra folders /administrator:collect-information reads for changed notes, as paths relative to the vault root (`"Projects"`, `"Journal/2026"`). They are only read, never written. An empty list `[]` means only the Administrator/ notes.
+- `document_folders` — folders whose files (pdf, docx, pptx, xlsx, txt, md, csv) /administrator:collect-information offers to read into the vault as document records. Relative to the vault root, or a full path anywhere on the machine (`"C:/Users/you/Documents/Contracts"`). They are only read, never written. An empty list `[]` means no folder is watched.
 
 ## Notes
 
@@ -86,6 +88,7 @@ Anything you write below this line is yours; the plugin never touches it.
 | `admin_block_minutes` | `vault_time_block` plan | Length of every new admin block. |
 | `slack_share` | `vault_time_block` plan | Bookable minutes = (1 − `slack_share`) × work minutes − meeting minutes; nothing is booked on a day where that is 0 or less (`skipped_days` names the reason). `work_start`, `work_end`, `buffer_minutes` and `no_meeting_blocks` are applied by the planner the same way `free` applies them. |
 | `collect_folders` | `vault_collect` changed (in the server) | Extra vault-relative folders scanned for changed notes; read only. |
+| `document_folders` | `vault_collect` changed (in the server) | Folders scanned for files that changed in the same window; vault-relative or a full path. They come back under `documents` as `{path, kind, modified, size, format}`, listed and never opened — `vault_save(kind="document")` is what reads one. Read only. |
 
 `max_meetings_per_day` counts non-all-day events whose subject does not start with `[Focus]` or `[Admin]` — the user's own time blocks never fill a day for the meeting limit.
 

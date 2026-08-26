@@ -88,12 +88,12 @@ outlook_list_mails(folder="inbox", since="2026-08-21T18:10:00+02:00", limit=50, 
 
 ```
 vault_save(kind="email", mail=<get_mail JSON>, summary="Tom confirms the PO is raised once the signed v3 comes back and repeats the net-30 terms.",
-                 action_items=["Return signed v3 to Jane by 2026-08-29 — owner: me"], self_addresses=["hux@example.com"], created_by="administrator/0.4.0")
+                 action_items=["Return signed v3 to Jane by 2026-08-29 — owner: me"], self_addresses=["hux@example.com"], created_by="administrator/0.4.1")
 ```
 
    → `{"path": "Administrator/Emails/2026-08-22 Q3 supplier contract – signature needed.md", "action": "created", "status": "todo", "person_path": "Administrator/Wiki/People/Tom Lee.md", "person_action": "appended", "followup_added": false}`; the second → `Administrator/Emails/2026-08-25 Budget close date.md` (`created`, `fyi`). Fifteen mails seen and not saved; three named in the report (`Offsite venue options`, `Invoice 4471`, `Parking permit renewal`).
 
-5. Notes:
+5. Notes and documents:
 
 ```
 vault_collect(action="changed", since="2026-08-21T18:10:00+02:00")
@@ -101,6 +101,10 @@ vault_collect(action="changed", since="2026-08-21T18:10:00+02:00")
 
 ```json
 {"count": 4, "total": 4, "capped": false, "folders": ["Administrator/Meetings", "Administrator/Emails", "Administrator/Daily", "Administrator/Weekly"], "skipped": [], "missing": [],
+ "documents": [
+  {"path": "C:/Users/<you>/Documents/Contracts/ACME-kickoff.pptx", "kind": "document", "modified": "2026-08-24T16:20:11+02:00", "size": 1841022, "format": "pptx"},
+  {"path": "C:/Users/<you>/Documents/Contracts/Parking map.pdf", "kind": "document", "modified": "2026-08-25T08:02:40+02:00", "size": 240311, "format": "pdf"}],
+ "documents_total": 2, "document_folders": ["C:/Users/<you>/Documents/Contracts"],
  "notes": [
   {"path": "Administrator/Meetings/2026-08-22 1300 Weekly supplier sync.md", "type": "meeting", "modified": "2026-08-22T14:05:31+02:00", "ingested": false,
    "excerpt": "### Notes\n\n- Jane ok with net 45, I'll sign v3 this week\n- Tom to send the updated delivery schedule by Wed", "from_update": true, "truncated": false},
@@ -111,10 +115,25 @@ vault_collect(action="changed", since="2026-08-21T18:10:00+02:00")
 
    The meeting note is a record not yet ingested; the daily note is not a record and its excerpt states nothing the wiki lacks; the two emails were written in step 4.
 
+   The two files were listed, not opened. The gate runs on their names: `vault_wiki_search(query="ACME kickoff", pages=true, limit=3)` → `Topics/acme-supplier-contract` (score 0.71), so it is kept; `vault_wiki_search(query="Parking map", pages=true, limit=3)` → nothing and no candidate, so that file is left alone and named in the report. Reading is what saving does:
+
+```
+vault_save(kind="document", path="C:/Users/<you>/Documents/Contracts/ACME-kickoff.pptx", summary="", action_items=[], created_by="administrator/0.4.1")
+```
+
+```json
+{"path": "Administrator/Documents/2026-08-24 ACME-kickoff.md", "action": "created", "record_id": "3f9c1ad2b7e40518", "format": "pptx",
+ "parts": 18, "chars": 9140, "empty": false, "text_file": null,
+ "sections": [{"locator": "s1", "heading": "ACME kickoff", "chars": 61}, {"locator": "s2", "heading": "Scope", "chars": 640}, {"locator": "s7", "heading": "Pricing", "chars": 980}],
+ "from_email": "", "linked": false}
+```
+
+   `vault_read("Administrator/Documents/2026-08-24 ACME-kickoff.md", section="s1")` → the title slide, which names the supplier contract and the September start: work content, so the record stays and is ingested with the others in step 7, its ops citing `src: "3f9c1ad2b7e40518#s7"` for what slide 7 says about pricing.
+
 6. Records first. Two `vault_save(kind="chat")` calls for the two chats kept in step 3 (none for Priya's):
 
 ```
-vault_save(kind="chat", chat=<the "Q3 budget" entry>, messages=<its 3 messages>, self_names=["Hux Waitt"], created_by="administrator/0.4.0")
+vault_save(kind="chat", chat=<the "Q3 budget" entry>, messages=<its 3 messages>, self_names=["Hux Waitt"], created_by="administrator/0.4.1")
 ```
 
 ```json
@@ -141,7 +160,7 @@ vault_save(kind="chat", chat=<the "Q3 budget" entry>, messages=<its 3 messages>,
 7. Ingest, oldest first — six calls, the first one:
 
 ```
-vault_wiki_write(record_path="Administrator/Emails/2026-08-22 Q3 supplier contract – signature needed.md", created_by="administrator/0.4.0", pages=[
+vault_wiki_write(record_path="Administrator/Emails/2026-08-22 Q3 supplier contract – signature needed.md", created_by="administrator/0.4.1", pages=[
   {"path": "Administrator/Wiki/Topics/acme-supplier-contract.md", "ops": [
     {"op": "contest", "id": "n30x", "text": "Payment terms are net 45 (contract v3)"},
     {"op": "open", "text": "Sign and return contract v3", "owner": "me", "due": "2026-08-29"}]},
@@ -173,7 +192,7 @@ vault_row(action="append", path="Administrator/Time-blocks/2026-W35.md", section
 
 10. Report:
 
-> Teams: 3 chats, 8 messages → 3 chat records created; 1 chat skipped: no work content — Priya Nair. Outlook: 27 mails seen, 9 bulk / 1 by your rules dropped, 2 saved (also worth saving: Offsite venue options, Invoice 4471, Parking permit renewal). Notes: 4 changed, 1 meeting note ingested. Pages: Topics/q3-budget (deadline superseded, close date added, 1 open), Topics/acme-supplier-contract (1 contested, 2 open), People/Jane Doe, People/Tom Lee (records). Review: 1 open — `/administrator:wiki resolve review`. Blocks: 1 held, 1 skipped.
+> Teams: 3 chats, 8 messages → 3 chat records created; 1 chat skipped: no work content — Priya Nair. Outlook: 27 mails seen, 9 bulk / 1 by your rules dropped, 2 saved (also worth saving: Offsite venue options, Invoice 4471, Parking permit renewal). Notes: 4 changed, 1 meeting note ingested. Documents: 2 files changed in Contracts, 1 read in (`ACME-kickoff.pptx`, 18 slides), 1 left — Parking map.pdf. Pages: Topics/q3-budget (deadline superseded, close date added, 1 open), Topics/acme-supplier-contract (1 contested, 2 open), People/Jane Doe, People/Tom Lee (records). Review: 1 open — `/administrator:wiki resolve review`. Blocks: 1 held, 1 skipped.
 > Last collected: Tue 25 Aug 17:41.
 > obsidian://open?vault=Vault&file=Administrator%2FWiki%2FTopics%2Fq3-budget.md
 > obsidian://open?vault=Vault&file=Administrator%2FWiki%2FTopics%2Facme-supplier-contract.md
@@ -187,7 +206,7 @@ Same vault the next morning, `/administrator:collect-information today` on Wed 2
 2. The `teams_*` tools are there; `teams_status()` → `{"reader_installed": false, "cache_found": true, "hint": "install the `teams` extra: `uv sync --extra teams` in the checkout, then restart Claude Code"}`. One line in the report, the Teams stamp is left alone.
 3. No chats, so nothing to judge.
 4. `outlook_list_mails(folder="inbox", since="2026-08-26T00:00:00+02:00", …)` → 3 items; `vault_rules(action="match", items=<the 3>)` → `counts: {"bulk": 3, "never_save": 0, "kept": 0}`, so nothing is read. `folder="sent"` → 0. No page match, nothing saved.
-5. `vault_collect(action="changed", since="2026-08-26T00:00:00+02:00")` → `{"count": 0, "total": 0, "notes": []}`.
+5. `vault_collect(action="changed", since="2026-08-26T00:00:00+02:00")` → `{"count": 0, "total": 0, "notes": [], "documents": [], "documents_total": 0, "document_folders": []}` — no `document_folders` in `Preferences.md`, so nothing is watched and nothing is said about it.
 6. Nothing to propose, so the proposal turn is skipped and the user is told so.
 7. No ingest.
 8. `vault_collect(action="advance", source="outlook", at="2026-08-26T09:05:20+02:00")` and the same for `notes`; `teams` is not advanced.

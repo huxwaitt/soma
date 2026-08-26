@@ -47,14 +47,13 @@ You read Outlook, decide, write a note in the vault, and only then - with a yes 
 
 ## Vault
 
-Everything the plugin writes is under `<vault>/Administrator/`; no other folder is touched.
-
 ```
 <vault>/Administrator/
   Daily/YYYY-MM-DD.md                 per day
   Emails/YYYY-MM-DD <slug>.md         per saved mail
   Teams/YYYY-MM-DD <chat slug>.md     per chat per day (collect-information)
   Meetings/YYYY-MM-DD HHmm <slug>.md  per meeting occurrence
+  Documents/YYYY-MM-DD <slug>.md      per file read in
   Wiki/                               Index.md, Log.md, Review.md, Wiki.md (page contract), Questions.md, People/, Orgs/, Topics/, Decisions/, Howto/, Me.md - vault_wiki_* only
   Attachments/                        exports, transcripts, the inbox cache
   Weekly/YYYY-Www.md                  per ISO week (/administrator:weekly)
@@ -64,11 +63,11 @@ Everything the plugin writes is under `<vault>/Administrator/`; no other folder 
   Preferences.md / Priorities.md / Rules.md   preferences; ranked priorities; sender rules read before labelling - from vault_init
 ```
 
-Everywhere: `type`, `source` and `created_by: administrator/0.4.0` on every write; people linked as `"[[Wiki/People/Jane Doe]]"`; vanilla Obsidian only (no Dataview or Templater); filenames, slugs and duplicates are the server's job; a record that fed a wiki page carries a `wiki:` list.
+Everywhere: `type`, `source` and `created_by: administrator/0.4.1` on every write; people linked as `"[[Wiki/People/Jane Doe]]"`; vanilla Obsidian only (no Dataview or Templater); filenames, slugs and duplicates are the server's job; every record carries the same core keys and body order (`references/vault.md`); one that fed a wiki page carries a `wiki:` list.
 
 ### Finding the vault
 
-`vault_status` on first use. `vault` empty: stop and say exactly - "ADMINISTRATOR_VAULT is not set. Set it to the absolute path of your Obsidian vault (for example `C:\Users\<you>\Documents\Vault`) and restart Claude Code." - never guessing or searching the disk. Not a directory: "ADMINISTRATOR_VAULT points to `<value>`, which is not a directory." Never create the vault itself. Any folder or file flag false (`Rules.md` included): `vault_init(created_by="administrator/0.4.0")` - `setup` asks work hours first, elsewhere defaults; never make these files by hand. No `vault_*` tools: the server is down - send the user to `/administrator:setup` and write nothing.
+`vault_status` on first use. `vault` empty: stop and say exactly - "ADMINISTRATOR_VAULT is not set. Set it to the absolute path of your Obsidian vault (for example `C:\Users\<you>\Documents\Vault`) and restart Claude Code." - never guessing or searching the disk. Not a directory: "ADMINISTRATOR_VAULT points to `<value>`, which is not a directory." Never create the vault itself. Any folder or file flag false (`Rules.md` included): `vault_init(created_by="administrator/0.4.1")` - `setup` asks work hours first, elsewhere defaults; never make these files by hand. No `vault_*` tools: the server is down - send the user to `/administrator:setup` and write nothing.
 
 `vault_row` serves only the Time-blocks `## Held` table, `Rules.md` and daily `## Calendar` rows (`dedupe_key`, `key_label="occurrence_key"` for the last two), never `Follow-ups.md`, written from the wiki pages, which refuses rows. Paths are vault-relative under `Administrator/`; the export tools take absolute paths and write only under the user's profile - on `under_user_profile: false`, say so and skip the export.
 

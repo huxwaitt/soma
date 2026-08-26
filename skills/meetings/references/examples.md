@@ -33,7 +33,7 @@ User: `/administrator:prep supplier sync` on 2026-08-25 08:40.
    ```
 
 3. `outlook_find(people=["jane.doe@acme-parts.com", "tom.lee@acme-parts.com"], since="2026-07-26T00:00:00", limit=5)` → 3 items, best first, each with `entry_id, subject, from_address, received, score, snippet, folder`. No `get_conversation`.
-4. Tom has no note: `outlook_search_contacts(query="tom.lee@acme-parts.com", include_directory=true, limit=5)` → `company: "ACME Parts GmbH"` → `vault_write("person", {type: person, name: "Tom Lee", email: "tom.lee@acme-parts.com", org: "ACME Parts GmbH", last_contact: "", aliases: [], created_by: "administrator/0.4.0"}, "- 2026-08-25 — [[Meetings/2026-08-25 1300 Weekly supplier sync]]", mode="create")` — the server writes the `draft` wiki page `Wiki/People/Tom Lee.md` with that line under `## Records`. Jane's page exists and the meeting note is new → one `vault_write("person", <her frontmatter>, "- 2026-08-25 — [[Meetings/2026-08-25 1300 Weekly supplier sync]]", mode="append")`.
+4. Tom has no note: `outlook_search_contacts(query="tom.lee@acme-parts.com", include_directory=true, limit=5)` → `company: "ACME Parts GmbH"` → `vault_write("person", {type: person, name: "Tom Lee", email: "tom.lee@acme-parts.com", org: "ACME Parts GmbH", last_contact: "", aliases: [], created_by: "administrator/0.4.1"}, "- 2026-08-25 — [[Meetings/2026-08-25 1300 Weekly supplier sync]]", mode="create")` — the server writes the `draft` wiki page `Wiki/People/Tom Lee.md` with that line under `## Records`. Jane's page exists and the meeting note is new → one `vault_write("person", <her frontmatter>, "- 2026-08-25 — [[Meetings/2026-08-25 1300 Weekly supplier sync]]", mode="append")`.
 5. `vault_write("meeting", frontmatter, body, mode="upsert")` → `{"path": "Administrator/Meetings/2026-08-25 1300 Weekly supplier sync.md", "action": "created"}`. Frontmatter:
 
    ```yaml
@@ -56,7 +56,7 @@ User: `/administrator:prep supplier sync` on 2026-08-25 08:40.
      - "[[Wiki/People/Tom Lee]]"
    is_recurring: true
    status: upcoming
-   created_by: administrator/0.4.0
+   created_by: administrator/0.4.1
    ```
 
    Body:
@@ -178,7 +178,7 @@ User, 2026-08-25 14:18: `/administrator:notes supplier sync` followed by:
            {"op": "supersede", "id": "9x1a", "text": "Payment terms are net 45"},
            {"op": "open", "text": "Updated September delivery schedule", "owner": "[[Wiki/People/Tom Lee]]", "due": "2026-08-27"},
            {"op": "open", "text": "Packaging spec draft", "owner": "[[Wiki/People/Jane Doe]]"}]}],
-       created_by="administrator/0.4.0")
+       created_by="administrator/0.4.1")
    ```
 
    → both `open` ops applied with new ids; `src` and `since` came from the meeting record. `Administrator/Follow-ups.md` shows the two lines on its next write.

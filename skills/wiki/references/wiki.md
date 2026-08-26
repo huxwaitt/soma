@@ -4,11 +4,41 @@ This file is the schema for `Administrator/Wiki/`. The vault server writes a cop
 
 ## What the wiki is
 
-Your records — saved emails, meeting notes, daily and weekly notes — are never edited. They are what happened. The wiki is what is *currently true* about the people, organisations, topics and procedures those records mention: one page per subject, a short lead, a list of dated facts, and links back to the records each fact came from. When a fact changes, the old one is kept in the page's History with the date and the record that changed it. Nothing is deleted.
+Your records — saved emails, meeting notes, Teams chats, documents read into the vault, daily and weekly notes — are never edited. They are what happened. The wiki is what is *currently true* about the people, organisations, topics and procedures those records mention: one page per subject, a short lead, a list of dated facts, and links back to the records each fact came from. When a fact changes, the old one is kept in the page's History with the date and the record that changed it. Nothing is deleted.
 
 `Administrator/Follow-ups.md` is written from the wiki too: it is the view of what other people owe you (see "Commitments").
 
 The model reads a record, compares it with the facts already on the matching pages, and sends a short list of operations (add, update, supersede, confirm, retire, contest). Code applies them, keeps the frontmatter, regenerates the index, and writes the log. Anything code cannot decide — two records that disagree, two pages that may be one thing, a page that has gone stale — goes into `Wiki/Review.md` for you.
+
+## The records the wiki reads
+
+A record is one thing that happened, written once and never edited: a saved email, a meeting note, a Teams chat day, a document read into the vault, a daily note, a weekly note. Every one of them carries the same keys after `type`, written by code, then the keys of its own kind:
+
+| Key | What it holds |
+| --- | --- |
+| `source` | `outlook`, `teams`, `file` or `administrator` |
+| `record_id` | the identity as one string: an email's `internet_message_id` (else its `entry_id`), a meeting's `occurrence_key`, a chat's `<chat_id>|<date>`, a document's first 16 hex of the file's sha256, a daily note's date, a weekly note's week. It never holds a `#`, and it never changes — a document read again after the file changed keeps the id it was born with. |
+| `title` | the subject, the chat title or the file name |
+| `date` | `YYYY-MM-DD` |
+| `people` | links to the person pages the record is about; may be empty |
+| `wiki` | the pages this record was read into, added by ingest |
+| `ingested` | the date of the last ingest |
+| `created_by` | the version that wrote it |
+
+Email and document records share one body order: `# <title>`, the kind's header lines, `## Summary`, `## Action items` (`- none` when there are none), `## Content`, `## Files` (only when there is something to list), then the `## Update <timestamp>` blocks later writes append. Meeting, chat, daily and weekly records keep the sections their own templates name (see the vault reference); only their frontmatter follows the shared contract. `## Content` holds the text; when the record has more than one part, each part is a `### <locator> — <heading>` section — a thread's mails (`### m1 — 2026-08-21 09:14 jane@example.com`), a deck's slides (`### s4 — Pricing`), a pdf's pages (`### p12 — page 12`), a workbook's sheets (`### Sheet1 — Sheet1`). `vault_read(path, section="s4")` returns one such part, so a long document is read part by part instead of whole.
+
+### Locators in `src`
+
+A fact may name the part of the record it came from: `src:"<record_id>#<locator>"`.
+
+| Locator | Means | Example |
+| --- | --- | --- |
+| `p<n>` | page `n` of a pdf, or part `n` of a Word file | `"a1b2c3d4e5f60718#p3"` |
+| `s<n>` | slide `n` of a deck | `"a1b2c3d4e5f60718#s4"` |
+| `<sheet>` / `<sheet>!<cell>` | a sheet of a workbook, or one row of it | `"a1b2c3d4e5f60718#Sales!A7"` |
+| `m<n>` | the `n`-th mail of a saved thread | `"<7f3a9c@example.com>#m2"` |
+
+Chats and meetings have no locator: the bare record id is the source. Write the locator of the section heading the fact came from, and only that one. The string is kept whole wherever it is shown, and everything that compares or counts sources reads it as the record alone — so a document cited from three pages, or from three facts on one page, is one source, and a fact citing `#p3` and the page's Records line for the same document count once.
 
 ## Layout
 
@@ -80,7 +110,7 @@ verified: 2026-08-22
 sources: 3
 open_items: 1
 flags: []
-created_by: administrator/0.4.0
+created_by: administrator/0.4.1
 ---
 
 # Q3 budget
@@ -161,7 +191,7 @@ Jane Doe (finance) is collecting final Q3 numbers from each team lead by 2026-08
 | Section | Written by | Rule |
 | --- | --- | --- |
 | Lead (between `# Title` and the first `##`) | model, `lead` op, at most 80 words, 2–4 sentences | Stands alone: what the thing is and its current state. The one place the model replaces text. |
-| `## Facts` | code, from model ops | One bullet = one claim, at most 25 words, present tense, no hedging. Each ends with a hidden comment `<!-- f:<id> since:<date> src:<record id> -->`: `since` is the date the claim became true according to the source, `src` the record's `internet_message_id` or `occurrence_key`, or `user`. Only current facts. At most 25 bullets. |
+| `## Facts` | code, from model ops | One bullet = one claim, at most 25 words, present tense, no hedging. Each ends with a hidden comment `<!-- f:<id> since:<date> src:<record id> -->`: `since` is the date the claim became true according to the source, `src` the record's `record_id`, with `#<locator>` after it when the fact came from one named part, or `user`. Only current facts. At most 25 bullets. |
 | `## People` (`## Contacts` on org pages, `## Topics` on person pages) | code | Link plus a role of at most 4 words, from the link graph and `role` ops. |
 | `## Milestones` | code, from `milestone` ops | topic only. `- [ ] <text> — due: YYYY-MM-DD <!-- m:<id> since:<date> src:"…" -->`. A ticked one moves to History as `milestone reached "<text>"`. |
 | `## Open` | code | One commitment per line, with who owes it and when (see "Commitments"). Ticked lines move to History on the next write and leave `Follow-ups.md`. |
