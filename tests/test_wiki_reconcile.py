@@ -367,7 +367,7 @@ def test_lint_reports_the_hand_edits_under_check_zero(vault):
 
     path = topic(vault)
     hand_edit(vault, path, with_bullet(text_of(vault, path), "- The venue is booked for October"))
-    report = wiki_lint.lint()
+    report = wiki_lint.lint(items=True)
     assert report["checks"]["0"] == {"name": "hand-edits", "adopted": [{"page": "Wiki/Topics/q3-budget", "changes": "1 new fact"}],
                                      "review": [], "first_run": False, "scanned": 1}
     assert report["counts"]["hand_edits"] == 1 and report["adopted"] == report["checks"]["0"]["adopted"]

@@ -27,6 +27,48 @@ sender. Times in and out are local ISO strings; since/until without an
 offset are read as local time. The snapshot is reused for
 LOCAL_MS_TEAMS_SNAPSHOT_TTL seconds (default 300); refresh=true copies the
 cache again. Every tool returns JSON unless response_format='markdown'.
+
+# The parameters the tools share
+
+since / until: local ISO datetime bounds, both inclusive, e.g.
+2026-08-24T00:00.
+limit: how many chats, messages or hits to return at most; on
+teams_read_chat the newest are the ones kept.
+per_chat: how many messages to keep per chat when include_messages is true.
+include_messages: add messages[] to every chat, oldest first, the newest
+per_chat kept.
+max_chars: cut message text at that many characters; the text then ends in …
+and the item carries truncated=true.
+account: an account key '<tenantId>:<userObjectId>' as teams_status lists
+them; omit for all of them.
+fields: which keys to return per item; omit for all of them.
+refresh: copy and decode the cache again instead of reusing the snapshot.
+response_format: 'json' (the default) or 'markdown'.
+
+# What each tool returns
+
+## teams_status
+{reader_installed, cache_found, path, accounts: [{key, label}], chats,
+messages, oldest, newest, snapshot_taken, skipped, hint}. hint holds the
+one-line fix when the reader extra is missing, nobody has signed in, or the
+cache holds no messages yet.
+
+## teams_list_chats
+{chats: [{id, title, type (chat, group, channel, meeting), members, count,
+last_time, last_sender, preview, account}], total_messages, capped}. With
+include_messages each chat also carries messages[] and truncated, the number
+of older messages cut.
+
+## teams_read_chat
+{chat: {id, title, type, members, count, last_time, last_sender, preview,
+account}, messages: [{id, time, sender, sender_org, is_self, text,
+truncated}], truncated (the older messages cut by limit)}. chat_id is the id
+as teams_list_chats returned it (19:...@thread.v2 or ...@unq.gbl.spaces).
+
+## teams_search
+query is matched case-insensitively as a substring of both the message text
+and the sender name. Returns {hits: [{id, time, sender, sender_org, is_self,
+text, truncated, chat_id, chat_title}], total, capped}, newest first.
 """
 
 INSTALL_HINT = "install the `teams` extra: `uv sync --extra teams` in the checkout, then restart Claude Code"
@@ -34,20 +76,20 @@ SIGNIN_HINT = "sign in to the new Teams client once on this machine (or set LOCA
 
 # Module-level aliases: with ``from __future__ import annotations`` every hint
 # is a string resolved against module globals when FastMCP builds the schema.
-Refresh = Annotated[bool, Field(description="Copy and decode the cache again instead of reusing the snapshot.")]
-Since = Annotated[Optional[str], Field(description="Local ISO datetime lower bound (inclusive), e.g. 2026-08-24T00:00.")]
-Until = Annotated[Optional[str], Field(description="Local ISO datetime upper bound (inclusive).")]
-ChatLimit = Annotated[int, Field(ge=1, le=500, description="Max chats to return.")]
-MessageLimit = Annotated[int, Field(ge=1, le=2000, description="Max messages to return (the newest are kept).")]
-HitLimit = Annotated[int, Field(ge=1, le=500, description="Max hits to return.")]
-IncludeMessages = Annotated[bool, Field(description="Add messages[] (oldest first, the newest per_chat kept) to every chat.")]
-PerChat = Annotated[int, Field(ge=1, le=500, description="Max messages per chat when include_messages is true.")]
-MaxChars = Annotated[int, Field(ge=20, le=20000, description="Cut message text at this many characters (adds … and truncated=true).")]
-Account = Annotated[Optional[str], Field(description="Account key '<tenantId>:<userObjectId>' from teams_status; omit for all.")]
-Fields = Annotated[Optional[list[str]], Field(description="Keys to return per item; omit for all of them.")]
-ChatId = Annotated[str, Field(min_length=1, description="Chat id as teams_list_chats returned it (19:...@thread.v2 or ...@unq.gbl.spaces).")]
-Query = Annotated[str, Field(min_length=1, description="Case-insensitive substring matched on message text and sender name.")]
-ResponseFormat = Annotated[str, Field(description="'json' (default) or 'markdown'.")]
+Refresh = bool
+Since = Optional[str]
+Until = Optional[str]
+ChatLimit = Annotated[int, Field(ge=1, le=500)]
+MessageLimit = Annotated[int, Field(ge=1, le=2000)]
+HitLimit = Annotated[int, Field(ge=1, le=500)]
+IncludeMessages = bool
+PerChat = Annotated[int, Field(ge=1, le=500)]
+MaxChars = Annotated[int, Field(ge=20, le=20000)]
+Account = Optional[str]
+Fields = Optional[list[str]]
+ChatId = Annotated[str, Field(min_length=1, description="Chat id from teams_list_chats.")]
+Query = Annotated[str, Field(min_length=1, description="Substring of the text or the sender.")]
+ResponseFormat = str
 
 
 def _json(data: Any) -> str:
@@ -240,6 +282,44 @@ def _out(data: dict[str, Any], response_format: str) -> str:
 # --- server ------------------------------------------------------------------
 
 
+# Keywords whose value is a map of *names* to schemas: their keys are
+# parameter names, never schema metadata, so they are recursed into but never
+# filtered — a tool may well take a parameter called "title".
+_SCHEMA_MAPS = ("properties", "$defs", "definitions", "patternProperties")
+_SCHEMA_LISTS = ("anyOf", "oneOf", "allOf", "prefixItems")
+_SCHEMA_VALUES = ("items", "additionalProperties", "not", "contains")
+
+
+def _drop_titles(schema: Any) -> Any:
+    """Strip pydantic's generated "title" metadata from a parameter schema.
+
+    Pydantic titles a field by title-casing its own name ("max_chars" ->
+    "Max Chars") and the argument model after the tool, so every one of them
+    repeats a name the schema already carries. Validation reads the argument
+    model, not this dict, so nothing about what a tool accepts changes.
+    """
+    if not isinstance(schema, dict):
+        return schema
+    out: dict[str, Any] = {}
+    for key, value in schema.items():
+        if key == "title":
+            continue
+        if key in _SCHEMA_MAPS and isinstance(value, dict):
+            out[key] = {name: _drop_titles(sub) for name, sub in value.items()}
+        elif key in _SCHEMA_LISTS and isinstance(value, list):
+            out[key] = [_drop_titles(sub) for sub in value]
+        elif key in _SCHEMA_VALUES and isinstance(value, dict):
+            out[key] = _drop_titles(value)
+        else:
+            out[key] = value
+    return out
+
+
+def _trim_schemas(mcp: FastMCP) -> None:
+    for tool in mcp._tool_manager.list_tools():
+        tool.parameters = _drop_titles(tool.parameters)
+
+
 def build_server() -> FastMCP:
     mcp = FastMCP("local-ms-teams", instructions=INSTRUCTIONS)
     register(mcp)
@@ -253,7 +333,7 @@ def register(mcp: FastMCP) -> None:
     )
     @_guard
     def teams_status(refresh: Refresh = False, response_format: ResponseFormat = "json") -> str:
-        """Report whether the reader extra and the Teams cache are present, the accounts, chat and message counts and the time span of the snapshot. Never fails; hint holds the one-line fix when something is missing."""
+        """Report whether the reader extra and the Teams cache are present, with the accounts, the chat and message counts and the snapshot's time span. Never fails; hint holds the one-line fix when something is missing."""
         installed = cache.reader_installed()
         path = cache.find_cache()
         found = bool(path and os.path.isdir(path))
@@ -312,7 +392,7 @@ def register(mcp: FastMCP) -> None:
         refresh: Refresh = False,
         response_format: ResponseFormat = "json",
     ) -> str:
-        """Chats with a message in the window, newest activity first: {id, title, type (chat, group, channel, meeting), members, count, last_time, last_sender, preview, account}. With include_messages each chat also has messages[] oldest-first (the newest per_chat kept, truncated = number cut). Returns {chats, total_messages, capped}."""
+        """List the chats with a message in the window, newest activity first, each with its title, type, members, count and a preview of the last message. Returns {chats, total_messages, capped}."""
         lo, hi = _bound(since, "since"), _bound(until, "until")
         snap = cache.snapshot(refresh=refresh)
         live = _live_messages(snap, account, lo, hi)
@@ -344,7 +424,7 @@ def register(mcp: FastMCP) -> None:
         refresh: Refresh = False,
         response_format: ResponseFormat = "json",
     ) -> str:
-        """One chat's messages oldest-first inside the window: {chat: {id, title, type, members, count, last_time, last_sender, preview, account}, messages: [{id, time, sender, sender_org, is_self, text, truncated}], truncated (older messages cut by limit)}. fields limits the message keys."""
+        """Read one chat's messages inside the window, oldest first. Returns {chat, messages, truncated}, where truncated counts the older messages limit cut."""
         lo, hi = _bound(since, "since"), _bound(until, "until")
         snap = cache.snapshot(refresh=refresh)
         known = chat_id in _conversation_map(snap) or any(m["chat_id"] == chat_id for m in snap.messages)
@@ -373,7 +453,7 @@ def register(mcp: FastMCP) -> None:
         refresh: Refresh = False,
         response_format: ResponseFormat = "json",
     ) -> str:
-        """Case-insensitive substring match on message text and sender name, newest first: {hits: [{id, time, sender, sender_org, is_self, text, truncated, chat_id, chat_title}], total, capped}."""
+        """Find the messages whose text or sender name holds the query, newest first. Returns {hits, total, capped}, each hit with its chat_id and chat_title."""
         needle = query.strip().lower()
         if not needle:
             raise RuntimeError("query must not be empty")
@@ -393,3 +473,5 @@ def register(mcp: FastMCP) -> None:
             hit["chat_title"] = titles[chat_id]
             hits.append(hit)
         return _out({"hits": hits, "total": len(matches), "capped": len(matches) > limit}, response_format)
+
+    _trim_schemas(mcp)

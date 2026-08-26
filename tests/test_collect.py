@@ -93,6 +93,54 @@ def test_collect_sources_read_advance_and_the_ask_rule(vault):
         workflows.collect_sources("nope")
 
 
+def test_collect_sources_tokens_keeps_the_last_runs_and_the_ratios(vault):
+    def tokens(pi, po, ai, ao, command="collect-information"):
+        return workflows.collect_sources("tokens", now="2026-08-22T09:00:00+02:00", payload={
+            "command": command, "predicted_in": pi, "predicted_out": po, "actual_in": ai, "actual_out": ao})
+
+    r = tokens(1000, 500, 1500, 400)
+    assert r["command"] == "collect-information" and r["runs"] == 1 and r["ratio_in"] == 1.5 and r["ratio_out"] == 0.8
+    assert r["last"] == {"at": "2026-08-22T09:00:00+02:00", "predicted_in": 1000, "predicted_out": 500, "actual_in": 1500, "actual_out": 400}
+    assert json.loads(text_of(vault, f"{W}/_cache/tokens.json"))["collect-information"] == [r["last"]]
+
+    # the median, not the mean: one wild run does not move the ratio
+    tokens(1000, 500, 1000, 500)
+    r = tokens(1000, 500, 4000, 2500)
+    assert r["runs"] == 3 and r["ratio_in"] == 1.5 and r["ratio_out"] == 1.0
+
+    # each command is counted on its own, and read carries the calibration
+    lh = tokens(200, 100, 400, 100, command="load-history")
+    assert lh["runs"] == 1 and lh["ratio_in"] == 2.0 and lh["ratio_out"] == 1.0
+    read = workflows.collect_sources("read", now="2026-08-22T09:00:00+02:00")
+    assert read["tokens"] == {"collect-information": {"runs": 3, "ratio_in": 1.5, "ratio_out": 1.0},
+                              "load-history": {"runs": 1, "ratio_in": 2.0, "ratio_out": 1.0}}
+
+    # only the last 20 runs per command stay on file
+    for i in range(20):
+        tokens(100, 100, 100 + i, 100)
+    kept = json.loads(text_of(vault, f"{W}/_cache/tokens.json"))["collect-information"]
+    assert len(kept) == 20 and kept[0]["actual_in"] == 100 and kept[-1]["actual_in"] == 119
+    assert workflows.collect_sources("read", now="2026-08-22T09:00:00+02:00")["tokens"]["collect-information"]["runs"] == 20
+
+    # a bad command or a count that is not a number is an error, and nothing is written
+    bad = [{"command": "daily", "predicted_in": 1, "predicted_out": 1, "actual_in": 1, "actual_out": 1},
+           {"command": "collect-information", "predicted_in": 0, "predicted_out": 1, "actual_in": 1, "actual_out": 1},
+           {"command": "collect-information", "predicted_in": "lots", "predicted_out": 1, "actual_in": 1, "actual_out": 1},
+           {"command": "collect-information", "predicted_in": 1, "predicted_out": 1, "actual_in": -1, "actual_out": 1},
+           {"command": "collect-information", "predicted_in": 1, "predicted_out": 1, "actual_in": True, "actual_out": 1},
+           {"command": "collect-information", "predicted_in": 1, "predicted_out": 1, "actual_in": 1}]
+    for payload in bad:
+        with pytest.raises(VaultError):
+            workflows.collect_sources("tokens", payload=payload)
+    with pytest.raises(VaultError):
+        workflows.collect_sources("tokens")
+    assert len(json.loads(text_of(vault, f"{W}/_cache/tokens.json"))["collect-information"]) == 20
+
+
+def test_a_vault_with_no_runs_on_file_has_no_calibration(vault):
+    assert workflows.collect_sources("read", now="2026-08-22T09:00:00+02:00")["tokens"] == {}
+
+
 # ------------------------------------------------------------------ changed notes
 
 
@@ -188,6 +236,11 @@ def test_server_collect_tools_round_trip(vault):
     assert r["ask"] is True and r["last_collected"] == "never"
     a = call("vault_collect_sources", {"action": "advance", "source": "teams", "at": "2026-08-22T08:00:00+02:00"})
     assert a["advanced"] == ["teams"]
+    t = call("vault_collect_sources", {"action": "tokens", "payload": {
+        "command": "collect-information", "predicted_in": 8000, "predicted_out": 1000, "actual_in": 9600, "actual_out": 900}})
+    assert t["runs"] == 1 and t["ratio_in"] == 1.2 and t["ratio_out"] == 0.9
+    assert call("vault_collect_sources", {"action": "read", "now": "2026-08-22T09:00:00+02:00"})["tokens"] == {
+        "collect-information": {"runs": 1, "ratio_in": 1.2, "ratio_out": 0.9}}
     since = (datetime.now().astimezone() - timedelta(hours=1)).isoformat(timespec="seconds")
     email(1)
     r = call("vault_changed_notes", {"since": since, "max_chars": 20})

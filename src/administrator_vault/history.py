@@ -209,7 +209,7 @@ def _list_with(source: str, since: str, until: str) -> str:
     if source == "teams":
         return (
             f'teams_list_chats(since="{since}", until="{until}", include_messages=true, '
-            f"per_chat=20, max_chars=300, limit=15)"
+            f"per_chat=12, max_chars=200, limit=15)"
         )
     fields = "[" + ", ".join(f'"{f}"' for f in MAIL_FIELDS) + "]"
     return (

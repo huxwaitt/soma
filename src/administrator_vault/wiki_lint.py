@@ -44,6 +44,7 @@ SETTLED = ("closed", "dormant")  # the two statuses that already answer "close i
 QUESTIONS_TOP = 3  # a question counts as answered when its page is in the first three hits
 UNANSWERED_DAYS = wiki_search.UNANSWERED_DAYS  # how far back the questions the wiki could not answer are read
 LINT_FLAGS = ("orphan", "stale", "oversized", "possible-duplicate")
+ITEM_KEYS = ("items", "misses", "unknown")  # the long per-check lists, left out unless items=True
 REQUIRED_KEYS = ("type", "id", "title", "aliases", "summary", "status", "created", "updated", "verified", "sources", "open_items", "flags", "created_by")
 TYPE_KEYS = {
     "person": ("name", "email", "last_contact"),
@@ -274,7 +275,17 @@ def questions_score(root: Path, stems: Optional[set[str]] = None, top: int = QUE
 # ------------------------------------------------------------------ lint
 
 
-def lint(fix: bool = False, created_by: str = wiki.CREATED_BY) -> dict[str, Any]:
+def _drop_items(checks: dict[str, Any]) -> dict[str, Any]:
+    """The same checks without their long lists: names, counts and everything
+    else stay. The cache file on disk keeps the full report either way."""
+    out: dict[str, Any] = {}
+    for key, check in checks.items():
+        # every list a check carries is a long list; names, counts, flags and other scalars stay
+        out[key] = {k: v for k, v in check.items() if k not in ITEM_KEYS and not isinstance(v, list)} if isinstance(check, dict) else check
+    return out
+
+
+def lint(fix: bool = False, items: bool = False, created_by: str = wiki.CREATED_BY) -> dict[str, Any]:
     root = store.vault_root()
     today = date.today()
     today_s = today.isoformat()
@@ -316,6 +327,7 @@ def lint(fix: bool = False, created_by: str = wiki.CREATED_BY) -> dict[str, Any]
                     in_index.add(t)
         stems = {_stem(p) for p in pages}
         checks["1"] = {"name": "index", "missing_lines": sorted(stems - in_index), "extra_lines": sorted(t for t in in_index - stems if t.startswith("Wiki/") and not t.endswith("/Index")), "fixed": True}
+        checks["1"]["count"] = len(checks["1"]["missing_lines"]) + len(checks["1"]["extra_lines"])
 
         # 2 dangling links
         dangling: list[dict[str, Any]] = []
@@ -696,7 +708,7 @@ def lint(fix: bool = False, created_by: str = wiki.CREATED_BY) -> dict[str, Any]
             _log(root, "lint", stem, "-", detail)
         _write_index(root)
         summary = {
-            "dangling": checks["2"]["count"], "orphans": checks["3"]["count"], "frontmatter": checks["4"]["count"], "sections": checks["5"]["count"],
+            "index": checks["1"]["count"], "dangling": checks["2"]["count"], "orphans": checks["3"]["count"], "frontmatter": checks["4"]["count"], "sections": checks["5"]["count"],
             "oversized": checks["6"]["count"], "stale": checks["7"]["count"], "due_past": checks["8"]["count"], "open_done": checks["9"]["count"],
             "duplicates": checks["10"]["count"], "uningested": checks["11"]["count"], "candidates": checks["12"]["count"],
             "history_over": len(long_hist), "ask_model": len(touched), "unconfirmed": n_unc,
@@ -721,6 +733,8 @@ def lint(fix: bool = False, created_by: str = wiki.CREATED_BY) -> dict[str, Any]
         cache = root / CACHE_DIR / f"lint-{today_s}.json"  # one file per day; a later run the same day replaces it
         _atomic_write(cache, json.dumps(report, ensure_ascii=False, indent=1))
         report["cache"] = rel(root, cache)
+        if not items:
+            report["checks"] = _drop_items(checks)
     return report
 
 

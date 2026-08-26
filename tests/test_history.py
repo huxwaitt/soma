@@ -155,7 +155,7 @@ def test_next_hands_out_one_window_per_source_in_order_with_the_call_to_make(vau
     assert chats["source"] == "teams" and chats["until"] == "2026-08-18T18:00:00+02:00"
     assert chats["list_with"] == (
         'teams_list_chats(since="2026-08-13T00:00:00+02:00", until="2026-08-18T18:00:00+02:00", '
-        "include_messages=true, per_chat=20, max_chars=300, limit=15)"
+        "include_messages=true, per_chat=12, max_chars=200, limit=15)"
     )
 
 

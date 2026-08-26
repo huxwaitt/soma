@@ -619,6 +619,62 @@ def test_server_tools():
     assert len(tools) == 34
 
 
+# What every tool costs the model before it has read a word: the same sum the
+# host pays on each turn, name + description + inputSchema per tool.
+VAULT_SCHEMA_CAP = 28_000
+TEAMS_SCHEMA_CAP = 3_500
+
+
+def _schema_chars(server) -> int:
+    tools = asyncio.run(server.list_tools())
+    return sum(
+        len(json.dumps({"name": t.name, "description": t.description or "", "inputSchema": t.inputSchema}))
+        for t in tools
+    )
+
+
+def test_tool_schemas_stay_under_their_caps():
+    """Guard the size the tool list costs, so the prose cannot creep back.
+
+    Result shapes and the per-parameter detail live in each server's
+    INSTRUCTIONS string, which the host reads once, and the wiki's page
+    contract lives in wiki_schema.md. Anything moved back into a description
+    is paid for on every turn, so these two numbers are a ratchet: they may
+    fall, and a change that raises one is the change to think again about.
+    """
+    from local_ms_teams.server import build_server as build_teams
+
+    vault_chars = _schema_chars(build_server())
+    teams_chars = _schema_chars(build_teams())
+    assert vault_chars <= VAULT_SCHEMA_CAP, f"vault tool schemas grew to {vault_chars}"
+    assert teams_chars <= TEAMS_SCHEMA_CAP, f"teams tool schemas grew to {teams_chars}"
+
+
+def test_schema_trim_keeps_every_parameter():
+    """Dropping pydantic's "title" metadata must not eat a parameter of that name."""
+    tools = {t.name: t for t in asyncio.run(build_server().list_tools())}
+    props = tools["vault_wiki_create"].inputSchema["properties"]
+    assert props["title"] == {"type": "string", "description": "Noun phrase, 6 words or fewer."}
+    assert "title" in tools["vault_wiki_create"].inputSchema["required"]
+    for tool in tools.values():
+        schema = tool.inputSchema
+        assert "title" not in schema, tool.name
+        for name, spec in schema.get("properties", {}).items():
+            assert "title" not in spec, f"{tool.name}.{name}"
+
+
+def test_no_tool_description_runs_long():
+    """The twelve tools the plugin leans on may be fuller; the rest stay short."""
+    fuller = {
+        "vault_wiki_search", "vault_wiki_ingest", "vault_wiki_match", "vault_wiki_read",
+        "vault_wiki_apply", "vault_save_email", "vault_write_daily", "vault_inbox_prepare",
+        "vault_prep_context", "vault_status", "vault_find", "vault_write",
+    }
+    for tool in asyncio.run(build_server().list_tools()):
+        cap = 900 if tool.name in fuller else 400
+        assert len(tool.description or "") <= cap, f"{tool.name}: {len(tool.description or '')} chars"
+
+
 def test_server_call_round_trip(vault):
     server = build_server()
     out = asyncio.run(server.call_tool("vault_status", {}))

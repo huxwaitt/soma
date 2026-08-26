@@ -29,6 +29,9 @@ COLLECT_SOURCES = ("teams", "outlook", "notes")
 COLLECT_ASK_HOURS = 24
 COLLECT_DEFAULT_FOLDERS = ("Meetings", "Emails", "Daily", "Weekly")  # under Administrator/
 COLLECT_NEVER_READ = ("Wiki", "Attachments", "_views", "_backup")  # under Administrator/
+TOKENS_PATH = f"{wiki.CACHE_DIR}/tokens.json"
+TOKEN_COMMANDS = ("collect-information", "load-history")
+TOKEN_RUNS = 20  # the runs kept per command; older ones fall off the front
 
 LABELS = ("act", "reply", "waiting", "fyi", "noise")
 DAILY_HEADER = ["#", "Label", "From", "Subject", "Received", "Why", "Note"]
@@ -1250,11 +1253,58 @@ def _collect_stamps(root: Path) -> dict[str, Optional[str]]:
     return {src: (_s(data.get(src)) or None) for src in COLLECT_SOURCES}
 
 
-def collect_sources(action: str = "read", source: Optional[str] = None, at: Optional[str] = None, now: Optional[str] = None) -> dict[str, Any]:
+def _token_runs(root: Path) -> dict[str, list[dict[str, Any]]]:
+    """The runs kept per command in Wiki/_cache/tokens.json, newest last."""
+    p = root / TOKENS_PATH
+    data: dict[str, Any] = {}
+    if p.is_file():
+        try:
+            data = json.loads(read_text(p)) or {}
+        except ValueError:
+            data = {}
+    out: dict[str, list[dict[str, Any]]] = {}
+    for command in TOKEN_COMMANDS:
+        rows = data.get(command)
+        out[command] = [r for r in rows if isinstance(r, dict)][-TOKEN_RUNS:] if isinstance(rows, list) else []
+    return out
+
+
+def _token_number(value: Any, name: str, low: float) -> float:
+    """One of the four counts: a plain number, ``low`` or more."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value or value in (float("inf"), float("-inf")):
+        raise VaultError(f"payload['{name}'] must be a number, got {value!r}.")
+    if float(value) < low:
+        raise VaultError(f"payload['{name}'] must be {low:g} or more, got {value!r}.")
+    n = float(value)
+    return int(n) if n.is_integer() else n
+
+
+def _token_ratios(runs: list[dict[str, Any]]) -> dict[str, Any]:
+    """How many runs are on file and the median actual/predicted of each side.
+    A run whose predicted count is missing or not a number is left out."""
+    def ratio(side: str) -> Optional[float]:
+        seen = []
+        for r in runs:
+            pred, act = r.get(f"predicted_{side}"), r.get(f"actual_{side}")
+            if isinstance(pred, (int, float)) and not isinstance(pred, bool) and float(pred) > 0 \
+                    and isinstance(act, (int, float)) and not isinstance(act, bool):
+                seen.append(float(act) / float(pred))
+        if not seen:
+            return None
+        seen.sort()
+        mid = len(seen) // 2
+        return round(seen[mid] if len(seen) % 2 else (seen[mid - 1] + seen[mid]) / 2, 2)
+
+    return {"runs": len(runs), "ratio_in": ratio("in"), "ratio_out": ratio("out")}
+
+
+def collect_sources(action: str = "read", source: Optional[str] = None, at: Optional[str] = None,
+                    now: Optional[str] = None, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     """The "last collected" stamp per source (teams, outlook, notes) in
-    Wiki/_cache/collect.json. ``read`` reports them with their age and the
-    ask rule; ``advance`` moves one (or all) to ``at``, never backwards.
-    ``now`` is only for tests."""
+    Wiki/_cache/collect.json. ``read`` reports them with their age, the ask
+    rule and the token calibration; ``advance`` moves one (or all) to ``at``,
+    never backwards; ``tokens`` files what one run of a command predicted and
+    what it cost, in Wiki/_cache/tokens.json. ``now`` is only for tests."""
     root = store.vault_root()
     if now:
         now_dt = _parse_dt(now)
@@ -1290,6 +1340,7 @@ def collect_sources(action: str = "read", source: Optional[str] = None, at: Opti
             "ask": ask,
             "default_since": default_since.isoformat(timespec="seconds"),
             "last_collected": _stamp_words(newest) if newest else "never",
+            "tokens": {c: _token_ratios(r) for c, r in _token_runs(root).items() if r},
         }
     if action == "advance":
         if source is not None and source not in COLLECT_SOURCES:
@@ -1314,7 +1365,24 @@ def collect_sources(action: str = "read", source: Optional[str] = None, at: Opti
         if advanced:
             write_text(resolve(root, COLLECT_PATH), json.dumps(stamps, ensure_ascii=False, indent=1))
         return {"path": COLLECT_PATH, "stamps": stamps, "advanced": advanced, "refused": refused}
-    raise VaultError(f"action must be 'read' or 'advance', got {action!r}.")
+    if action == "tokens":
+        if not isinstance(payload, dict):
+            raise VaultError("action 'tokens' needs payload={command, predicted_in, predicted_out, actual_in, actual_out}.")
+        command = _s(payload.get("command")).strip()
+        if command not in TOKEN_COMMANDS:
+            raise VaultError(f"payload['command'] must be one of {', '.join(TOKEN_COMMANDS)}, got {payload.get('command')!r}.")
+        run = {
+            "at": now_dt.isoformat(timespec="seconds"),
+            "predicted_in": _token_number(payload.get("predicted_in"), "predicted_in", 1),
+            "predicted_out": _token_number(payload.get("predicted_out"), "predicted_out", 1),
+            "actual_in": _token_number(payload.get("actual_in"), "actual_in", 0),
+            "actual_out": _token_number(payload.get("actual_out"), "actual_out", 0),
+        }
+        kept = _token_runs(root)
+        kept[command] = (kept[command] + [run])[-TOKEN_RUNS:]
+        write_text(resolve(root, TOKENS_PATH), json.dumps(kept, ensure_ascii=False, indent=1))
+        return {"path": TOKENS_PATH, "command": command, **_token_ratios(kept[command]), "last": run}
+    raise VaultError(f"action must be 'read', 'advance' or 'tokens', got {action!r}.")
 
 
 # ------------------------------------------------------------------ changed notes
