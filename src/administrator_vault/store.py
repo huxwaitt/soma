@@ -121,16 +121,17 @@ def status() -> dict[str, Any]:
     return out
 
 
+FOLLOWUPS_NOTE = (
+    "Generated from the Open items of the wiki pages — edit or tick the item on its page, "
+    "or say 'done' in chat; changes here are overwritten."
+)
+
+
 def followups_template(created_by: str) -> str:
     head = "| " + " | ".join(notes.FOLLOWUPS_OPEN_HEADER) + " |\n| --- | --- | --- | --- | --- |\n"
     done = "| " + " | ".join(notes.FOLLOWUPS_DONE_HEADER) + " |\n| --- | --- | --- | --- | --- |\n"
-    fm = fmt.format_frontmatter({"type": "followups", "source": "outlook", "created_by": created_by})
-    return (
-        fm
-        + "\n# Follow-ups\n\n"
-        "Things I am waiting on. One row per thread. Move a row to Done when it is closed.\n\n"
-        "## Open\n\n" + head + "\n## Done\n\n" + done
-    )
+    fm = fmt.format_frontmatter({"type": "followups", "source": "wiki", "generated": True, "open": 0, "created_by": created_by})
+    return fm + "\n# Follow-ups\n\n" + FOLLOWUPS_NOTE + "\n\n## Open\n\n" + head + "\n## Done\n\n" + done
 
 
 def check_peak_hours(peak_hours: Optional[list[str]]) -> list[str]:
@@ -556,6 +557,21 @@ def _comment_key(line: str) -> Optional[str]:
     return _unescape_cell(m.group(2)) if m else None
 
 
+def _refuse_generated(p: Path, text: str, what: str) -> None:
+    """A file the code writes from the wiki pages takes no rows: the item belongs
+    on the page it is about."""
+    try:
+        fm = fmt.split_note(text)[0]
+    except (fmt.FrontmatterError, ValueError):
+        return
+    if fm.get("generated") is True:
+        raise VaultError(
+            f"{p.name} is written from the wiki pages, so a row cannot be {what} here. "
+            "Put the item on the page it is about (vault_wiki_apply with an open op), "
+            "or close it there (a done op); this file is written again after every change."
+        )
+
+
 def _header_for(p: Path, section: str, n: int) -> list[str]:
     if p.name == "Follow-ups.md":
         return notes.FOLLOWUPS_DONE_HEADER if section.strip().lower() == "done" else notes.FOLLOWUPS_OPEN_HEADER
@@ -604,6 +620,7 @@ def append_row(
         raise VaultError("row is empty.")
     cells = [str(c) for c in row]
     text = read_text(p)
+    _refuse_generated(p, text, "added")
     lines = text.split("\n")
     if dedupe_key:
         for i, line in enumerate(lines):
@@ -633,7 +650,9 @@ def move_row(
         raise VaultError(f"No such note: {path!r}.")
     if not dedupe_key:
         raise VaultError("dedupe_key is required to find the row.")
-    lines = read_text(p).split("\n")
+    text = read_text(p)
+    _refuse_generated(p, text, "moved")
+    lines = text.split("\n")
     rng = _section_range(lines, from_section)
     if rng is None:
         return {"moved": False, "path": rel(root, p), "reason": f"no section '{from_section}'"}

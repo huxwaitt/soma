@@ -142,7 +142,7 @@ def _entry(page: wiki.Page, size: int, mtime_ns: int, digest: str) -> dict[str, 
         "lead_hash": _hash(page.lead.strip()),
         "facts": {f.id: [f.text, f.since, list(f.src)] for f in page.facts},
         "sections": {n: _hash("\n".join(lines)) for n, lines in page.sections.items() if n != "Facts"},
-        "open": list(page.sections.get("Open") or []),
+        "open": [o.line() for o in page.opens],
         "history_n": len(page.sections.get("History") or []),
         "history": list(page.sections.get("History") or []),
     }
@@ -283,9 +283,14 @@ def _adopt(root: Path, page: wiki.Page, old: dict[str, Any], text: str, day: str
         wiki._history(page, ctx, f'retired "{old_facts[fid][0]}" — removed by hand')
     if removed:
         events["facts_removed"] = len(removed)
-    ticked = [l for l in (page.sections.get("Open") or []) if wiki._CHECKED_RE.match(l)]
+    ticked = [o for o in page.opens if o.done and not o.raw]
     if ticked:
         events["done"] = len(ticked)  # _finalize moves them to History
+    # a line typed under Open or Milestones by hand: _finalize gives it an id, the
+    # file's date as since, src user and (under Open) owner me
+    fresh = [o for name in wiki.ITEM_SECTIONS for o in page.items(name) if not o.id and not o.raw and not o.done]
+    if fresh:
+        events["items_added"] = len(fresh)
     moved = _to_notes(page, day)
     if moved:
         events["moved"] = moved
@@ -313,7 +318,8 @@ def _detail(events: dict[str, Any]) -> str:
     if events.get("kind"):
         bits.append(("now an " if events["kind"][0] in "aeiou" else "now a ") + f"{events['kind']} page")
     for key, one, many in (("facts_added", "new fact", "new facts"), ("facts_changed", "fact changed", "facts changed"),
-                           ("facts_removed", "fact removed", "facts removed"), ("done", "open item ticked", "open items ticked")):
+                           ("facts_removed", "fact removed", "facts removed"), ("done", "open item ticked", "open items ticked"),
+                           ("items_added", "new open item", "new open items")):
         if events.get(key):
             bits.append(_plural(events[key], one, many))
     if events.get("moved"):

@@ -45,14 +45,17 @@ def section(text, heading):
 
 
 def test_candidates_topics_followups_weekly_and_current(vault):
-    wiki.create("topic", "Acme contract", lead="The supplier contract.", summary="Renewal by September.", extra={"due": "2026-09-01"})
+    wiki.create("topic", "Acme contract", lead="The supplier contract.", summary="Renewal by September.", extra={"due": "2026-09-01", "owner": "[[Wiki/People/Jane Doe]]"})
     hiring = wiki.create("topic", "Hiring a PM", lead="x")["path"]
     wiki.apply(hiring, [{"op": "open", "text": "Post the ad", "src": "user"}])
     closed = wiki.create("topic", "Old thing", lead="x", extra={"due": "2026-08-30"})["path"]
     wiki.apply(closed, [{"op": "status", "value": "closed"}])
-    wiki.create("person", "Jane Doe", extra={"email": "jane@example.com"})
-    store.append_row("Administrator/Follow-ups.md", "Open", ["2026-08-18", "[[Wiki/People/Jane Doe]]", "Contract draft", "", "2026-08-22"], "00AC")
-    store.append_row("Administrator/Follow-ups.md", "Open", ["2026-08-10", "Tom Lee", "Delivery date", "", "2026-08-22"], "00AD")
+    jane = wiki.create("person", "Jane Doe", extra={"email": "jane@example.com"})["path"]
+    wiki.apply(jane, [
+        {"op": "open", "text": "Contract draft", "owner": "[[Wiki/People/Jane Doe]]", "since": "2026-08-18", "src": "00AC"},
+        {"op": "open", "text": "Delivery date", "owner": "Tom Lee", "since": "2026-08-10", "src": "00AD"},
+        {"op": "open", "text": "Send the signed copy", "since": "2026-08-11", "src": "00AE"},  # owner me: not a follow-up
+    ])
     d = {"type": "daily", "source": "outlook", "date": "2026-08-19", "folder": "inbox", "since": "s", "inbox_checked": "c", "mails_seen": 2, "status": "todo", "created_by": CB}
     store.write("daily", d, (
         "# 2026-08-19\n\n## Inbox (since s)\n\n| # | Label | From | Subject | Received | Why | Note |\n| --- | --- | --- | --- | --- | --- | --- |\n"
@@ -65,9 +68,11 @@ def test_candidates_topics_followups_weekly_and_current(vault):
     assert c["path"] == PATH
     assert [(t["title"], t["due"], t["open_items"], t["status"]) for t in c["topics"]] == [("Acme contract", "2026-09-01", 0, "active"), ("Hiring a PM", None, 1, "active")]
     assert c["topics"][0]["page"] == "[[Wiki/Topics/acme-contract]]" and c["topics"][0]["summary"] == "Renewal by September." and re.match(r"^\d{4}-\d{2}-\d{2}$", c["topics"][0]["verified"])
+    # a topic with an owner and a due date is a project: the row carries both
+    assert c["topics"][0]["owner"] == "[[Wiki/People/Jane Doe]]" and c["topics"][1]["owner"] == ""
     assert c["followups"] == [
         {"since": "2026-08-10", "who": "Tom Lee", "what": "Delivery date", "age_days": 14},
-        {"since": "2026-08-18", "who": "[[Wiki/People/Jane Doe]]", "what": "Contract draft", "age_days": 6},
+        {"since": "2026-08-18", "who": "Jane Doe", "what": "Contract draft", "age_days": 6},
     ]
     assert c["weekly_open"] == [{"subject": "Budget Q3", "label": "act", "date": "2026-08-19"}]
     assert c["current"] == []  # the placeholder line does not count

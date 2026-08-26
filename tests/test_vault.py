@@ -24,6 +24,17 @@ def vault(tmp_path, monkeypatch):
     return root
 
 
+def legacy_followups(vault):
+    """Follow-ups.md as 0.3.0 kept it: rows may still be added until the migration."""
+    cols = "| --- | --- | --- | --- | --- |"
+    head = ["| " + " | ".join(notes.FOLLOWUPS_OPEN_HEADER) + " |", cols]
+    done = ["| " + " | ".join(notes.FOLLOWUPS_DONE_HEADER) + " |", cols]
+    text = ["---", "type: followups", "source: outlook", "created_by: " + CB, "---", "",
+            "# Follow-ups", "", "Things I am waiting on.", "", "## Open", ""] + head + ["", "## Done", ""] + done
+    (vault / "Administrator" / "Follow-ups.md").write_text(chr(10).join(text) + chr(10), encoding="utf-8")
+    return "Administrator/Follow-ups.md"
+
+
 def email_fm(**over):
     fm = {
         "type": "email",
@@ -446,7 +457,7 @@ def test_accepts_backslashes(vault):
 
 
 def test_append_row_dedupe_and_move(vault):
-    path = "Administrator/Follow-ups.md"
+    path = legacy_followups(vault)
     row = ["2026-08-21", "[[Wiki/People/Carol Ng]]", "Contract draft", "[[Emails/2026-08-21 Contract draft]]", "2026-08-22"]
     r1 = store.append_row(path, "Open", row, "00AC")
     assert r1["appended"] and r1["row"].endswith("2026-08-22 <!-- entry_id: 00AC --> |")
@@ -469,6 +480,18 @@ def test_append_row_dedupe_and_move(vault):
     assert store.move_row(path, "Nope", "Done", "00AD")["moved"] is False
 
 
+def test_a_generated_file_takes_no_rows(vault):
+    """Follow-ups.md is written from the wiki pages: rows go on the page instead."""
+    path = "Administrator/Follow-ups.md"
+    fm = fmt.split_note((vault / "Administrator" / "Follow-ups.md").read_text(encoding="utf-8"))[0]
+    assert fm["generated"] is True and fm["source"] == "wiki"
+    with pytest.raises(store.VaultError) as e1:
+        store.append_row(path, "Open", ["2026-08-21", "Bob", "x", "", "2026-08-22"], "00AF")
+    assert "written from the wiki pages" in str(e1.value) and "open op" in str(e1.value)
+    with pytest.raises(store.VaultError):
+        store.move_row(path, "Open", "Done", "00AF")
+
+
 def test_append_row_creates_section_and_header(vault):
     store.write("email", email_fm(), "# Note\n\n## Body\n\ntext")
     path = "Administrator/Emails/2026-08-22 Budget Q3.md"
@@ -486,7 +509,7 @@ def test_append_row_creates_section_and_header(vault):
 
 
 def test_meeting_row_with_pipe_in_occurrence_key_round_trips(vault):
-    path = "Administrator/Follow-ups.md"
+    path = legacy_followups(vault)
     key = "GID1|2026-08-25T13:00:00+02:00 # Confirm Leipzig address"
     row = ["2026-08-25", "[[Wiki/People/Tom Lee]]", "Confirm Leipzig address", "[[Meetings/2026-08-25 1300 Supplier sync]]", "2026-08-25"]
     r1 = store.append_row(path, "Open", row, key, key_label="occurrence_key")
@@ -509,7 +532,7 @@ def test_meeting_row_with_pipe_in_occurrence_key_round_trips(vault):
 
 
 def test_pipe_in_plain_cell_survives_move_without_double_escaping(vault):
-    path = "Administrator/Follow-ups.md"
+    path = legacy_followups(vault)
     store.append_row(path, "Open", ["2026-08-21", "Bob", "a|b or c", "", "2026-08-22"], "00AF")
     m = store.move_row(path, "Open", "Done", "00AF", set_last_cell="2026-08-23")
     assert m["row"] == "| 2026-08-21 | Bob | a\\|b or c |  | 2026-08-23 <!-- entry_id: 00AF --> |"

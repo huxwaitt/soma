@@ -241,11 +241,16 @@ def test_brief_stitches_the_top_pages_and_keeps_the_cap(vault):
 def test_open_items_of_a_page_and_of_the_matching_pages(vault):
     seed(vault)
     one = ws.open_items(page="Wiki/Topics/quarterly-numbers")
-    assert one == [{"page": "Wiki/Topics/quarterly-numbers", "title": "Quarterly numbers",
-                    "text": "Send the numbers to Jane", "record": "", "line": "- [ ] Send the numbers to Jane"}]
+    # the fixture writes 0.3.0 lines: no owner yet, the next write gives them one
+    assert [(o["stem"], o["text"], o["owner"], o["done"]) for o in one] == [
+        ("Wiki/Topics/quarterly-numbers", "Send the numbers to Jane", None, False)]
+    assert one[0]["page"] == f"{W}/Topics/quarterly-numbers.md" and one[0]["type"] == "topic"
     assert ws.open_items("quarterly numbers deadline") == one
     assert ws.open_items() == one
     assert ws.open_items(page="Wiki/Orgs/example-gmbh") == []
+    assert ws.open_items(owner="others") == []
+    done = ws.open_items(page="Wiki/Topics/quarterly-numbers", include_done=True)
+    assert [(o["text"], o["done"]) for o in done] == [("Send the numbers to Jane", False), ("Ask for the template", True)]
 
 
 # ------------------------------------------------------------------ the query log
@@ -314,6 +319,24 @@ def test_server_search_tool_round_trip(vault):
     brief = call("vault_wiki_search", {"query": "quarterly numbers", "brief": True, "max_chars": 400})
     assert set(brief) == {"text", "pages", "facts", "chars"} and brief["chars"] <= 400
     items = call("vault_wiki_search", {"query": "", "open_items": True})
-    assert items == [{"page": "Wiki/Topics/quarterly-numbers", "title": "Quarterly numbers",
-                      "text": "Send the numbers to Jane", "record": "", "line": "- [ ] Send the numbers to Jane"}]
+    assert set(items[0]) == {"page", "stem", "type", "title", "owner_name", "id", "text", "owner", "due", "since", "src", "record", "done"}
+    assert [(i["stem"], i["text"]) for i in items] == [("Wiki/Topics/quarterly-numbers", "Send the numbers to Jane")]
     assert call("vault_wiki_search", {"query": "budget", "kinds": ["person"], "limit": 3})[0]["kind"] == "person"
+
+
+def test_decision_pages_are_read_like_any_other_and_lead_the_brief(vault):
+    seed(vault)
+    write_page(
+        vault, f"{W}/Decisions/one-sheet-for-the-numbers.md",
+        {"type": "decision", "status": "current", "decided": "2026-08-18", "by": ["[[Wiki/People/Jane Doe]]"], "summary": "One sheet."},
+        "One sheet for the numbers", lead="We keep the quarterly numbers in one sheet.",
+        facts=[("qrst", "The numbers live in one sheet per quarter", "2026-08-18", ["<m4@example.com>"])],
+    )
+    wiki.apply(f"{W}/Topics/quarterly-numbers.md", [{"op": "related", "page": "Wiki/Decisions/one-sheet-for-the-numbers"}])
+    ws._LIVE.clear()
+    hits = ws.search("one sheet per quarter")
+    assert ("Wiki/Decisions/one-sheet-for-the-numbers", "qrst") in [(h["page"], h["fact_id"]) for h in hits]
+    assert {h["kind"] for h in ws.search("sheet", kinds=["decision"])} == {"decision"}
+    # the brief pulls the decision the best page links to, without a date word in the fact
+    out = ws.brief("where do the quarterly numbers live")
+    assert "Related: [[Wiki/Decisions/one-sheet-for-the-numbers|One sheet for the numbers]] — The numbers live in one sheet per quarter" in out["text"]

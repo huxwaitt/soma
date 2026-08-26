@@ -34,7 +34,45 @@ properties:
     displayName: Flags
   note.open_items:
     displayName: Open
+  note.outcome:
+    displayName: Outcome
+  note.decided:
+    displayName: Decided
+  note.by:
+    displayName: By
+  note.reversal:
+    displayName: What would reopen it
 views:
+  - type: table
+    name: Projects
+    filters:
+      and:
+        - note.type == "topic"
+        - note.due
+    order:
+      - note.title
+      - note.owner
+      - note.due
+      - note.status
+      - note.outcome
+      - note.open_items
+    sort:
+      - property: note.due
+        direction: ASC
+  - type: table
+    name: Decisions
+    filters:
+      and:
+        - note.type == "decision"
+    order:
+      - note.title
+      - note.decided
+      - note.by
+      - note.status
+      - note.reversal
+    sort:
+      - property: note.decided
+        direction: DESC
   - type: table
     name: Active topics by verified
     filters:

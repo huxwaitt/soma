@@ -1,9 +1,10 @@
-"""administrator_vault.wiki_lint: the fifteen checks on a seeded vault, fix=true, merge with redirect."""
+"""administrator_vault.wiki_lint: the checks on a seeded vault, fix=true, merge with redirect."""
 
 from __future__ import annotations
 
 import asyncio
 import json
+from datetime import date, timedelta
 
 import pytest
 
@@ -62,7 +63,7 @@ def seed(vault):
                facts=[("Old single-source fact", "2020-01-10", "<old@example.com>")], Related=["- [[Wiki/Topics/nope]]"])
     # 4 frontmatter: extra key, hand-edited sources; 5 sections: unknown + out of order (written raw)
     raw = write_page(vault, f"{T}/messy.md", {"type": "topic", "status": "active", "verified": "2026-08-20", "sources": 99, "foo": "bar"}, "Messy page")
-    text = text_of(vault, raw).replace("## Facts\n\n## People\n", "## People\n\n## Facts\n").replace("## History\n", "## Random\n\nstuff\n\n## History\n")
+    text = text_of(vault, raw).replace("## Milestones\n\n## People\n", "## People\n\n## Milestones\n").replace("## History\n", "## Random\n\nstuff\n\n## History\n")
     (vault / raw).write_text(text, encoding="utf-8")
     # 6 oversized person page
     write_page(vault, f"{W}/People/Big Person.md", {"type": "person", "name": "Big Person", "email": "big@example.com", "last_contact": "2026-08-20T09:00:00+02:00", "status": "active", "verified": "2026-08-20"}, "Big Person",
@@ -111,7 +112,7 @@ def test_lint_report_hits_every_check(vault):
     # 8 due past
     assert c["8"]["items"] == [{"page": "Wiki/Topics/stale-thing", "due": "2020-02-01"}]
     # 9 open item done in the record
-    assert c["9"]["items"] == [{"page": "Wiki/Topics/q3-budget", "text": "Send Q3 numbers to Jane", "record": "Emails/2026-08-22 Budget Q3"}]
+    assert c["9"]["items"] == [{"page": "Wiki/Topics/q3-budget", "id": None, "text": "Send Q3 numbers to Jane", "record": "Emails/2026-08-22 Budget Q3"}]
     # 10 duplicates: alias pair and email pair
     pairs = {(d["a"], d["b"]) for d in c["10"]["items"]}
     assert pairs == {("Wiki/Topics/budget-q3", "Wiki/Topics/q3-budget"), ("Wiki/People/J Doe", "Wiki/People/Jane Doe")}
@@ -163,7 +164,8 @@ def test_lint_fix_applies_the_safe_fixes(vault):
     assert any("stale" in l and "dormant" in l for l in wiki.log(page="stale-thing")["lines"])
     # 9: the open item moved to History
     text = text_of(vault, f"{W}/Topics/q3-budget.md")
-    assert "- [ ] Send Q3" not in text and '— done "Send Q3 numbers to Jane — [[Emails/2026-08-22 Budget Q3]]"' in text and fm_of(vault, f"{W}/Topics/q3-budget.md")["open_items"] == 0
+    assert "- [ ] Send Q3" not in text and '— done "Send Q3 numbers to Jane" — owner: me · since ' in text
+    assert fm_of(vault, f"{W}/Topics/q3-budget.md")["open_items"] == 0
     # 13: History rotated, Log rotated
     hist = text_of(vault, f"{W}/Topics/long-history.md").split("## History\n\n")[1].split("\n## Notes")[0].strip().split("\n")
     assert len(hist) == 40 and hist[0].startswith("- older history: [[Wiki/_history/Topics/long-history]]")
@@ -173,6 +175,20 @@ def test_lint_fix_applies_the_safe_fixes(vault):
     # Review: duplicates + stale lines
     rv = wiki.review("list")
     assert len(rv["open"]) == 3 and any("merge [[Wiki/Topics/q3-budget]] into [[Wiki/Topics/budget-q3]]?" in o["text"] for o in rv["open"])
+
+
+def test_fix_takes_a_dead_link_out_of_an_open_item(vault):
+    """An open item names a record that was deleted: fix turns the link into
+    plain text, the way it does in every other code-owned section."""
+    path = wiki.create("topic", "Q3 budget", lead="Jane collects the numbers.")["path"]
+    wiki.apply(path, [{"op": "open", "text": "chase [[Emails/gone]]", "src": "user"},
+                      {"op": "milestone", "text": "sheet in [[Emails/gone]]", "src": "user"}])
+    r = wiki_lint.lint(fix=True)
+    assert r["checks"]["2"]["items"] == [{"page": "Wiki/Topics/q3-budget", "target": "Emails/gone", "where": "body"}]
+    text = text_of(vault, path)
+    assert "[[Emails/gone]]" not in text and "- [ ] chase Emails/gone" in text and "<!-- o:" in text
+    assert "- [ ] sheet in Emails/gone" in text and "<!-- m:" in text
+    assert wiki_lint.lint(fix=True)["checks"]["2"]["count"] == 0  # and it stays fixed
 
 
 def test_weekly_facts_has_wiki_counts(vault):
@@ -240,7 +256,7 @@ def test_server_lint_and_merge_tools(vault):
 
     seed(vault)
     r = call("vault_wiki_lint", {"fix": True})
-    assert r["fix"] is True and set(r["checks"]) == {str(i) for i in range(0, 16)}  # 0 = the hand-edit pass
+    assert r["fix"] is True and set(r["checks"]) == {str(i) for i in range(0, 16)} | {"19"}  # 0 = the hand-edit pass, 16-18 come later
     m = call("vault_wiki_merge", {"keep": "Wiki/Topics/q3-budget", "drop": "Wiki/Topics/budget-q3"})
     assert m["redirect"] == "[[Wiki/Topics/q3-budget]]"
     assert fm_of(vault, f"{W}/Topics/budget-q3.md")["type"] == "redirect"
@@ -269,3 +285,67 @@ def test_the_copy_of_a_deleted_page_does_not_hide_the_links_to_it(vault):
     assert (vault / f"{W}/_cache/prev/Topics/q3-budget.md.prev").is_file()
     c = wiki_lint.lint()["checks"]["2"]
     assert c["count"] == 1 and c["items"][0]["target"] == "Wiki/Topics/q3-budget"
+
+
+def test_check_19_asks_about_the_users_own_items_past_their_due_date(vault):
+    path = wiki.create("topic", "Q3 budget", lead="Numbers.", summary="Numbers.")["path"]
+    jane = wiki.create("person", "Jane Doe", extra={"email": "jane.doe@example.com"})["path"]
+    today = date.today().isoformat()
+    late = (date.today() - timedelta(days=3)).isoformat()
+    soon = (date.today() + timedelta(days=3)).isoformat()
+    wiki.apply(path, [
+        {"op": "open", "text": "Send the numbers", "due": late, "src": "a"},
+        {"op": "open", "text": "Book the room", "due": soon, "src": "b"},
+        {"op": "open", "text": "Read the draft", "due": today, "src": "c"},
+    ])
+    wiki.apply(jane, [{"op": "open", "text": "Jane signs", "owner": "[[Wiki/People/Jane Doe]]", "due": late, "src": "d"}])
+    c = wiki_lint.lint()["checks"]["19"]
+    assert c["name"] == "overdue" and c["count"] == 1
+    assert c["items"][0]["page"] == "Wiki/Topics/q3-budget" and c["items"][0]["text"] == "Send the numbers" and c["items"][0]["due"] == late
+    assert wiki_lint.lint()["counts"]["overdue"] == 1
+    line = f'- [ ] [[Wiki/Topics/q3-budget]] — overdue: "Send the numbers" due {late} — done, reschedule, or drop'
+    assert any(o["text"] == line for o in wiki.review("list")["open"])
+
+
+def test_check_4_knows_the_keys_and_statuses_of_each_type(vault):
+    old = (date.today() - timedelta(days=400)).isoformat()
+    write_page(vault, f"{W}/Decisions/new-stack.md", {"type": "decision", "status": "current", "verified": old, "decided": "2026-08-22", "by": ["[[Wiki/People/Jane Doe]]"], "reversal": "A licence problem."}, "New stack")
+    write_page(vault, f"{W}/Decisions/half-a-decision.md", {"type": "decision", "status": "active", "verified": "2026-08-22"}, "Half a decision")
+    write_page(vault, f"{W}/Topics/at-risk-topic.md", {"type": "topic", "status": "at-risk", "verified": "2026-08-22"}, "At risk topic")
+    write_page(vault, f"{W}/Topics/wrong-status.md", {"type": "topic", "status": "current", "verified": "2026-08-22"}, "Wrong status")
+    c = wiki_lint.lint()["checks"]
+    items = {i["page"]: i for i in c["4"]["items"]}
+    assert "Wiki/Decisions/new-stack" not in items and "Wiki/Topics/at-risk-topic" not in items
+    assert items["Wiki/Decisions/half-a-decision"]["missing"] == ["decided", "by"]
+    assert items["Wiki/Decisions/half-a-decision"]["mistyped"] == ["status"]
+    assert items["Wiki/Topics/wrong-status"]["mistyped"] == ["status"]
+    # 7 stale: a decision is what was decided, so it never goes stale; the topics do
+    assert [s["page"] for s in c["7"]["items"]] == []
+    write_page(vault, f"{W}/Topics/old-topic.md", {"type": "topic", "status": "blocked", "verified": old}, "Old topic")
+    c2 = wiki_lint.lint(fix=True)["checks"]
+    assert [s["page"] for s in c2["7"]["items"]] == ["Wiki/Topics/old-topic"]
+    assert fm_of(vault, f"{W}/Topics/old-topic.md")["status"] == "dormant"
+    assert fm_of(vault, f"{W}/Decisions/new-stack.md")["status"] == "current"
+    assert "stale" not in fm_of(vault, f"{W}/Decisions/new-stack.md")["flags"]
+    # 4 with fix: a status the type does not know is put right (a decision with a lead is current)
+    assert fm_of(vault, f"{W}/Decisions/half-a-decision.md")["status"] == "current"
+
+
+def test_check_8_reads_a_due_date_on_a_blocked_topic_too(vault):
+    late = (date.today() - timedelta(days=2)).isoformat()
+    write_page(vault, f"{W}/Topics/blocked-thing.md", {"type": "topic", "status": "blocked", "verified": "2026-08-22", "due": late}, "Blocked thing")
+    assert wiki_lint.lint()["checks"]["8"]["items"] == [{"page": "Wiki/Topics/blocked-thing", "due": late}]
+
+
+def test_lint_settles_a_decision_the_user_ticked_in_review(vault):
+    wiki.create("person", "Jane Doe", extra={"email": "jane.doe@example.com"})
+    path = wiki.create("decision", "New stack", lead="We go with the new stack.", summary="New stack.",
+                       facts=[{"text": "The rebuild runs on the new stack", "since": "2026-08-22", "src": "user"}],
+                       extra={"decided": "2026-08-22", "by": ["[[Wiki/People/Jane Doe]]"]})["path"]
+    assert fm_of(vault, path)["flags"] == ["unconfirmed-decision"]
+    p = vault / wiki.REVIEW_PATH
+    p.write_text(p.read_text(encoding="utf-8").replace("- [ ] [[Wiki/Decisions/new-stack]]", "- [x] [[Wiki/Decisions/new-stack]]"), encoding="utf-8")
+    r = wiki_lint.lint()
+    assert r["confirmed_decisions"] == ["Wiki/Decisions/new-stack"]
+    assert "unconfirmed-decision" not in fm_of(vault, path)["flags"]
+    assert not any("new-stack" in o["text"] for o in wiki.review("list")["open"])

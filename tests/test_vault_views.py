@@ -17,7 +17,8 @@ OPTIONAL_KEYS = {
     "meeting": {"entry_id", "all_day"},
     "person": {"company", "source", "org", "title", "summary", "status", "verified", "flags"},
     # wiki pages (wiki.md): the keys the code keeps in every page's frontmatter
-    "wiki": {"type", "title", "aliases", "summary", "status", "owner", "org", "due", "created", "updated", "verified", "sources", "open_items", "flags", "created_by", "domains", "last_done"},
+    "wiki": {"type", "title", "aliases", "summary", "status", "owner", "org", "due", "created", "updated", "verified", "sources", "open_items", "flags", "created_by", "domains", "last_done",
+             "outcome", "decided", "by", "superseded_by", "reversal", "options_rejected", "links", "risks"},
 }
 
 # Which note types each view may reference (a view over several folders may use keys of each).

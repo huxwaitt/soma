@@ -1,12 +1,20 @@
-"""Move a 0.1.0 vault's ``Administrator/People/`` into the wiki (PLAN-wiki.md §10).
+"""Bring an older vault up to date (PLAN-wiki.md §10) in three parts.
 
 ``migrate(dry_run=True)`` returns the plan and writes nothing. ``dry_run=False``
-does it under the wiki lock: backup copy of ``People/`` to
-``Administrator/_backup/<stamp>/People/``, every person note rewritten to the
-page contract under ``Wiki/People/``, ``[[People/…]]`` links rewritten to
-``[[Wiki/People/…]]`` in every other note (frontmatter included), the ``.base``
-views updated, the index generated, one Log.md line, and the old folder
-removed when it is empty.
+does it under the wiki lock, keeping a copy of everything it replaces under
+``Administrator/_backup/<stamp>/``:
+
+* **people** — every note of a 0.1.0 ``Administrator/People/`` rewritten to the
+  page contract under ``Wiki/People/``, ``[[People/…]]`` links rewritten to
+  ``[[Wiki/People/…]]`` in every other note (frontmatter included), and the old
+  folder removed when it is empty;
+* **followups** — the rows of a hand-kept ``Follow-ups.md`` become open items on
+  the person pages they name (an unknown name goes to ``Wiki/Me.md``) and
+  History lines for what was done, after which the file is written from the
+  pages;
+* **views** — the ``.base`` views brought up to date.
+
+Each part writes one Log.md line and the index is generated at the end.
 """
 
 from __future__ import annotations
@@ -15,7 +23,7 @@ import re
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from administrator_vault import frontmatter as fmt
 from administrator_vault import store, wiki
@@ -26,6 +34,8 @@ from administrator_vault.wiki import Page, _Ctx, _atomic_write, _finalize, _log,
 OLD_DIR = f"{ADMIN_DIR}/People"
 NEW_DIR = f"{wiki.WIKI_DIR}/People"
 BACKUP_DIR = f"{ADMIN_DIR}/_backup"
+FOLLOWUPS_PATH = f"{ADMIN_DIR}/Follow-ups.md"
+ME_STEM = "Wiki/Me"
 
 _OLD_LINK_RE = re.compile(r"\[\[People/")
 _RECORD_LINE_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2}) — (\[\[[^\]]+\]\])\s*(.*?)\s*$")
@@ -163,36 +173,171 @@ def _apply_views(root: Path, plan: list[dict[str, Any]]) -> None:
             _atomic_write(p, text)
 
 
+def _followups_tables(root: Path) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """The Open and Done rows of a Follow-ups.md the user still keeps by hand.
+    A file the code already writes gives nothing back."""
+    from administrator_vault import workflows  # imported here: it reads wiki, this module is a tool
+
+    p = root / FOLLOWUPS_PATH
+    if not p.is_file():
+        return [], []
+    try:
+        fm, _block, body = fmt.split_note(read_text(p))
+    except (fmt.FrontmatterError, UnicodeDecodeError):
+        return [], []
+    if fm.get("generated") is True:
+        return [], []
+    lines = body.split("\n")
+    found: dict[str, list[dict[str, str]]] = {"open": [], "done": []}
+    for _level, heading, lo, hi in workflows._sections(body):
+        name = heading.strip().lower()
+        if name in found and not found[name]:
+            tables = workflows._tables(lines, lo, hi)
+            found[name] = tables[0] if tables else []
+    return found["open"], found["done"]
+
+
+def _followups_target(root: Path, pages: list[tuple[str, dict[str, Any]]], who: str, moving: dict[str, str]) -> tuple[str, str]:
+    """(page stem, the name to keep in the text). A link or a name that matches a
+    page that can hold an open item wins (``moving`` holds the person pages this
+    run is about to write); anything else lands on Wiki/Me.md with the name in
+    the item."""
+    plain = store._unescape_cell(re.sub(r"<!--.*?-->", "", _s(who))).strip()
+    can_hold = {wiki._stem(p) for p, _fm in pages} | set(moving.values())
+    m = wiki._LINK_RE.search(_s(who))
+    if m:
+        stem = moving.get(wiki._link_target(m.group(1)), wiki._link_target(m.group(1)))
+        if stem in can_hold:
+            return stem, ""
+        named = next((fm for p, fm in wiki._all_pages(root) if wiki._stem(p) == stem), None)
+        plain = _s(named.get("title") or named.get("name")) if named else stem.rsplit("/", 1)[-1]
+    if plain:
+        hit = wiki._find_by_name(pages, plain, [])
+        if hit:
+            return wiki._stem(hit[0]), ""
+        for stem in moving.values():
+            if wiki._norm_name(stem.rsplit("/", 1)[-1]) == wiki._norm_name(plain):
+                return stem, ""
+    return "", plain
+
+
+def _followups_plan(root: Path, moving: Optional[dict[str, str]] = None) -> dict[str, Any]:
+    moving = moving or {}
+    opens, dones = _followups_tables(root)
+    # only a page whose contract has an Open section can hold the row; the rest go to Wiki/Me.md
+    pages = [pg for pg in wiki._all_pages(root) if "Open" in wiki.SECTIONS.get(_s(pg[1].get("type")), ())]
+    items: dict[str, list[dict[str, Any]]] = {"open": [], "done": []}
+    for kind, rows in (("open", opens), ("done", dones)):
+        for row in rows:
+            stem, name = _followups_target(root, pages, row.get("Who", ""), moving)
+            what = _s(row.get("What", "")).strip()
+            record = ""
+            m = wiki._LINK_RE.search(_s(row.get("Email", "")))
+            if m:
+                record = wiki._link_target(m.group(1))
+            items[kind].append({
+                "who": name or (f"[[{stem}]]" if stem else ""),
+                "text": f"{name}: {what}" if name and not stem else what,
+                "since": _s(row.get("Since", ""))[:10],
+                "closed": _s(row.get("Closed", ""))[:10],
+                "page": stem or ME_STEM,
+                "record": record,
+                "src": store._comment_key(_s(row.get("_line", ""))) or "user",
+            })
+    return {
+        "open": items["open"], "done": items["done"],
+        "count": len(items["open"]) + len(items["done"]),
+        "backup": f"{BACKUP_DIR}/<stamp>/Follow-ups.md",
+    }
+
+
+def _me_page(root: Path, created_by: str) -> str:
+    """Wiki/Me.md, created as a draft when it is missing."""
+    p = root / wiki.WIKI_DIR / "Me.md"
+    if not p.is_file():
+        ctx = _Ctx(root=root, src="user", since=wiki._today(), record=None)
+        wiki._create_page(root, "me", "Me", None, "", "", None, ctx, created_by)
+    return rel(root, p)
+
+
+def _apply_followups(root: Path, plan: dict[str, Any], created_by: str) -> dict[str, int]:
+    """The rows as open items and History lines on the pages they belong to."""
+    done_n = 0
+    for item in plan["open"] + plan["done"]:
+        if item["page"] == ME_STEM:
+            _me_page(root, created_by)
+    for item in plan["open"]:
+        rec = None
+        if item["record"]:
+            try:
+                rec = wiki._record_info(root, f"{ADMIN_DIR}/{item['record']}.md")
+            except (store.VaultError, fmt.FrontmatterError):
+                rec = None
+        since = item["since"] or wiki._today()
+        ctx = _Ctx(root=root, src=item["src"], since=since, record=rec)
+        op = {"op": "open", "text": item["text"], "owner": item["who"] or "me", "since": since, "src": item["src"]}
+        wiki._write_ops(root, wiki.page_path(item["page"]), [op], ctx, "migrate")
+    for item in plan["done"]:
+        path = wiki.page_path(item["page"])
+        if not (root / path).is_file():
+            continue
+        page = wiki._load(root, path)
+        where = f"[[{item['record']}]]" if item["record"] else "user"
+        closed = item["closed"] or item["since"] or wiki._today()
+        line = f'- {closed} — done "{item["text"]}" — owner: {item["who"] or "me"} · since {item["since"]} ({where})'
+        if line not in page.lines("History"):
+            page.lines("History").append(line)
+            ctx = _Ctx(root=root, src="user", since=wiki._today(), record=None)
+            _finalize(page, ctx)
+            wiki._write_page(page, ctx)
+            done_n += 1
+    from administrator_vault import followups  # the file becomes the view of the pages
+
+    _atomic_write(root / FOLLOWUPS_PATH, followups.text(root, created_by))
+    return {"open": len(plan["open"]), "done": done_n}
+
+
 def migrate(dry_run: bool = True, created_by: str = wiki.CREATED_BY) -> dict[str, Any]:
     root = store.vault_root()
     old = root / OLD_DIR
-    if not old.is_dir():
-        return {"needed": False, "dry_run": dry_run, "detail": f"No {OLD_DIR}/ folder; nothing to move."}
-    people, left = _plan_people(root, created_by)
-    links = _link_files(root)
+    people, left = ([], []) if not old.is_dir() else _plan_people(root, created_by)
+    moving = {wiki._stem(p["from"]): wiki._stem(p["to"]) for p in people if not p["exists"]}
+    followups = _followups_plan(root, moving)
+    links = _link_files(root) if old.is_dir() else []
     views = _views_plan(root)
+    parts = {"people": old.is_dir(), "followups": followups["count"] > 0, "views": bool(views)}
     plan = {
-        "needed": True,
+        "needed": any(parts.values()),
         "dry_run": dry_run,
+        "parts": parts,
         "people": [{k: v for k, v in p.items() if k != "page"} for p in people],
         "links": {"files": len(links), "count": sum(n for _p, n in links), "per_file": [{"path": rel(root, p), "links": n} for p, n in links[:50]]},
         "views": views,
+        "followups": followups,
         "left": left,
         "backup": f"{BACKUP_DIR}/<stamp>/People/",
     }
+    if not plan["needed"]:
+        plan["detail"] = f"No {OLD_DIR}/ folder and no Follow-ups rows to move; nothing to do."
+        return plan
     if dry_run:
         return plan
     with _wiki_lock(root):
         wiki.init_files(root, created_by)
         (root / NEW_DIR).mkdir(parents=True, exist_ok=True)
         stamp = _stamp()
-        backup = root / BACKUP_DIR / stamp / "People"
+        keep = root / BACKUP_DIR / stamp
         n = 2
-        while backup.exists():  # a second run within the same second
-            backup = root / BACKUP_DIR / f"{stamp}-{n}" / "People"
+        while keep.exists():  # a second run within the same second
+            keep = root / BACKUP_DIR / f"{stamp}-{n}"
             n += 1
-        shutil.copytree(old, backup)
-        plan["backup"] = rel(root, backup)
+        keep.mkdir(parents=True, exist_ok=True)
+        if old.is_dir():
+            shutil.copytree(old, keep / "People")
+            plan["backup"] = rel(root, keep / "People")
+        if followups["count"]:
+            shutil.copy2(root / FOLLOWUPS_PATH, keep / "Follow-ups.md")
+            plan["followups"] = dict(followups, backup=rel(root, keep / "Follow-ups.md"))
         moved, skipped = [], []
         for item in people:
             page: Page = item["page"]
@@ -218,14 +363,21 @@ def migrate(dry_run: bool = True, created_by: str = wiki.CREATED_BY) -> dict[str
             _atomic_write(p, text)
             rewritten += n
         _apply_views(root, views)
-        _log(root, "migrate", "Wiki/People", "-", f"{len(moved)} people, {rewritten} links")
+        if old.is_dir():
+            _log(root, "migrate", "Wiki/People", "-", f"{len(moved)} people, {rewritten} links")
         _write_index(root, [wiki._stem(p) for p in moved])
-        remaining = [rel(root, p) for p in old.iterdir()]
+        rows = {"open": 0, "done": 0}
+        if followups["count"]:
+            rows = _apply_followups(root, followups, created_by)
+            _log(root, "migrate", "Follow-ups", "-", f"{rows['open']} open, {rows['done']} done")
+            _write_index(root)  # Follow-ups.md is written from the pages again
+        remaining = [rel(root, p) for p in old.iterdir()] if old.is_dir() else []
         removed = False
-        if not remaining:
+        if old.is_dir() and not remaining:
             old.rmdir()
             removed = True
-    plan.update({"moved": moved, "skipped": skipped, "links_rewritten": rewritten, "old_folder_removed": removed, "old_folder_left": remaining})
+    plan.update({"moved": moved, "skipped": skipped, "links_rewritten": rewritten,
+                 "followups_moved": rows, "old_folder_removed": removed, "old_folder_left": remaining})
     return plan
 
 

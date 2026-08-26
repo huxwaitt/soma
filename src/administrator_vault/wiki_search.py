@@ -33,11 +33,11 @@ from typing import Any, Optional
 from administrator_vault import frontmatter as fmt
 from administrator_vault import store, wiki
 from administrator_vault.wiki import (
-    CACHE_DIR, TYPE_FOLDER, TYPES, WIKI_DIR, _LINK_RE, _RECORD_RE, _STOP, _UNCHECKED_RE, _aliases, _link_sections,
+    CACHE_DIR, TYPE_FOLDER, TYPES, WIKI_DIR, _LINK_RE, _RECORD_RE, _STOP, _aliases, _link_sections,
     _link_target, _norm_name, _record_src_id, _s, _stem, _unquote,
 )
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # 2: open items carry an owner, a due date and an id
 SEARCH_CACHE = f"{CACHE_DIR}/search.json.gz"
 QUERY_LOG = f"{CACHE_DIR}/queries.log"
 
@@ -71,7 +71,6 @@ _QUOTED_QUERY_RE = re.compile(r'"([^"]+)"')
 _REGEX_QUERY_RE = re.compile(r"^(?:/(.+)/|re:(\S.*))$", re.DOTALL)
 _ID_TOKEN_RE = re.compile(r"^[a-z]:\S{2,}$", re.IGNORECASE)
 _HISTORY_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2}) — (?:superseded|retired) \"((?:[^\"\\]|\\.)*)\"")
-_OPEN_LINE_RE = re.compile(r"^\s*- \[ \] (?P<text>.*?)(?: — \[\[(?P<rec>[^\]|]+)(?:\|[^\]]*)?\]\])?\s*$")
 _DECIDED_RE = re.compile(r"\b(agreed|decided|approved|due|deadline|signed|closes)\b", re.IGNORECASE)
 _DAY_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
@@ -420,7 +419,8 @@ class Index:
             blank, stem=stem, kind=page.type, title=title, aliases=aliases,
             status=_s(fm.get("status")) or "draft", verified=_s(fm.get("verified") or fm.get("created"))[:10],
             summary=_s(fm.get("summary")), lead=page.lead,
-            open=[l for l in page.sections.get("Open", []) if _UNCHECKED_RE.match(l)],
+            # the open items as a reader sees them; the hidden comment is not part of a brief
+            open=[o.line().split('<!--')[0].rstrip() for o in page.opens if not o.done],
         )
         links = {t for t in _link_sections(page) if t.startswith("Wiki/") and t != stem}
         for key in ("owner", "org", "redirect"):
@@ -724,7 +724,7 @@ def page_candidates(text: str, root: Optional[Path] = None) -> dict[str, tuple[i
 
 def brief(question: str, max_chars: int = 1500, root: Optional[Path] = None, today: Optional[str] = None) -> dict[str, Any]:
     """One stitched answer: the best three pages with their lead, facts and open
-    items, then the dated facts of the pages they link to."""
+    items, then the decisions and dated facts of the pages they link to."""
     root = root or store.vault_root()
     today = _s(today)[:10] or _today()
     ix = Index.load(root)
@@ -757,14 +757,16 @@ def brief(question: str, max_chars: int = 1500, root: Optional[Path] = None, tod
         rows += [{"line": l} for l in entry.get("open") or []]
     linked = 0
     for stem in order:
-        for target in ix.by_stem[stem].get("links") or []:
+        targets = ix.by_stem[stem].get("links") or []
+        # the decisions the best pages link to come first: that is what a brief is asked for
+        for target in sorted(targets, key=lambda t: 0 if _s((ix.by_stem.get(t) or {}).get("kind")) == "decision" else 1):
             other = ix.by_stem.get(target)
             if linked >= BRIEF_LINKED or target in order or not other:
                 continue
             for doc in other.get("docs") or []:
                 if linked >= BRIEF_LINKED or not doc["fact_id"] or (target, doc["fact_id"]) in seen:
                     continue
-                if _DAY_RE.search(doc["text"]) and _DECIDED_RE.search(doc["text"]):
+                if _s(other.get("kind")) == "decision" or (_DAY_RE.search(doc["text"]) and _DECIDED_RE.search(doc["text"])):
                     seen.add((target, doc["fact_id"]))
                     linked += 1
                     rows.append({
@@ -797,33 +799,16 @@ def open_items(
     due_before: Optional[str] = None,
     limit: int = 10,
     root: Optional[Path] = None,
+    include_done: bool = False,
 ) -> list[dict[str, Any]]:
-    """The unticked Open lines of one page, or of the pages the query finds."""
+    """The commitments of one page, of the pages the query finds, or of every
+    page. ``wiki.commitments`` does the reading and the owner / due filters;
+    at most ``OPEN_ITEMS_MAX`` items come back."""
     root = root or store.vault_root()
-    ix = Index.load(root)
-    if _s(page).strip():
-        stems = [_stem(wiki.page_path(_s(page)))]
-    elif _s(query).strip():
-        stems = list(dict.fromkeys(h["page"] for h in search(query, limit=max(4, int(limit or 10)), root=root)))
-    else:
-        stems = sorted(s for s, e in ix.by_stem.items() if e.get("open"))
-    out = []
-    for stem in stems:
-        entry = ix.by_stem.get(stem)
-        if not entry:
-            continue
-        for line in entry.get("open") or []:
-            m = _OPEN_LINE_RE.match(line)
-            out.append({
-                "page": stem,
-                "title": entry["title"],
-                "text": (m.group("text") if m else line).strip(),
-                "record": _s(m.group("rec")) if m and m.group("rec") else "",
-                "line": line,
-            })
-            if len(out) >= OPEN_ITEMS_MAX:
-                return out
-    return out
+    if _s(page).strip() or not _s(query).strip():
+        return wiki.commitments(root, owner, due_before, page, include_done, OPEN_ITEMS_MAX)
+    stems = {h["page"] for h in search(query, limit=max(4, int(limit or 10)), root=root)}
+    return [r for r in wiki.commitments(root, owner, due_before, None, include_done, OPEN_ITEMS_MAX) if r["stem"] in stems]
 
 
 # ------------------------------------------------------------------ the query log
@@ -880,6 +865,7 @@ def search_tool(
     owner: Optional[str] = None,
     due_before: Optional[str] = None,
     page: Optional[str] = None,
+    include_done: bool = False,
 ) -> Any:
     """What ``vault_wiki_search`` answers: ranked facts, one stitched brief, or
     the open items of the pages that match.
@@ -892,7 +878,7 @@ def search_tool(
     root = store.vault_root()
     adopted = wiki_reconcile.reconcile(root)["adopted"]
     if open_items:
-        items = _open_items(query, page, owner, due_before, limit, root)
+        items = _open_items(query, page, owner, due_before, limit, root, include_done)
         return {"hits": items, "adopted": adopted} if adopted else items
     if brief:
         out = _brief(query, max_chars, root)

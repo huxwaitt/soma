@@ -221,11 +221,11 @@ def _priority_from_line(text: str, pages: list[tuple[str, dict[str, Any]]]) -> O
 
 
 def _active_topics(pages: list[tuple[str, dict[str, Any]]]) -> list[dict[str, Any]]:
-    """Every active topic page as {name, page, path, fm, due (date or None),
+    """Every topic page still being worked on as {name, page, path, fm, due (date or None),
     open_items}, soonest due first, then most open items."""
     out = []
     for path, fm in pages:
-        if fm.get("type") != "topic" or _s(fm.get("status") or "active") != "active":
+        if fm.get("type") != "topic" or _s(fm.get("status") or "active") not in wiki.LIVE_STATUSES:
             continue
         due = workflows._date_of(fm.get("due"))
         try:
@@ -254,9 +254,24 @@ def _numbered_lines(body: str) -> list[str]:
     return out
 
 
-def read_priorities(root: Path, today: date) -> list[dict[str, Any]]:
-    """[{rank, name, page}]: the numbered lines of Priorities.md first, then the
-    pressing wiki topics not already named."""
+def _deadline_items(root: Path, until: date, found: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """{name, page, due} per commitment of the user's own falling due by ``until``
+    whose page or wording is not already in the list."""
+    out: list[dict[str, Any]] = []
+    named = {wiki._link_target(_s(f.get("page"))) for f in found if f.get("page")}
+    for c in wiki.commitments(root, owner="me", due_before=(until + timedelta(days=1)).isoformat()):
+        item = {"name": c["text"], "page": f"[[{c['stem']}]]", "due": c["due"]}
+        if c["stem"] in named or any(wiki._norm(f["name"]) == wiki._norm(c["text"]) for f in found + out):
+            continue
+        out.append(item)
+    out.sort(key=lambda i: (i["due"], i["name"].lower()))
+    return out
+
+
+def read_priorities(root: Path, today: date, until: Optional[date] = None) -> list[dict[str, Any]]:
+    """[{rank, name, page, due}]: the numbered lines of Priorities.md first, then
+    the user's own commitments due by ``until`` (the end of the week being
+    planned), then the pressing wiki topics not already named."""
     pages = wiki._all_pages(root)
     found: list[dict[str, Any]] = []
     p = root / PRIORITIES_PATH
@@ -269,16 +284,19 @@ def read_priorities(root: Path, today: date) -> list[dict[str, Any]]:
             item = _priority_from_line(text, pages)
             if item:
                 found.append(item)
+    if until is not None:
+        found += _deadline_items(root, until, found)
     for topic in _pressing_topics(pages, today):
         if not any(_same_priority(f, topic) for f in found):
             found.append(topic)
     out, seen = [], set()
     for item in found:
-        key = (item["page"] or item["name"]).lower()
+        # one line per page, but two commitments on the same page are two entries
+        key = ((item["page"] or "").lower(), wiki._norm(item["name"])) if item.get("due") else ((item["page"] or item["name"]).lower(), "")
         if key in seen:
             continue
         seen.add(key)
-        out.append({"rank": len(out) + 1, "name": item["name"], "page": item["page"]})
+        out.append({"rank": len(out) + 1, "name": item["name"], "page": item["page"], "due": item.get("due")})
     return out
 
 
@@ -402,7 +420,8 @@ def plan(week: str, events: list[dict[str, Any]], today: Any, preferences: dict[
     work_lo, work_hi = prefs["_work"]
     work_minutes = work_hi - work_lo
     focus_len, admin_len = prefs["focus_block_minutes"], prefs["admin_block_minutes"]
-    ranked = [{"rank": p.get("rank") or i + 1, "name": _s(p.get("name")), "page": p.get("page")} for i, p in enumerate(priorities or []) if _s(p.get("name"))]
+    ranked = [{"rank": p.get("rank") or i + 1, "name": _s(p.get("name")), "page": p.get("page"), "due": _s(p.get("due"))[:10] or None}
+              for i, p in enumerate(priorities or []) if _s(p.get("name"))]
 
     days: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
@@ -492,14 +511,31 @@ def plan(week: str, events: list[dict[str, Any]], today: Any, preferences: dict[
             }
         )
 
-    # rank 1 takes every other new focus block; the rest cycle in rank order
-    others = ranked[1:]
+    # a deadline pass first: what falls due this week gets a block before its due day
+    free_focus = list(range(len(new_focus)))
+    deadlines: list[dict[str, Any]] = []
+    for p in sorted([r for r in ranked if r.get("due")], key=lambda r: (_s(r["due"]), r["rank"])):
+        due = _s(p["due"])
+        before = [i for i in free_focus if new_focus[i]["date"] < due]
+        on_day = [i for i in free_focus if new_focus[i]["date"] == due]
+        pick = before[-1] if before else (on_day[-1] if on_day else (free_focus[0] if free_focus else None))
+        if pick is not None:
+            free_focus.remove(pick)
+            b = new_focus[pick]
+            b["priority"], b["page"] = p["name"], p["page"]
+            b["subject"] = f"{FOCUS_PREFIX} {p['name']}"
+        deadlines.append({"name": p["name"], "due": due, "page": p["page"],
+                          "block_date": new_focus[pick]["date"] if pick is not None else None})
+    # rank 1 takes every other new focus block left; the rest cycle in rank order
+    rest = [r for r in ranked if not r.get("due")] or ranked
+    others = rest[1:]
     k = 0
-    for i, b in enumerate(new_focus):
-        if not ranked:
+    for i, idx in enumerate(free_focus):
+        b = new_focus[idx]
+        if not rest:
             prio = None
         elif i % 2 == 0 or not others:
-            prio = ranked[0]
+            prio = rest[0]
         else:
             prio = others[k % len(others)]
             k += 1
@@ -507,7 +543,8 @@ def plan(week: str, events: list[dict[str, Any]], today: Any, preferences: dict[
         b["page"] = prio["page"] if prio else None
         b["subject"] = f"{FOCUS_PREFIX} {prio['name'] if prio else NO_PRIORITY}"
     placed = {wiki._norm(b["priority"]) for d in days for b in d["blocks"] if b["kind"] == "focus" and b["priority"]}
-    unplaced = [dict(p, reason="no focus block left this week") for p in ranked if wiki._norm(p["name"]) not in placed]
+    missed = {wiki._norm(d["name"]): f"no focus block before {d['due']}" for d in deadlines if d["block_date"] is None}
+    unplaced = [dict(p, reason=missed.get(wiki._norm(p["name"]), "no focus block left this week")) for p in ranked if wiki._norm(p["name"]) not in placed]
     focus_minutes = sum(b["minutes"] for d in days for b in d["blocks"] if b["kind"] == "focus")
     admin_minutes = sum(b["minutes"] for d in days for b in d["blocks"] if b["kind"] == "admin")
     kept = min((d["slack_minutes"] / d["work_minutes"] for d in days if d["work_minutes"]), default=None)
@@ -525,6 +562,7 @@ def plan(week: str, events: list[dict[str, Any]], today: Any, preferences: dict[
             "existing_blocks": sum(1 for d in days for b in d["blocks"] if b["existing"]),
             "slack_share_kept": round(kept, 2) if kept is not None else None,
         },
+        "deadlines": deadlines,
         "unplaced": unplaced,
         "skipped_days": skipped,
         "preferences_used": {k: prefs[k] for k in PLAN_KEYS},
@@ -538,7 +576,8 @@ def time_block_plan(week: str, events: list[dict[str, Any]], today: Optional[str
     root = store.vault_root()
     today_d = _parse_day(today, "today") if today else date.today()
     prefs = store.read_preferences()
-    return plan(week, events, today_d, prefs["preferences"], read_priorities(root, today_d), prefs["missing"], now=now, peak_hours=peak_hours)
+    week_end = _iso_week(week)[1]
+    return plan(week, events, today_d, prefs["preferences"], read_priorities(root, today_d, week_end), prefs["missing"], now=now, peak_hours=peak_hours)
 
 
 # ------------------------------------------------------------------ write

@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
 
 import pytest
@@ -253,7 +254,7 @@ def test_page_ops(vault):
     text = text_of(vault, path)
     assert "# Q3 budget round\n\nJane collects the numbers. The user owes the sales figures.\n" in text
     assert "## People\n\n- [[Wiki/People/Jane Doe]] — owns the forecast\n" in text
-    assert "## Open\n\n- [ ] Send Q3 numbers to Jane\n" in text
+    assert re.search(r'## Open\n\n- \[ \] Send Q3 numbers to Jane — owner: me <!-- o:[a-z2-7]{4} since:\d{4}-\d{2}-\d{2} src:"user" -->\n', text)
     assert "## Related\n\n- [[Wiki/Orgs/example-gmbh]]\n" in text
     # symmetric: the person lists the topic with the role, the org links back
     assert "## Topics\n\n- [[Wiki/Topics/q3-budget]] — owns the forecast\n" in text_of(vault, jane)
@@ -353,7 +354,8 @@ def test_ingest_records_history_two_way_link_and_candidates(vault):
 
 def test_candidates_threshold(vault):
     a = email(1, subject="Re: Offsite venue", received="2026-08-20T10:00:00+02:00")
-    assert wiki.ingest(a, [])["candidate"] == {"subject": "Offsite venue", "records": ["Emails/2026-08-20 Offsite venue"], "days": 1, "over_threshold": False, "page": None}
+    # the record's summary names a day ("by Friday"), so the model is told to propose a due date
+    assert wiki.ingest(a, [])["candidate"] == {"subject": "Offsite venue", "records": ["Emails/2026-08-20 Offsite venue"], "days": 1, "over_threshold": False, "page": None, "suggest_due": True}
     assert wiki.match("Offsite venue")["candidates"] == []
     b = email(2, subject="AW: Offsite venue", received="2026-08-20T15:00:00+02:00")
     assert wiki.ingest(b, [])["candidate"]["over_threshold"] is False  # two records, one day
@@ -554,7 +556,8 @@ def test_save_email_person_page_follows_contract(vault):
     wiki.apply(tp, [{"op": "open", "text": "Send numbers to Jane"}])
     ctx = workflows.prep_context("G|2026-08-25T13:00:00+02:00", "", ["jane.doe@example.com"], subject="Budget review Q3")
     assert [w["path"] for w in ctx["wiki"]] == [res["person_path"], tp]
-    assert ctx["wiki"][1]["lead"].startswith("Jane collects") and ctx["wiki"][1]["open"] == ["- [ ] Send numbers to Jane"]
+    assert ctx["wiki"][1]["lead"].startswith("Jane collects")
+    assert ctx["wiki"][1]["open"][0].startswith("- [ ] Send numbers to Jane — owner: me <!-- o:")
     assert ctx["wiki"][1]["facts"][0]["text"] == "Deadline is 2026-08-29" and len(ctx["wiki"][1]["facts"][0]["id"]) == 4
     # second mail: alias merged, last_contact forward, second Records line, index line updated
     mail2 = dict(mail, entry_id="00AB", internet_message_id="<n@example.com>", subject="Offsite", received="2026-08-23T10:00:00+02:00")
@@ -583,8 +586,19 @@ def test_server_wiki_tools_round_trip(vault):
     assert i["pages"][0]["applied"] == [{"op": "confirm", "id": fid}]
     a = call("vault_wiki_apply", {"path": c["path"], "ops": [{"op": "contest", "id": fid, "text": "Deadline is 2026-08-30"}]})
     assert a["applied"][0]["result"] == "review"
+    # the commitment ops through the tools
+    o = call("vault_wiki_apply", {"path": c["path"], "ops": [
+        {"op": "open", "text": "Send the numbers", "owner": "Jane Doe", "due": "2026-08-29", "since": "2026-08-22", "src": "user"}]})
+    oid = o["applied"][0]["id"]
+    assert o["applied"][0]["owner"] == "Jane Doe"
+    items = call("vault_wiki_search", {"query": "", "open_items": True, "owner": "others"})
+    assert [(x["stem"], x["text"], x["owner"], x["due"]) for x in items] == [("Wiki/Topics/q3-budget", "Send the numbers", "Jane Doe", "2026-08-29")]
+    assert call("vault_wiki_search", {"query": "", "open_items": True, "owner": "me"}) == []
+    assert call("vault_wiki_apply", {"path": c["path"], "ops": [{"op": "reschedule", "id": oid, "due": "2026-09-05", "src": "user"}]})["applied"][0]["due"] == "2026-09-05"
+    assert call("vault_wiki_apply", {"path": c["path"], "ops": [{"op": "done", "id": oid, "src": "user"}]})["applied"][0]["id"] == oid
+    assert call("vault_wiki_search", {"query": "", "open_items": True}) == []
     assert call("vault_wiki_match", {"text": "budget q3 numbers"})["pages"][0]["path"] == c["path"]
-    assert call("vault_wiki_log", {"page": "q3-budget"})["total"] == 3
+    assert call("vault_wiki_log", {"page": "q3-budget"})["total"] == 6
     assert len(call("vault_wiki_review", {})["open"]) == 1
     assert call("vault_wiki_review", {"action": "resolve", "item": "1"})["page"] == "Wiki/Topics/q3-budget"
     with pytest.raises(Exception):
@@ -720,3 +734,428 @@ def test_projects_group_lists_topics_with_a_due_soonest_first(vault):
     assert lines[0] == "- [[Wiki/Topics/acme-contract|Acme contract]] · Jane Doe · 2026-09-01 · active — Renewal."
     assert lines[1] == "- [[Wiki/Topics/office-move|Office move]] · — · 2026-12-01 · active"
     assert lines[2].startswith("- [[Wiki/Topics/reading-list|Reading list]] · active · ")
+
+
+# ------------------------------------------------------------------ commitments
+
+
+def test_open_lines_carry_owner_due_and_id_and_round_trip(vault):
+    path = topic(vault)
+    wiki.create("person", "Jane Doe", extra={"email": "jane.doe@example.com"})
+    r = wiki.apply(path, [
+        {"op": "open", "text": "Send Q3 numbers", "due": "2026-08-29", "since": "2026-08-22", "src": "<x1@example.com>"},
+        {"op": "open", "text": "Sign the contract", "owner": "[[Wiki/People/Jane Doe]]", "since": "2026-08-21", "src": "<x2@example.com>"},
+        {"op": "open", "text": "Book the room", "owner": "Tom Lee", "due": "2026-09-02", "since": "2026-08-20", "src": "<x3@example.com>"},
+    ])
+    assert r["refused"] == [] and [a["owner"] for a in r["applied"]] == ["me", "[[Wiki/People/Jane Doe]]", "Tom Lee"]
+    ids = [a["id"] for a in r["applied"]]
+    text = text_of(vault, path)
+    assert f'- [ ] Send Q3 numbers — owner: me · due: 2026-08-29 <!-- o:{ids[0]} since:2026-08-22 src:"<x1@example.com>" -->' in text
+    assert f'- [ ] Sign the contract — owner: [[Wiki/People/Jane Doe]] <!-- o:{ids[1]} since:2026-08-21 src:"<x2@example.com>" -->' in text
+    assert f'- [ ] Book the room — owner: Tom Lee · due: 2026-09-02 <!-- o:{ids[2]} since:2026-08-20 src:"<x3@example.com>" -->' in text
+    assert fm_of(vault, path)["open_items"] == 3
+    # read back and written again unchanged
+    page = wiki.parse_page(text, path)
+    assert [(o.id, o.text, o.owner, o.due, o.since, o.src, o.record, o.done) for o in page.opens] == [
+        (ids[0], "Send Q3 numbers", "me", "2026-08-29", "2026-08-22", ["<x1@example.com>"], "", False),
+        (ids[1], "Sign the contract", "[[Wiki/People/Jane Doe]]", "", "2026-08-21", ["<x2@example.com>"], "", False),
+        (ids[2], "Book the room", "Tom Lee", "2026-09-02", "2026-08-20", ["<x3@example.com>"], "", False),
+    ]
+    assert wiki.format_page(page) == text
+    assert page.opens[0].as_dict()["id"] == ids[0] and set(page.opens[0].as_dict()) == {
+        "id", "text", "owner", "due", "since", "src", "record", "done"}
+    # an item from a record names the record
+    rec = email(1)
+    wiki.ingest(rec, [{"path": path, "ops": [{"op": "open", "text": "Ask Jane for the sheet"}]}])
+    line = next(l for l in text_of(vault, path).split("\n") if "Ask Jane" in l)
+    assert " — [[Emails/2026-08-22 Budget Q3]] <!-- o:" in line and "owner: me" in line
+
+
+def test_open_refusals_and_duplicates(vault):
+    path = topic(vault)
+    wiki.apply(path, [{"op": "open", "text": "Send Q3 numbers", "src": "<m1@example.com>"}])
+    r = wiki.apply(path, [
+        {"op": "open", "text": "send  q3 NUMBERS.", "src": "<other@example.com>"},   # same text
+        {"op": "open", "text": "Something else", "src": "<m1@example.com>"},         # same source
+        {"op": "open", "text": "Bad owner", "owner": "Wiki/People/Nobody"},
+        {"op": "open", "text": "Bad owner", "owner": "Tom · Lee"},
+        {"op": "open", "text": "Bad date", "due": "soon"},
+    ])
+    assert [x["reason"] for x in r["refused"]] == ["duplicate", "duplicate", "no-such-page", "bad-owner", "bad-date"]
+    # "user" is not a record: two things the user said are two items
+    r = wiki.apply(path, [{"op": "open", "text": "Call the bank", "src": "user"}, {"op": "open", "text": "Call the office", "src": "user"}])
+    assert r["refused"] == [] and len(r["applied"]) == 2
+
+
+def test_an_open_item_only_goes_on_a_page_that_has_the_section(vault):
+    """org and howto pages have no ## Open in the contract; an item there would
+    sit under a heading lint calls unknown."""
+    org = wiki.create("org", "Example GmbH", created_by=CB)["path"]
+    how = wiki.create("howto", "Book a room", created_by=CB)["path"]
+    for path in (org, how):
+        r = wiki.apply(path, [{"op": "open", "text": "Send the contract", "src": "user"}])
+        assert r["applied"] == [] and r["refused"][0]["reason"] == "wrong-type"
+        assert "no Open section" in r["refused"][0]["detail"]
+        assert "## Open" not in text_of(vault, path)
+
+
+def test_read_answers_with_the_open_and_milestone_lines(vault):
+    path = topic(vault)
+    wiki.apply(path, [{"op": "open", "text": "Send Q3 numbers", "due": "2026-08-29", "src": "user"},
+                      {"op": "milestone", "text": "Draft ready", "due": "2026-08-26", "src": "user"}])
+    out = wiki.read(path, sections=["lead", "facts", "open", "milestones"])
+    oid = wiki.commitments(vault, page="Wiki/Topics/q3-budget")[0]["id"]
+    assert f"<!-- o:{oid} " in out["sections"]["Open"] and "Send Q3 numbers" in out["sections"]["Open"]
+    assert "Draft ready" in out["sections"]["Milestones"] and "<!-- m:" in out["sections"]["Milestones"]
+
+
+def test_done_and_reschedule(vault):
+    path = topic(vault)
+    r = wiki.apply(path, [{"op": "open", "text": "Send Q3 numbers", "due": "2026-08-29", "since": "2026-08-22", "src": "<m1@example.com>"}])
+    oid = r["applied"][0]["id"]
+    r2 = wiki.apply(path, [{"op": "reschedule", "id": oid, "due": "2026-09-05", "src": "user"}])
+    assert r2["refused"] == [] and r2["applied"][0]["due"] == "2026-09-05"
+    text = text_of(vault, path)
+    assert 'rescheduled "Send Q3 numbers" 2026-08-29 → 2026-09-05 (user)' in text and "due: 2026-09-05" in text
+    assert wiki.apply(path, [{"op": "done", "id": "zzzz", "src": "user"}])["refused"][0]["reason"] == "unknown-id"
+    r3 = wiki.apply(path, [{"op": "done", "id": oid, "src": "user"}])
+    assert r3["applied"][0] == {"op": "done", "id": oid, "text": "Send Q3 numbers"}
+    text = text_of(vault, path)
+    assert "- [ ] Send Q3 numbers" not in text and fm_of(vault, path)["open_items"] == 0
+    assert '— done "Send Q3 numbers" — owner: me · since 2026-08-22 (user)' in text
+
+
+def test_old_open_lines_are_upgraded_on_the_next_write(vault):
+    path = topic(vault)
+    p = vault / path
+    p.write_text(text_of(vault, path).replace("## Open\n", "## Open\n\n- [ ] Send the numbers — [[Emails/2026-08-22 Budget Q3]]\n- plain words nobody ticked\n"), encoding="utf-8")
+    wiki.apply(path, [])
+    line = next(l for l in text_of(vault, path).split("\n") if l.startswith("- [ ] Send"))
+    assert re.match(r'^- \[ \] Send the numbers — owner: me — \[\[Emails/2026-08-22 Budget Q3\]\] <!-- o:[a-z2-7]{4} since:\d{4}-\d{2}-\d{2} src:"user" -->$', line)
+    assert "- plain words nobody ticked" in text_of(vault, path)  # nothing is lost
+    assert fm_of(vault, path)["open_items"] == 1
+
+
+def test_milestones_are_kept_like_open_items_and_tick_to_history(vault):
+    path = topic(vault)
+    p = vault / path
+    p.write_text(text_of(vault, path).replace("## Milestones\n", "## Milestones\n\n- [ ] Draft ready — due: 2026-09-01\n"), encoding="utf-8")
+    wiki.apply(path, [])
+    line = next(l for l in text_of(vault, path).split("\n") if l.startswith("- [ ] Draft ready"))
+    assert re.match(r'^- \[ \] Draft ready — due: 2026-09-01 <!-- m:[a-z2-7]{4} since:\d{4}-\d{2}-\d{2} src:"user" -->$', line)
+    assert fm_of(vault, path)["open_items"] == 0  # milestones are not open items
+    p.write_text(text_of(vault, path).replace("- [ ] Draft ready", "- [x] Draft ready"), encoding="utf-8")
+    wiki.apply(path, [])
+    text = text_of(vault, path)
+    assert "- [x] Draft ready" not in text and '— milestone reached "Draft ready" (user)' in text
+
+
+def test_commitments_filters(vault):
+    tp = topic(vault)
+    jane = wiki.create("person", "Jane Doe", extra={"email": "jane.doe@example.com"})["path"]
+    wiki.apply(tp, [
+        {"op": "open", "text": "Send Q3 numbers", "due": "2026-08-29", "since": "2026-08-22", "src": "a"},
+        {"op": "open", "text": "Sign the contract", "owner": "[[Wiki/People/Jane Doe]]", "since": "2026-08-20", "src": "b"},
+    ])
+    wiki.apply(jane, [{"op": "open", "text": "Tell Jane the date", "due": "2026-09-10", "since": "2026-08-21", "src": "c"}])
+    all_of_them = wiki.commitments(vault)
+    assert [(c["stem"], c["text"]) for c in all_of_them] == [
+        ("Wiki/Topics/q3-budget", "Sign the contract"),
+        ("Wiki/People/Jane Doe", "Tell Jane the date"),
+        ("Wiki/Topics/q3-budget", "Send Q3 numbers"),
+    ]  # oldest since first
+    assert set(all_of_them[0]) == {"page", "stem", "type", "title", "owner_name", "id", "text", "owner", "due", "since", "src", "record", "done"}
+    assert all_of_them[0]["page"] == f"{W}/Topics/q3-budget.md" and all_of_them[0]["owner_name"] == "Jane Doe"
+    assert [c["text"] for c in wiki.commitments(vault, owner="me")] == ["Tell Jane the date", "Send Q3 numbers"]
+    assert [c["text"] for c in wiki.commitments(vault, owner="others")] == ["Sign the contract"]
+    assert [c["text"] for c in wiki.commitments(vault, due_before="2026-08-29")] == []
+    assert [c["text"] for c in wiki.commitments(vault, due_before="2026-08-30")] == ["Send Q3 numbers"]
+    assert [c["text"] for c in wiki.commitments(vault, page="Wiki/People/Jane Doe")] == ["Tell Jane the date"]
+    assert len(wiki.commitments(vault, limit=1)) == 1
+    with pytest.raises(store.VaultError):
+        wiki.commitments(vault, owner="somebody")
+    # done items are left out unless asked for
+    oid = next(c["id"] for c in all_of_them if c["text"] == "Sign the contract")
+    wiki.apply(tp, [{"op": "done", "id": oid, "src": "user"}])
+    assert [c["text"] for c in wiki.commitments(vault, owner="others")] == []
+
+
+def test_follow_ups_is_written_from_the_pages(vault):
+    fu = "Administrator/Follow-ups.md"
+    head = fm_of(vault, fu)
+    assert head["type"] == "followups" and head["source"] == "wiki" and head["generated"] is True
+    jane = wiki.create("person", "Jane Doe", extra={"email": "jane.doe@example.com"})["path"]
+    rec = email(1)
+    wiki.ingest(rec, [{"path": jane, "ops": [
+        {"op": "open", "text": "Send the signed contract", "owner": "[[Wiki/People/Jane Doe]]", "since": "2026-08-22"},
+        {"op": "open", "text": "Book the room"},
+    ]}])
+    text = text_of(vault, fu)
+    assert "Generated from the Open items of the wiki pages" in text
+    assert "| Since | Who | What | Email | Last checked |" in text and "| Since | Who | What | Email | Closed |" in text
+    open_part, done_part = text.split("## Open")[1].split("## Done")
+    row = next(l for l in open_part.split("\n") if "Send the signed" in l)
+    cells = store._cells(row)
+    assert cells[:4] == ["2026-08-22", "[[Wiki/People/Jane Doe]]", "Send the signed contract", "[[Emails/2026-08-22 Budget Q3]]"]
+    assert re.match(r"^\d{4}-\d{2}-\d{2} <!-- o: [a-z2-7]{4} @ Wiki/People/Jane Doe -->$", cells[4])
+    assert "Book the room" not in open_part  # owner me
+    assert fm_of(vault, fu)["open"] == 1
+    # ticking it moves it to Done
+    oid = wiki.commitments(vault, owner="others")[0]["id"]
+    wiki.apply(jane, [{"op": "done", "id": oid, "src": "user"}])
+    text = text_of(vault, fu)
+    open_part, done_part = text.split("## Open")[1].split("## Done")
+    assert "Send the signed contract" not in open_part
+    done = store._cells(next(l for l in done_part.split("\n") if "Send the signed" in l))
+    assert done[:3] == ["2026-08-22", "[[Wiki/People/Jane Doe]]", "Send the signed contract"] and done[4] == wiki._today()
+    assert fm_of(vault, fu)["open"] == 0
+
+
+# ------------------------------------------------------------------ decisions and project fields
+
+
+def jane(vault):
+    return wiki.create("person", "Jane Doe", extra={"email": "jane.doe@example.com"})["path"]
+
+
+def decision(vault, title="Ship on the new stack", **kw):
+    args = dict(
+        type="decision", title=title, lead="We go with the new stack for the rebuild.", summary="New stack for the rebuild.",
+        facts=[{"text": "The rebuild runs on the new stack", "since": "2026-08-22", "src": "<m1@example.com>"}],
+        extra={"decided": "2026-08-22", "by": ["[[Wiki/People/Jane Doe]]"]},
+    )
+    args.update(kw)
+    res = wiki.create(**args)
+    assert res["created"], res
+    return res["path"]
+
+
+def test_decision_page_is_created_flagged_and_listed_in_review(vault):
+    jane(vault)
+    path = decision(vault)
+    assert path == f"{W}/Decisions/ship-on-the-new-stack.md"
+    fm = fm_of(vault, path)
+    assert fm["type"] == "decision" and fm["status"] == "current" and fm["decided"] == "2026-08-22"
+    assert fm["by"] == ["[[Wiki/People/Jane Doe]]"] and fm["flags"] == ["unconfirmed-decision"]
+    assert list(fm).index("decided") > list(fm).index("status") and list(fm).index("by") > list(fm).index("decided")
+    heads = [l[3:] for l in text_of(vault, path).split("\n") if l.startswith("## ")]
+    assert heads == list(wiki.SECTIONS["decision"]) and "Milestones" not in heads
+    line = '- [ ] [[Wiki/Decisions/ship-on-the-new-stack]] — unconfirmed decision: "The rebuild runs on the new stack" — confirm or drop (user)'
+    assert any(o["text"] == line for o in wiki.review("list")["open"])
+    assert wiki.CAPS["decision"] == (60, 3000)
+    # the people who decided are linked both ways, so the page is not an orphan
+    assert "- [[Wiki/People/Jane Doe]] — decided" in text_of(vault, path)
+    assert "[[Wiki/Decisions/ship-on-the-new-stack]]" in text_of(vault, f"{W}/People/Jane Doe.md")
+
+
+def test_decision_create_needs_a_date_and_people_who_have_a_page(vault):
+    jane(vault)
+    for extra in (
+        {"by": ["[[Wiki/People/Jane Doe]]"]},                                  # no decided
+        {"decided": "soon", "by": ["[[Wiki/People/Jane Doe]]"]},               # not a date
+        {"decided": "2026-08-22"},                                             # no by
+        {"decided": "2026-08-22", "by": ["[[Wiki/People/Nobody]]"]},           # no such page
+    ):
+        with pytest.raises(store.VaultError):
+            wiki.create("decision", "Ship on the new stack", extra=extra)
+    assert not list((vault / W / "Decisions").glob("*.md"))
+
+
+def test_a_decision_is_added_to_never_rewritten(vault):
+    jane(vault)
+    path = decision(vault)
+    fid = wiki.read(path)["facts"][0]["id"]
+    refused = wiki.apply(path, [
+        {"op": "add", "text": "Something else", "src": "user"},
+        {"op": "update", "id": fid, "text": "Other wording", "src": "user"},
+        {"op": "supersede", "id": fid, "text": "Other stack", "since": "2026-08-25", "src": "user"},
+        {"op": "retire", "id": fid, "reason": "wrong", "src": "user"},
+        {"op": "contest", "id": fid, "text": "Not so", "src": "user"},
+        {"op": "due", "value": "2026-09-01"},
+        {"op": "outcome", "text": "Shipped"},
+        {"op": "milestone", "text": "Kick-off", "src": "user"},
+        {"op": "risk", "text": "The licence", "src": "user"},
+        {"op": "link", "url": "https://example.com"},
+        {"op": "steps", "text": "1. do it"},
+        {"op": "status", "value": "superseded"},
+    ])["refused"]
+    assert [x["reason"] for x in refused] == ["append-only"] * 12
+    assert "new decision" in refused[0]["detail"]
+    assert wiki.read(path)["facts"] == [{"id": fid, "text": "The rebuild runs on the new stack", "since": "2026-08-22", "src": ["<m1@example.com>"]}]
+    ok = wiki.apply(path, [
+        {"op": "summary", "text": "The rebuild runs on the new stack."},
+        {"op": "lead", "text": "We go with the new stack, decided in the August review."},
+        {"op": "alias", "text": "Stack choice"},
+        {"op": "reversal", "text": "A licence problem with the new stack would reopen it."},
+        {"op": "confirm", "id": fid, "src": "<m2@example.com>"},
+        {"op": "open", "text": "Tell the team", "src": "user"},
+        {"op": "related", "page": "Wiki/People/Jane Doe"},
+    ])
+    assert ok["refused"] == [] and len(ok["applied"]) == 7
+    fm = fm_of(vault, path)
+    assert fm["reversal"] == "A licence problem with the new stack would reopen it." and fm["status"] == "current"
+    assert wiki.apply(path, [{"op": "reversal", "text": "x" * 161}])["refused"][0]["reason"] == "reversal-too-long"
+
+
+def test_a_decision_holds_at_most_eight_facts(vault):
+    jane(vault)
+    facts = [{"text": f"Consequence number {i}", "since": "2026-08-22", "src": "<m1@example.com>"} for i in range(9)]
+    res = wiki.create("decision", "Ship on the new stack", facts=facts, extra={"decided": "2026-08-22", "by": ["[[Wiki/People/Jane Doe]]"]})
+    assert len(res["applied"]) == 8 and res["refused"][0]["reason"] == "facts-cap" and res["refused"][0]["max_facts"] == 8
+
+
+def test_superseded_by_sets_the_status_and_links_both_ways(vault):
+    jane(vault)
+    old = decision(vault)
+    new = decision(vault, title="Ship on the old stack", extra={"decided": "2026-09-01", "by": ["[[Wiki/People/Jane Doe]]"]})
+    r = wiki.apply(old, [{"op": "superseded_by", "page": new, "src": "user"}])
+    assert r["refused"] == [] and r["applied"][0] == {"op": "superseded_by", "page": "Wiki/Decisions/ship-on-the-old-stack"}
+    fm = fm_of(vault, old)
+    assert fm["status"] == "superseded" and fm["superseded_by"] == "[[Wiki/Decisions/ship-on-the-old-stack]]"
+    assert "— superseded by [[Wiki/Decisions/ship-on-the-old-stack]] (user)" in text_of(vault, old)
+    assert "- [[Wiki/Decisions/ship-on-the-old-stack]]" in text_of(vault, old)
+    assert "- [[Wiki/Decisions/ship-on-the-new-stack]]" in text_of(vault, new)
+    tp = topic(vault)
+    assert wiki.apply(new, [{"op": "superseded_by", "page": tp, "src": "user"}])["refused"][0]["reason"] == "wrong-type"
+    assert wiki.apply(tp, [{"op": "superseded_by", "page": new, "src": "user"}])["refused"][0]["reason"] == "wrong-type"
+
+
+def test_dropped_is_the_only_status_and_only_from_the_user(vault):
+    jane(vault)
+    path = decision(vault)
+    rec = email(1)
+    res = wiki.ingest(rec, [{"path": path, "ops": [{"op": "status", "value": "dropped"}]}])
+    assert res["pages"][0]["refused"][0]["reason"] == "append-only"
+    r = wiki.apply(path, [{"op": "status", "value": "dropped"}])
+    assert r["refused"] == [] and fm_of(vault, path)["status"] == "dropped"
+    assert wiki.apply(path, [{"op": "status", "value": "closed"}])["refused"][0]["reason"] == "append-only"
+
+
+def test_a_decision_is_confirmed_by_resolving_the_review_line_or_by_ticking_it(vault):
+    jane(vault)
+    path = decision(vault)
+    fid = wiki.read(path)["facts"][0]["id"]
+    wiki.review("resolve", "ship-on-the-new-stack", [{"op": "confirm", "id": fid, "src": "user"}])
+    assert fm_of(vault, path)["flags"] == []
+    other = decision(vault, title="Move the office", extra={"decided": "2026-08-24", "by": ["[[Wiki/People/Jane Doe]]"]})
+    assert fm_of(vault, other)["flags"] == ["unconfirmed-decision"]
+    p = vault / wiki.REVIEW_PATH
+    p.write_text(p.read_text(encoding="utf-8").replace("- [ ] [[Wiki/Decisions/move-the-office]]", "- [x] [[Wiki/Decisions/move-the-office]]"), encoding="utf-8")
+    out = wiki.ingest(email(2), [])
+    assert out["confirmed_decisions"] == ["Wiki/Decisions/move-the-office"]
+    assert fm_of(vault, other)["flags"] == [] and "— decision confirmed (user)" in text_of(vault, other)
+    assert not any("move-the-office" in o["text"] for o in wiki.review("list")["open"])
+    assert "— confirmed " in text_of(vault, wiki.REVIEW_PATH).split("## Done")[1]
+
+
+def test_decisions_and_people_link_through_topics_and_people(vault):
+    assert wiki._section_for("decision", "person") == "People"
+    assert wiki._section_for("person", "decision") == "Topics"
+    assert wiki._section_for("org", "decision") == "Topics"
+    person = jane(vault)
+    path = decision(vault)
+    r = wiki.apply(path, [{"op": "role", "page": "Wiki/People/Jane Doe", "role": "decided it", "src": "user"}])
+    assert r["applied"][0] == {"op": "role", "page": "Wiki/People/Jane Doe", "section": "People"}
+    assert "- [[Wiki/People/Jane Doe]] — decided it" in text_of(vault, path)
+    topics = text_of(vault, person).split("## Topics")[1].split("## ")[0]
+    assert "- [[Wiki/Decisions/ship-on-the-new-stack]] — decided it" in topics
+
+
+def test_a_decision_is_never_merged(vault):
+    from administrator_vault import wiki_lint
+
+    jane(vault)
+    path = decision(vault)
+    other = decision(vault, title="Move the office", extra={"decided": "2026-08-24", "by": ["[[Wiki/People/Jane Doe]]"]})
+    with pytest.raises(store.VaultError):
+        wiki_lint.merge(path, other)
+    with pytest.raises(store.VaultError):
+        wiki_lint.merge(topic(vault), other)
+
+
+def test_index_lists_projects_then_decisions_then_topics(vault):
+    jane(vault)
+    decision(vault)
+    project = topic(vault, title="Acme contract", aliases=[], summary="Renewal.")
+    wiki.apply(project, [{"op": "due", "value": "2026-09-01"}, {"op": "owner", "value": "[[Wiki/People/Jane Doe]]"}])
+    topic(vault, title="Reading list", aliases=[], summary="Things to read.")
+    body = text_of(vault, f"{W}/Index.md").split("# Wiki index\n\n")[1]
+    assert body.index("## Projects (1)") < body.index("## Decisions (1)") < body.index("## Topics (1)") < body.index("## People (1)")
+    assert "- [[Wiki/Decisions/ship-on-the-new-stack|Ship on the new stack]] · current · 2026-08-22 — New stack for the rebuild." in body
+
+
+def test_topic_project_ops_and_their_caps(vault):
+    path = topic(vault)
+    email(1)
+    r = wiki.apply(path, [
+        {"op": "outcome", "text": "The forecast closes with the sales numbers in."},
+        {"op": "milestone", "text": "Draft ready", "due": "2026-09-01", "src": "user"},
+        {"op": "risk", "text": "The sales numbers may be late", "src": "user"},
+        {"op": "link", "url": "https://example.com/sheet", "label": "The sheet"},
+        {"op": "link", "page": "Emails/2026-08-22 Budget Q3", "label": "Jane's mail"},
+    ])
+    assert r["refused"] == [] and r["applied"][1]["due"] == "2026-09-01"
+    fm = fm_of(vault, path)
+    assert fm["outcome"] == "The forecast closes with the sales numbers in."
+    assert fm["risks"] == ["The sales numbers may be late"]
+    assert fm["links"] == ["[The sheet](https://example.com/sheet)", "[[Emails/2026-08-22 Budget Q3|Jane's mail]]"]
+    text = text_of(vault, path)
+    assert "- [ ] Draft ready — due: 2026-09-01 <!-- m:" in text
+    assert '— risk added "The sales numbers may be late" (user)' in text
+    again = wiki.apply(path, [
+        {"op": "milestone", "text": "draft READY", "src": "user"},
+        {"op": "risk", "text": "The sales numbers may be late.", "src": "user"},
+        {"op": "link", "url": "https://example.com/sheet", "label": "The sheet"},
+        {"op": "outcome", "text": "x" * 161},
+        {"op": "risk", "text": "y" * 81, "src": "user"},
+        {"op": "link", "page": "Emails/nothing here", "label": "Gone"},
+    ])
+    assert [x["reason"] for x in again["refused"]] == ["duplicate", "duplicate", "duplicate", "outcome-too-long", "risk-too-long", "no-such-page"]
+    more = wiki.apply(path, [{"op": "risk", "text": f"Risk number {i}", "src": "user"} for i in range(9)])
+    assert [x["reason"] for x in more["refused"]] == ["risks-cap"] * 2 and len(fm_of(vault, path)["risks"]) == 8
+    more = wiki.apply(path, [{"op": "link", "url": f"https://example.com/{i}"} for i in range(10)])
+    assert [x["reason"] for x in more["refused"]] == ["links-cap"] * 2 and len(fm_of(vault, path)["links"]) == 10
+
+
+def test_the_project_ops_are_only_for_topics(vault):
+    person = jane(vault)
+    r = wiki.apply(person, [
+        {"op": "outcome", "text": "Done"},
+        {"op": "milestone", "text": "Kick-off", "src": "user"},
+        {"op": "risk", "text": "Late", "src": "user"},
+        {"op": "link", "url": "https://example.com"},
+    ])
+    assert [x["reason"] for x in r["refused"]] == ["wrong-type"] * 4
+    assert wiki.apply(topic(vault), [{"op": "reversal", "text": "x"}])["refused"][0]["reason"] == "wrong-type"
+
+
+def test_prep_pages_takes_decisions_with_the_topics(vault):
+    jane(vault)
+    decision(vault, title="Budget tool choice", summary="We use the sheet.")
+    project = topic(vault, title="Budget round", aliases=[], summary="The round.")
+    wiki.apply(project, [{"op": "due", "value": "2026-09-01"}])
+    rows = wiki.prep_pages(vault, [], "Budget tool choice", topics_max=3)
+    stems = [wiki._stem(r["path"]) for r in rows]
+    assert "Wiki/Decisions/budget-tool-choice" in stems
+    assert rows[0]["type"] in ("topic", "decision")
+
+
+def test_a_decision_can_come_from_an_ingest_with_its_facts(vault):
+    jane(vault)
+    rec = email(1, subject="Rebuild stack", summary="We agreed to go with the new stack.")
+    out = wiki.ingest(rec, [{
+        "new": {"type": "decision", "title": "New stack", "lead": "We go with the new stack.", "summary": "New stack.",
+                "decided": "2026-08-22", "by": ["[[Wiki/People/Jane Doe]]"]},
+        "ops": [{"op": "add", "text": "The rebuild runs on the new stack"},
+                {"op": "open", "text": "Tell the team", "owner": "[[Wiki/People/Jane Doe]]"}],
+    }])
+    page = out["pages"][0]
+    assert page["written"] is True and [a["op"] for a in page["applied"]] == ["add", "open"]
+    fm = fm_of(vault, page["path"])
+    assert fm["status"] == "current" and fm["flags"] == ["unconfirmed-decision"] and fm["decided"] == "2026-08-22"
+    # the Review line quotes the first fact, which arrived with the ops
+    line = '- [ ] [[Wiki/Decisions/new-stack]] — unconfirmed decision: "The rebuild runs on the new stack" — confirm or drop ([[Emails/2026-08-22 Rebuild stack]])'
+    assert any(o["text"] == line for o in wiki.review("list")["open"])
+    # a later record may not rewrite it
+    r2 = wiki.ingest(email(2), [{"path": page["path"], "ops": [{"op": "add", "text": "Something else"}]}])
+    assert r2["pages"][0]["refused"][0]["reason"] == "append-only"

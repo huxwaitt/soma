@@ -1,7 +1,7 @@
 """The wiki: pages the model keeps next to the records (``Administrator/Wiki/``).
 
 Python form of PLAN-wiki.md §2–§7 and ``skills/wiki/references/wiki.md`` in the
-administrator plugin. Five page types (person, org, topic, howto, me), one
+administrator plugin. Six page types (person, org, topic, decision, howto, me), one
 fixed section contract, facts as keyed bullets with a hidden comment, four
 fact operations plus page operations, size caps that refuse writes, a
 generated Index.md / Log.md / Review.md, one write lock, atomic writes.
@@ -39,36 +39,70 @@ CACHE_DIR = f"{WIKI_DIR}/_cache"
 CANDIDATES_PATH = f"{CACHE_DIR}/candidates.json"
 PREV_DIR = f"{CACHE_DIR}/prev"  # the text of each page as it was before the last write
 
-TYPES = ("person", "org", "topic", "howto", "me")
-TYPE_FOLDER = {"person": "People", "org": "Orgs", "topic": "Topics", "howto": "Howto", "me": ""}
-TYPE_HEADING = {"topic": "Topics", "person": "People", "org": "Orgs", "howto": "Howto", "me": "Me"}
-INDEX_ORDER = ("topic", "person", "org", "howto", "me")
+TYPES = ("person", "org", "topic", "decision", "howto", "me")
+TYPE_FOLDER = {"person": "People", "org": "Orgs", "topic": "Topics", "decision": "Decisions", "howto": "Howto", "me": ""}
+TYPE_HEADING = {"topic": "Topics", "decision": "Decisions", "person": "People", "org": "Orgs", "howto": "Howto", "me": "Me"}
+INDEX_ORDER = ("topic", "decision", "person", "org", "howto", "me")
+# the index groups in the order they are written: a topic with a due date is a
+# project, and the decisions come between the projects and the other topics
+INDEX_BODY_ORDER = (
+    "topic/Projects", "decision", "decision/Decisions", "topic", "topic/Topics",
+    "person", "person/People", "org", "org/Orgs", "howto", "howto/Howto", "me", "me/Me",
+)
 SECTIONS = {
-    "topic": ("Facts", "People", "Open", "Records", "Related", "History", "Notes"),
+    "topic": ("Facts", "Milestones", "People", "Open", "Records", "Related", "History", "Notes"),
     "person": ("Facts", "Topics", "Open", "Records", "Related", "History", "Notes"),
     "org": ("Facts", "Contacts", "Topics", "Records", "Related", "History", "Notes"),
+    "decision": ("Facts", "People", "Open", "Records", "Related", "History", "Notes"),
     "howto": ("Steps", "Facts", "Records", "Related", "History", "Notes"),
-    "me": ("Facts", "Related", "History", "Notes"),
+    "me": ("Facts", "Open", "Related", "History", "Notes"),
 }
+# the sections whose lines are items with a checkbox and a hidden comment, and the letter their id carries
+ITEM_SECTIONS = {"Open": "o", "Milestones": "m"}
 # (page type, linked page type) -> section that lists the link with a role
 LINK_SECTION = {
     ("topic", "person"): "People",
     ("person", "topic"): "Topics",
     ("org", "person"): "Contacts",
     ("org", "topic"): "Topics",
+    ("decision", "person"): "People",
+    ("person", "decision"): "Topics",  # a person page lists topics and decisions in one section
+    ("org", "decision"): "Topics",
 }
 CODE_OWNED = ("created", "updated", "verified", "sources", "open_items", "flags", "id")
 KEY_ORDER = (
     "type", "id", "title", "name", "email", "aliases", "domains", "summary", "status", "owner", "org", "due",
+    "outcome", "decided", "by", "superseded_by", "reversal", "options_rejected", "links", "risks",
     "last_contact", "last_done", "created", "updated", "verified", "sources", "open_items", "flags", "created_by",
 )
 STATUSES = ("active", "dormant", "closed", "draft")
+# the statuses a page type allows; the first one is what a page with a lead gets
+STATUSES_BY_TYPE = {
+    "topic": ("active", "at-risk", "blocked", "closed", "dormant", "draft"),
+    "decision": ("current", "superseded", "dropped", "draft"),
+}
+LIVE_STATUSES = ("active", "at-risk", "blocked")  # a topic still being worked on
 FACT_OPS = ("add", "update", "supersede", "confirm", "retire", "contest")
-PAGE_OPS = ("lead", "summary", "status", "title", "alias", "related", "role", "open", "steps", "due", "owner", "org")
+PAGE_OPS = (
+    "lead", "summary", "status", "title", "alias", "related", "role", "open", "done", "reschedule", "steps",
+    "due", "owner", "org", "outcome", "milestone", "risk", "link", "superseded_by", "reversal",
+)
 NO_SRC_OPS = ("lead", "summary", "title", "related", "role")
+# what a decision page refuses after it was created: it is added to, never rewritten
+APPEND_ONLY_OPS = ("add", "update", "supersede", "retire", "contest", "due", "steps", "outcome", "milestone", "risk", "link")
+APPEND_ONLY_HINT = (
+    "A decision page is never rewritten. Write a new decision and link it with superseded_by, "
+    "or put what changed on the topic page."
+)
 
-CAPS = {"person": (80, 4000), "org": (80, 4000), "howto": (80, 4000), "topic": (120, 6000), "me": (80, 4000)}
+CAPS = {"person": (80, 4000), "org": (80, 4000), "howto": (80, 4000), "topic": (120, 6000), "decision": (60, 3000), "me": (80, 4000)}
 FACTS_MAX = 25
+FACTS_MAX_BY_TYPE = {"decision": 8}
+OUTCOME_CHARS = 160
+REVERSAL_CHARS = 160
+RISK_CHARS = 80
+RISKS_MAX = 8
+LINKS_MAX = 10
 FACT_WORDS = 25
 LEAD_WORDS = 80
 SUMMARY_CHARS = 160
@@ -93,9 +127,27 @@ _QUOTED_RE = re.compile(r'"((?:[^"\\]|\\.)*)"')
 _RECORD_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2}) — \[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
 _LINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
 _LINK_LINE_RE = re.compile(r"^- \[\[([^\]|]+)(?:\|[^\]]*)?\]\](?: — (.*))?$")
-_CHECKED_RE = re.compile(r"^\s*- \[x\] (.*)$", re.IGNORECASE)
-_UNCHECKED_RE = re.compile(r"^\s*- \[ \] ")
+# - [ ] <text> — owner: me | [[page]] | <name> · due: YYYY-MM-DD — [[record]] <!-- o:<id> since:<date> src:"…" -->
+_ITEM_RE = re.compile(
+    r"^\s*- \[(?P<tick>[ xX])\] (?P<body>.*?)"
+    r"(?:\s*<!--\s*[om]:(?P<id>[a-z2-7]{4})\s+since:(?P<since>\S+)\s+src:(?P<src>.*?)\s*-->)?\s*$"
+)
+_ITEM_REC_RE = re.compile(r" — \[\[(?P<rec>[^\]|]+)(?:\|[^\]]*)?\]\]$")
+_ITEM_META_RE = re.compile(
+    r" — (?:owner: (?P<owner>\[\[[^\]]+\]\]|[^·—<\[]+?)(?: · due: (?P<owner_due>\d{4}-\d{2}-\d{2}))?"
+    r"|due: (?P<due>\d{4}-\d{2}-\d{2}))$"
+)
+_OWNER_BAD = ("·", "—", "<", "[", "]")
+_URL_RE = re.compile(r"^https?://\S+$", re.IGNORECASE)
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}")
+# a day named in a record summary: an ISO date, a written date, or a weekday
+_DATE_TOKEN_RE = re.compile(
+    r"\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}\.\d{1,2}\.(?:\d{2,4})?|"
+    r"\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? ?\d{1,2}\b|"
+    r"\b\d{1,2}\.? ?(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b|"
+    r"\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|today|tomorrow)\b",
+    re.IGNORECASE,
+)
 _LOG_RE = re.compile(r"^- \[([^\]]+)\] (\S+) \| (\S+) \| (.*)$")
 _CHAT_LINE_RE = re.compile(r"^- \d{2}:\d{2} \*\*(.+?)\*\*: (.*?)\s*(?:<!--.*?-->)?\s*$")
 _STOP = {"re", "fw", "aw", "wg", "of", "a", "an", "in", "on", "to", "the", "and", "for", "with", "from", "about", "into", "your", "our", "this", "that", "are", "was", "is"}
@@ -261,6 +313,11 @@ def _check_date(value: Any, what: str) -> str:
     return s[:10]
 
 
+def _statuses(page_type: str) -> tuple[str, ...]:
+    """The statuses one page type allows (topics and decisions have their own)."""
+    return STATUSES_BY_TYPE.get(_s(page_type), STATUSES)
+
+
 def _refuse_code_owned(data: dict[str, Any]) -> None:
     bad = [k for k in CODE_OWNED if k in (data or {})]
     if bad:
@@ -323,12 +380,51 @@ class Fact:
 
 
 @dataclass
+class OpenItem:
+    """One line of ``## Open`` (a commitment) or of ``## Milestones``.
+
+    ``owner`` says who does it: ``me``, a ``[[Wiki/People/…]]`` link or a plain
+    name; milestones have none. ``raw`` holds a line under the heading that is
+    not a checkbox, so nothing a person wrote there is lost."""
+
+    id: Optional[str]
+    text: str
+    owner: Optional[str] = None
+    due: str = ""
+    since: str = ""
+    src: list[str] = field(default_factory=list)
+    record: str = ""
+    done: bool = False
+    prefix: str = "o"  # the letter the hidden comment carries: o for Open, m for Milestones
+    raw: str = ""
+
+    def line(self) -> str:
+        if self.raw:
+            return self.raw
+        out = f"- [{'x' if self.done else ' '}] {self.text}"
+        meta = ([f"owner: {self.owner}"] if self.owner else []) + ([f"due: {self.due}"] if self.due else [])
+        if meta:
+            out += " — " + " · ".join(meta)
+        if self.record:
+            out += f" — [[{self.record}]]"
+        if self.id:
+            out += f" <!-- {self.prefix}:{self.id} since:{self.since} src:{_format_src(self.src)} -->"
+        return out
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"id": self.id, "text": self.text, "owner": self.owner, "due": self.due, "since": self.since,
+                "src": list(self.src), "record": self.record, "done": self.done}
+
+
+@dataclass
 class Page:
     path: str
     fm: dict[str, Any]
     title: str
     lead: str = ""
     facts: list[Fact] = field(default_factory=list)
+    opens: list[OpenItem] = field(default_factory=list)
+    milestones: list[OpenItem] = field(default_factory=list)
     sections: dict[str, list[str]] = field(default_factory=dict)
     notes: str = ""
 
@@ -341,10 +437,18 @@ class Page:
         return _stem(self.path)
 
     def ids(self) -> set[str]:
-        return {f.id for f in self.facts}
+        """Every id in use on the page: facts, open items and milestones share one set."""
+        return {f.id for f in self.facts} | {o.id for o in self.opens + self.milestones if o.id}
 
     def fact(self, fid: str) -> Optional[Fact]:
         return next((f for f in self.facts if f.id == _s(fid).strip()), None)
+
+    def item(self, oid: str, name: str = "Open") -> Optional[OpenItem]:
+        items = self.milestones if name == "Milestones" else self.opens
+        return next((o for o in items if o.id and o.id == _s(oid).strip()), None)
+
+    def items(self, name: str) -> list[OpenItem]:
+        return self.milestones if name == "Milestones" else self.opens
 
     def lines(self, name: str) -> list[str]:
         return self.sections.setdefault(name, [])
@@ -372,6 +476,38 @@ def _parse_fact(line: str, taken: set[str], today: str) -> Optional[Fact]:
     fid = _new_id(taken)
     taken.add(fid)
     return Fact(fid, text, today, ["user"])  # a hand-written bullet is a user fact
+
+
+def _parse_item(line: str, taken: set[str], prefix: str = "o") -> Optional[OpenItem]:
+    """One ``## Open`` / ``## Milestones`` line. A 0.3.0 line (no hidden comment)
+    comes back with no id and no owner; ``_finalize`` gives it both."""
+    if not _s(line).strip():
+        return None
+    m = _ITEM_RE.match(line)
+    if not m:
+        return OpenItem(id=None, text="", prefix=prefix, raw=line.rstrip())
+    body = m.group("body").strip()
+    record = ""
+    rec = _ITEM_REC_RE.search(body)
+    if rec:
+        record = _link_target(rec.group("rec"))
+        body = body[: rec.start()].rstrip()
+    owner, due = None, ""
+    meta = _ITEM_META_RE.search(body)
+    if meta:
+        owner = _s(meta.group("owner")).strip() or None
+        due = meta.group("owner_due") or meta.group("due") or ""
+        body = body[: meta.start()].rstrip()
+    oid = m.group("id")
+    if oid and oid in taken:
+        oid = _new_id(taken)
+    if oid:
+        taken.add(oid)
+    return OpenItem(
+        id=oid, text=body, owner=owner, due=due, since=_s(m.group("since"))[:10],
+        src=_parse_src(m.group("src")) if oid else [], record=record,
+        done=m.group("tick").lower() == "x", prefix=prefix,
+    )
 
 
 def parse_page(text: str, path: str = "", today: Optional[str] = None) -> Page:
@@ -404,6 +540,11 @@ def parse_page(text: str, path: str = "", today: Optional[str] = None) -> Page:
         f = _parse_fact(line, taken, day)
         if f:
             page.facts.append(f)
+    for name, prefix in ITEM_SECTIONS.items():
+        for line in page.sections.pop(name, []):
+            item = _parse_item(line, taken, prefix)
+            if item is not None:
+                page.items(name).append(item)
     return page
 
 
@@ -417,12 +558,21 @@ def format_page(page: Page) -> str:
     names = SECTIONS.get(page.type, SECTIONS["topic"])
     known = [n for n in names if n != "Notes"]
     extra = [n for n in page.sections if n not in known and n != "Facts" and n != "Notes"]
+    for name in ITEM_SECTIONS:  # items on a page type whose contract has no such section are still written
+        if page.items(name) and name not in known and name not in extra:
+            extra.append(name)
     out = [fmt.format_frontmatter(_ordered_fm(page.fm)).rstrip("\n"), "", f"# {page.title}", ""]
     if page.lead:
         out += [page.lead, ""]
     for name in known + extra:
         out += [f"## {name}", ""]
-        content = [f.line() for f in page.facts] if name == "Facts" else page.sections.get(name, [])
+        if name == "Facts":
+            content = [f.line() for f in page.facts]
+        elif name in ITEM_SECTIONS:
+            # a page built in code (a merge, the migration) may still carry plain lines
+            content = [o.line() for o in page.items(name)] or page.sections.get(name, [])
+        else:
+            content = page.sections.get(name, [])
         if content:
             out += list(content) + [""]
     out += ["## Notes", ""]
@@ -459,7 +609,7 @@ def _all_pages(root: Path) -> list[tuple[str, dict[str, Any]]]:
     wiki = root / WIKI_DIR
     if not wiki.is_dir():
         return out
-    files = [wiki / "Me.md"] + [p for f in ("People", "Orgs", "Topics", "Howto") for p in sorted((wiki / f).glob("*.md"))]
+    files = [wiki / "Me.md"] + [p for f in ("People", "Orgs", "Topics", "Decisions", "Howto") for p in sorted((wiki / f).glob("*.md"))]
     for p in files:
         if not p.is_file() or p.name == "Index.md":
             continue
@@ -519,7 +669,10 @@ def _is_project(fm: dict[str, Any]) -> bool:
 
 
 def _status_rank(fm: dict[str, Any]) -> int:
-    return {"active": 0, "draft": 1, "dormant": 2, "closed": 3}.get(_s(fm.get("status")), 1)
+    return {
+        "active": 0, "at-risk": 0, "blocked": 0, "current": 0,
+        "draft": 1, "dormant": 2, "closed": 3, "superseded": 3, "dropped": 3,
+    }.get(_s(fm.get("status")), 1)
 
 
 def _index_lines_by_type(pages: list[tuple[str, dict[str, Any]]]) -> dict[str, list[tuple[str, dict[str, Any]]]]:
@@ -543,9 +696,10 @@ def _index_groups(page_type: str, items: list[tuple[str, dict[str, Any]]], lines
     pairs = list(zip(items, lines))
     if page_type == "topic":
         projects = [x for x in pairs if _is_project(x[0][1])]
+        rest = [x for x in pairs if not _is_project(x[0][1])]
         if projects:
             projects.sort(key=lambda x: (_s(x[0][1].get("due"))[:10], _stem(x[0][0])))
-            return [("Projects", projects), (TYPE_HEADING[page_type], [x for x in pairs if not _is_project(x[0][1])])]
+            return [g for g in (("Projects", projects), (TYPE_HEADING[page_type], rest)) if g[1]]
     return [(TYPE_HEADING[page_type], pairs)]
 
 
@@ -581,19 +735,19 @@ def _write_index(root: Path, touched: Any = ()) -> dict[str, Any]:
     had_index = (root / INDEX_PATH).is_file()
     now: dict[str, str] = {}
     hidden_stems: set[str] = set()
-    body: list[str] = []
+    blocks: dict[str, list[str]] = {}  # "<type>/<group>", or "<type>" for a split-off index
     written = []
     for t in INDEX_ORDER:
         items = by[t]
         if not items:
             continue
         folder = TYPE_FOLDER[t]
-        group_lines: list[str] = []
+        groups: list[tuple[str, list[str]]] = []
         for name, pairs in _index_groups(t, items, full[t]):
             lines = []
             closed_seen = 0
             for (p, fm), line in pairs:
-                if _s(fm.get("status")) == "closed":
+                if _s(fm.get("status")) in ("closed", "superseded", "dropped"):
                     closed_seen += 1
                     if closed_seen > CLOSED_SHOWN:
                         hidden_stems.add(_stem(p))
@@ -603,14 +757,17 @@ def _write_index(root: Path, touched: Any = ()) -> dict[str, Any]:
             hidden = max(0, closed_seen - CLOSED_SHOWN)
             if hidden:
                 lines.append(f"- … {hidden} more closed pages (vault_list / find)")
-            group_lines += [f"## {name} ({len(pairs)})", ""] + lines + [""]
+            groups.append((name, [f"## {name} ({len(pairs)})", ""] + lines + [""]))
         if split and folder:
             sub = root / WIKI_DIR / folder / "Index.md"
-            _atomic_write(sub, _index_text(group_lines, len(items)))
+            _atomic_write(sub, _index_text([l for _n, g in groups for l in g], len(items)))
             written.append(rel(root, sub))
-            body += [f"- [[Wiki/{folder}/Index|{TYPE_HEADING[t]}]] — {len(items)} pages"]
+            blocks[t] = [f"- [[Wiki/{folder}/Index|{TYPE_HEADING[t]}]] — {len(items)} pages"]
             continue
-        body += group_lines
+        for name, group in groups:
+            blocks[f"{t}/{name}"] = group
+    body: list[str] = [l for key in INDEX_BODY_ORDER for l in blocks.pop(key, [])]
+    body += [l for group in blocks.values() for l in group]
     if not split:
         for t, folder in TYPE_FOLDER.items():
             sub = root / WIKI_DIR / folder / "Index.md" if folder else None
@@ -622,7 +779,15 @@ def _write_index(root: Path, touched: Any = ()) -> dict[str, Any]:
     drift = sorted(s for s in set(before) | set(now) if s not in fresh and before.get(s) != now.get(s))
     if had_index and drift:
         _log(root, "index-repaired", "Wiki/Index", "-", f"{len(drift)} lines: " + ", ".join(drift[:3]))
-    return {"path": rel(root, idx), "pages": total, "split": split, "per_type": written, "repaired": drift}
+    view = _followups().regenerate(root)  # Follow-ups.md is a view of the pages' open items
+    return {"path": rel(root, idx), "pages": total, "split": split, "per_type": written, "repaired": drift, "followups": view}
+
+
+def _followups() -> Any:
+    """The Follow-ups view, imported late: it reads this module."""
+    from administrator_vault import followups
+
+    return followups
 
 
 def _log(root: Path, op: str, page: str, source: str, detail: str) -> None:
@@ -671,6 +836,59 @@ def _review_add(root: Path, line: str) -> None:
         _write_review(root, open_lines, done_lines)
 
 
+UNCONFIRMED_FLAG = "unconfirmed-decision"
+_UNCONFIRMED_RE = re.compile(r"^- \[[xX]\] .*— unconfirmed decision: ")
+
+
+def _name_the_decision(root: Path, path: str) -> None:
+    """The Review line of a new decision quotes its first fact. At ingest the
+    facts arrive with the ops, a moment after the page: the line is written
+    again once they are there."""
+    page = _load(root, path)
+    if not page.facts:
+        return
+    head = f"- [ ] [[{page.stem}]] — unconfirmed decision: "
+    open_lines, done_lines = _review_text(root)
+    for i, line in enumerate(open_lines):
+        if line.startswith(head):
+            tail = line[len(head):].split('" — confirm or drop ', 1)
+            if len(tail) == 2:
+                open_lines[i] = f'{head}"{page.facts[0].text}" — confirm or drop {tail[1]}'
+                _write_review(root, open_lines, done_lines)
+            return
+
+
+def _settle_ticked_decisions(root: Path) -> list[str]:
+    """A ticked "unconfirmed decision" line in Review.md counts as a confirm:
+    the flag goes and the line moves to Done. It is the one line where ticking
+    the box on its own does something. Runs at the start of lint and ingest."""
+    open_lines, done_lines = _review_text(root)
+    ticked = [l for l in open_lines if _UNCONFIRMED_RE.match(l)]
+    settled: list[str] = []
+    for line in ticked:
+        target = next((_link_target(m.group(1)) for m in _LINK_RE.finditer(line) if m.group(1).startswith("Wiki/")), "")
+        try:
+            p = root / page_path(target) if target else None
+        except VaultError:
+            p = None
+        if p is not None and p.is_file():
+            page = _load(root, rel(root, p))
+            flags = [f for f in (page.fm.get("flags") or []) if f != UNCONFIRMED_FLAG]
+            if flags != [str(f) for f in (page.fm.get("flags") or [])]:
+                page.fm["flags"] = flags
+                ctx = _Ctx(root=root, src="user", since=_today(), record=None)
+                _history(page, ctx, "decision confirmed")
+                _finalize(page, ctx)
+                _write_page(page, ctx)
+            settled.append(page.stem)
+        open_lines.remove(line)
+        done_lines.append(line + f" — confirmed {_today()}")
+        _log(root, "review", target or "-", "user", "confirmed by tick: " + line[6:80])
+    if ticked:
+        _write_review(root, open_lines, done_lines)
+    return settled
+
+
 def init_files(root: Path, created_by: str = CREATED_BY) -> list[str]:
     """Create Index.md, Log.md, Review.md and a placeholder Wiki.md when missing."""
     created = []
@@ -712,13 +930,15 @@ def _load_candidates(root: Path) -> dict[str, Any]:
         return {}
 
 
-def _candidate_note(root: Path, record_path: str, subject: str, day: str) -> Optional[dict[str, Any]]:
+def _candidate_note(root: Path, record_path: str, subject: str, day: str, summary: str = "") -> Optional[dict[str, Any]]:
     key = _norm_subject(subject)
     if not key:
         return None
     data = _load_candidates(root)
     entry = data.setdefault(key, {"subject": notes.strip_prefixes(_s(subject), meeting=True), "records": {}})
     entry["records"][_stem(record_path)] = day
+    # a record whose summary names a day is what makes the subject look like a project
+    entry.setdefault("dated", {})[_stem(record_path)] = bool(_DATE_TOKEN_RE.search(_s(summary)))
     _atomic_write(root / CANDIDATES_PATH, json.dumps(data, ensure_ascii=False, indent=1))
     return _candidate_status(key, entry, _all_pages(root))
 
@@ -732,6 +952,7 @@ def _candidate_status(key: str, entry: dict[str, Any], pages: list[tuple[str, di
         "days": len(days),
         "over_threshold": len(entry["records"]) >= CANDIDATE_RECORDS and len(days) >= CANDIDATE_DAYS,
         "page": _stem(hit[0]) if hit else None,
+        "suggest_due": any((entry.get("dated") or {}).values()),
     }
 
 
@@ -839,6 +1060,7 @@ class _Ctx:
     ids: dict[str, str] = field(default_factory=dict)  # record stem -> source id, per write
     touched: set[str] = field(default_factory=set)  # stems written through _commit, for the index check
     strict: bool = False  # a page over its cap is a write check problem (ingest, apply, create)
+    creating: bool = False  # the page is being created: a decision takes its facts here and nowhere else
 
     @property
     def where(self) -> str:
@@ -872,13 +1094,61 @@ def _need_fact(page: Page, raw: dict[str, Any]) -> Fact:
     return f
 
 
+def _need_topic(page: Page, op: str) -> None:
+    if page.type != "topic":
+        raise WikiRefusal("wrong-type", detail=f"{op} is only for topic pages.")
+
+
+def _link_entry(root: Path, raw: dict[str, Any]) -> str:
+    """One ``links`` entry: ``[label](url)`` for a web address, ``[[path|label]]``
+    for a note that is in the vault."""
+    url = _s(raw.get("url") or raw.get("value") or raw.get("page")).strip()
+    label = " ".join(_s(raw.get("label") or raw.get("text")).split())
+    if not url:
+        raise WikiRefusal("missing-text", detail="link needs a url or a path in the vault.")
+    if "<!--" in url or "-->" in url:
+        raise WikiRefusal("bad-text", detail="A link may not contain an HTML comment.")
+    if _URL_RE.match(url):
+        return f"[{label or url}]({url})"
+    target = _link_target(url)
+    if not (root / ADMIN_DIR / (target + ".md")).is_file():
+        raise WikiRefusal("no-such-page", page=target, detail="link takes a web address (http…) or a note that is in the vault.")
+    return f"[[{target}|{label}]]" if label else f"[[{target}]]"
+
+
+def _need_open(page: Page, raw: dict[str, Any], name: str = "Open") -> OpenItem:
+    o = page.item(_s(raw.get("id")), name)
+    if o is None:
+        raise WikiRefusal("unknown-id", id=_s(raw.get("id")), known=sorted(x.id for x in page.items(name) if x.id))
+    return o
+
+
+def _owner_value(root: Path, raw_owner: Any) -> str:
+    """The owner of an open item: ``me`` (the default), a link to a page that
+    exists (the page it sits on included), or a plain name."""
+    value = _s(raw_owner).strip() or "me"
+    if value.lower() == "me":
+        return "me"
+    if value.startswith("[[") or value.startswith("Wiki/") or value.startswith(ADMIN_DIR + "/Wiki/"):
+        try:
+            path = page_path(value)
+        except VaultError as exc:
+            raise WikiRefusal("no-such-page", detail=str(exc)) from None
+        if not (root / path).is_file():
+            raise WikiRefusal("no-such-page", page=_stem(path))
+        return f"[[{_stem(path)}]]"
+    if any(bad in value for bad in _OWNER_BAD):
+        raise WikiRefusal("bad-owner", detail="An owner is 'me', a [[page]] link or a plain name without · — < [ ].")
+    return value
+
+
 def _pin_check(page: Page, f: Fact, src: str, new_text: str, ctx: _Ctx) -> None:
     if "user" in f.src and src != "user":
         ctx.review.append(f'- [ ] [[{page.stem}]] — f:{f.id} user fact "{f.text}" vs "{new_text}" ({ctx.where})')
         raise WikiRefusal("user-pin", id=f.id, detail="This fact was written by the user; only src user may change it. Sent to Review.md.")
 
 
-def _extend_src(f: Fact, src: str) -> None:
+def _extend_src(f: Any, src: str) -> None:  # a Fact or an OpenItem: both keep a src list
     if src in f.src:
         f.src.remove(src)
     f.src.insert(0, src)
@@ -924,6 +1194,11 @@ def _put_link(lines: list[str], stem: str, role: str, sort: bool) -> bool:
 def _apply_one(page: Page, op: str, raw: dict[str, Any], ctx: _Ctx) -> dict[str, Any]:
     src = _src_of(raw, ctx, op)
     out: dict[str, Any] = {"op": op}
+    if page.type == "decision" and not ctx.creating:
+        if op in APPEND_ONLY_OPS:
+            raise WikiRefusal("append-only", detail=APPEND_ONLY_HINT)
+        if op == "status" and (_s(raw.get("value") or raw.get("text")).strip().lower() != "dropped" or src != "user"):
+            raise WikiRefusal("append-only", detail="A decision's status follows from superseded_by; only 'dropped', and only when the user says so (src user), is set by hand.")
     if op == "add":
         text = _fact_text(raw.get("text"))
         since = _since_of(raw, ctx)
@@ -932,8 +1207,9 @@ def _apply_one(page: Page, op: str, raw: dict[str, Any], ctx: _Ctx) -> dict[str,
             _extend_src(dup, src)
             ctx.verified.append(since)
             return {"op": "add", "result": "confirm", "id": dup.id, "detail": "same text already on the page; treated as confirm."}
-        if len(page.facts) >= FACTS_MAX:
-            raise WikiRefusal("facts-cap", facts=len(page.facts), max_facts=FACTS_MAX, detail=CAP_HINT)
+        facts_max = FACTS_MAX_BY_TYPE.get(page.type, FACTS_MAX)
+        if len(page.facts) >= facts_max:
+            raise WikiRefusal("facts-cap", facts=len(page.facts), max_facts=facts_max, detail=CAP_HINT)
         f = Fact(_new_id(page.ids()), text, since, [src])
         page.facts.append(f)
         ctx.verified.append(since)
@@ -991,7 +1267,7 @@ def _apply_one(page: Page, op: str, raw: dict[str, Any], ctx: _Ctx) -> dict[str,
             raise WikiRefusal("bad-text", detail="The lead may not contain headings.")
         page.lead = text
         if _s(page.fm.get("status")) in ("", "draft"):
-            page.fm["status"] = "active"
+            page.fm["status"] = _statuses(page.type)[0]
     elif op == "summary":
         text = _clean_text(raw.get("text"), "summary")
         if len(text) > SUMMARY_CHARS:
@@ -999,8 +1275,9 @@ def _apply_one(page: Page, op: str, raw: dict[str, Any], ctx: _Ctx) -> dict[str,
         page.fm["summary"] = text
     elif op == "status":
         value = _s(raw.get("value") or raw.get("text")).strip().lower()
-        if value not in STATUSES:
-            raise WikiRefusal("bad-status", value=value, allowed=list(STATUSES))
+        allowed = _statuses(page.type)
+        if value not in allowed:
+            raise WikiRefusal("bad-status", value=value, allowed=list(allowed))
         page.fm["status"] = value
     elif op == "title":
         text = _check_title(raw.get("text"))
@@ -1028,12 +1305,35 @@ def _apply_one(page: Page, op: str, raw: dict[str, Any], ctx: _Ctx) -> dict[str,
         ctx.deferred.append((page_path(stem), back, page.stem, role if back != "Related" else ""))
         out.update(page=stem, section=sec)
     elif op == "open":
+        if "Open" not in SECTIONS.get(page.type, ()):
+            raise WikiRefusal("wrong-type", detail=f"{page.type} pages have no Open section; put the item on the person, topic, decision or me page it is about.")
         text = _clean_text(raw.get("text"))
-        line = f"- [ ] {text}" + (f" — {ctx.record['link']}" if ctx.record else "")
-        opens = page.lines("Open")
-        if any(_norm(l) == _norm(line) for l in opens):
+        owner = _owner_value(ctx.root, raw.get("owner"))
+        due = _check_date(raw.get("due"), "due") if _s(raw.get("due")).strip() else ""
+        since = _since_of(raw, ctx)
+        # the same wording, or the same record twice ("user" is not a record: it may say many things)
+        same_src = src if src and src != "user" else ""
+        if any(_norm(o.text) == _norm(text) or (same_src and same_src in o.src) for o in page.opens if not o.raw):
             raise WikiRefusal("duplicate", detail="This open item is already on the page.")
-        opens.append(line)
+        item = OpenItem(
+            id=_new_id(page.ids()), text=text, owner=owner, due=due, since=since, src=[src],
+            record=_link_target(ctx.record["link"]) if ctx.record else "",
+        )
+        page.opens.append(item)
+        out.update(id=item.id, owner=item.owner)
+    elif op == "done":
+        item = _need_open(page, raw)
+        item.done = True
+        _extend_src(item, src)
+        out.update(id=item.id, text=item.text)
+    elif op == "reschedule":
+        item = _need_open(page, raw)
+        due = _check_date(raw.get("due") or raw.get("value"), "due")
+        old = item.due or "—"
+        item.due = due
+        _extend_src(item, src)
+        _history(page, ctx, f'rescheduled "{item.text}" {old} → {due}')
+        out.update(id=item.id, due=due)
     elif op == "steps":
         if page.type != "howto":
             raise WikiRefusal("wrong-type", detail="steps is only for howto pages.")
@@ -1047,6 +1347,63 @@ def _apply_one(page: Page, op: str, raw: dict[str, Any], ctx: _Ctx) -> dict[str,
         if page.type != "topic":
             raise WikiRefusal("wrong-type", detail="due is only for topic pages.")
         page.fm["due"] = _check_date(raw.get("value") or raw.get("text"), "due")
+    elif op == "outcome":
+        _need_topic(page, "outcome")
+        text = _clean_text(raw.get("text") or raw.get("value"), "outcome")
+        if len(text) > OUTCOME_CHARS:
+            raise WikiRefusal("outcome-too-long", chars=len(text), max_chars=OUTCOME_CHARS)
+        page.fm["outcome"] = text
+    elif op == "milestone":
+        _need_topic(page, "milestone")
+        text = _clean_text(raw.get("text"))
+        due = _check_date(raw.get("due"), "due") if _s(raw.get("due")).strip() else ""
+        if any(_norm(m.text) == _norm(text) for m in page.milestones if not m.raw):
+            raise WikiRefusal("duplicate", detail="This milestone is already on the page.")
+        item = OpenItem(id=_new_id(page.ids()), text=text, due=due, since=_since_of(raw, ctx), src=[src], prefix="m")
+        page.milestones.append(item)
+        out.update(id=item.id, due=item.due)
+    elif op == "risk":
+        _need_topic(page, "risk")
+        text = _clean_text(raw.get("text"), "risk")
+        if len(text) > RISK_CHARS:
+            raise WikiRefusal("risk-too-long", chars=len(text), max_chars=RISK_CHARS)
+        have = [_s(r) for r in (page.fm.get("risks") or [])]
+        if any(_norm(r) == _norm(text) for r in have):
+            raise WikiRefusal("duplicate", detail="This risk is already on the page.")
+        if len(have) >= RISKS_MAX:
+            raise WikiRefusal("risks-cap", risks=len(have), max_risks=RISKS_MAX, detail="Drop or reword a risk first; a page keeps at most 8.")
+        page.fm["risks"] = have + [text]
+        _history(page, ctx, f'risk added "{text}"')
+    elif op == "link":
+        _need_topic(page, "link")
+        entry = _link_entry(ctx.root, raw)
+        have = [_s(l) for l in (page.fm.get("links") or [])]
+        if entry in have:
+            raise WikiRefusal("duplicate", detail="This link is already on the page.")
+        if len(have) >= LINKS_MAX:
+            raise WikiRefusal("links-cap", links=len(have), max_links=LINKS_MAX, detail="Drop a link first; a page keeps at most 10.")
+        page.fm["links"] = have + [entry]
+        out.update(link=entry)
+    elif op == "superseded_by":
+        if page.type != "decision":
+            raise WikiRefusal("wrong-type", detail="superseded_by is only for decision pages.")
+        stem = _existing_page(ctx.root, raw.get("page") or raw.get("value") or raw.get("text"), page)
+        other_type = _s(_load(ctx.root, page_path(stem)).fm.get("type"))
+        if other_type != "decision":
+            raise WikiRefusal("wrong-type", detail=f"{stem} is a {other_type or 'typeless'} page; a decision is superseded by a decision.")
+        page.fm["superseded_by"] = f"[[{stem}]]"
+        page.fm["status"] = "superseded"
+        _put_link(page.lines("Related"), stem, "", False)
+        ctx.deferred.append((page_path(stem), "Related", page.stem, ""))
+        _history(page, ctx, f"superseded by [[{stem}]]")
+        out.update(page=stem)
+    elif op == "reversal":
+        if page.type != "decision":
+            raise WikiRefusal("wrong-type", detail="reversal is only for decision pages.")
+        text = _clean_text(raw.get("text") or raw.get("value"), "reversal")
+        if len(text) > REVERSAL_CHARS:
+            raise WikiRefusal("reversal-too-long", chars=len(text), max_chars=REVERSAL_CHARS)
+        page.fm["reversal"] = text
     elif op in ("owner", "org"):
         value = _s(raw.get("value") or raw.get("text") or raw.get("page")).strip()
         if not value:
@@ -1169,7 +1526,8 @@ def _finalize(page: Page, ctx: _Ctx) -> None:
     fm.setdefault("created", ctx.today)
     fm.setdefault("id", new_page_id())
     if not fm.get("status"):
-        fm["status"] = "active" if page.lead else "draft"
+        # a decision is current from the moment it is written; the others need a lead first
+        fm["status"] = _statuses(page.type)[0] if (page.lead or page.type == "decision") else "draft"
     # verified = newest source date, never the write date; a page created from a
     # record with no facts yet takes the record's date.
     prior = _s(fm.get("verified"))[:10]
@@ -1178,16 +1536,34 @@ def _finalize(page: Page, ctx: _Ctx) -> None:
         cands = [_s(ctx.record.get("date"))[:10]]
     verified = max([prior] + cands)
     fm["verified"] = verified or _s(fm.get("created"))[:10]
-    # Open: ticked lines move to History
-    keep = []
-    for line in page.lines("Open"):
-        m = _CHECKED_RE.match(line)
-        if m:
-            page.lines("History").append(f"- {ctx.today} — done \"{m.group(1).strip()}\"")
-        elif line.strip():
-            keep.append(line)
-    page.sections["Open"] = keep
-    fm["open_items"] = sum(1 for l in keep if _UNCHECKED_RE.match(l))
+    # Open / Milestones: lines with no hidden comment get one, ticked ones move to History
+    for name, prefix in ITEM_SECTIONS.items():
+        for line in page.sections.pop(name, []):  # a page built in code, not parsed from a file
+            item = _parse_item(line, page.ids(), prefix)
+            if item is not None:
+                page.items(name).append(item)
+        keep: list[OpenItem] = []
+        for o in page.items(name):
+            if o.raw:
+                keep.append(o)
+                continue
+            if not o.id:
+                o.id = _new_id(page.ids())
+                o.since = o.since or ctx.today
+                o.src = o.src or [ctx.src or "user"]
+                if name == "Open" and not o.owner:
+                    o.owner = "me"
+            if not o.done:
+                keep.append(o)
+            elif name == "Open":
+                _history(page, ctx, f'done "{o.text}" — owner: {o.owner or "me"} · since {o.since}')
+            else:
+                _history(page, ctx, f'milestone reached "{o.text}"')
+        if name == "Milestones":
+            page.milestones = keep
+        else:
+            page.opens = keep
+    fm["open_items"] = sum(1 for o in page.opens if not o.raw and not o.done)
     # Records: newest first, capped
     recs, seen = [], set()
     for line in page.lines("Records"):
@@ -1227,6 +1603,9 @@ def _page_diff(page: Page, back: Page) -> list[str]:
     got = [(f.id, f.text, f.since, list(f.src)) for f in back.facts]
     if got != want:
         out.append(f"facts ({len(got)} of {len(want)})")
+    for name in ITEM_SECTIONS:
+        if [o.line() for o in back.items(name)] != [o.line() for o in page.items(name)]:
+            out.append(f"section {name}")
     for name in dict.fromkeys(list(page.sections) + list(back.sections)):
         if name == "Facts":
             continue
@@ -1381,6 +1760,35 @@ def _write_ops(root: Path, path: str, ops: list[Any], ctx: _Ctx, op_name: str) -
 # ------------------------------------------------------------------ create
 
 
+def _decided_date(value: Any) -> str:
+    s = _s(value).strip()
+    if not s:
+        raise VaultError("A decision page needs decided: the date the decision was made (YYYY-MM-DD).")
+    if not _DATE_RE.match(s):
+        raise VaultError(f"decided must be a date like 2026-08-25, got {s!r}.")
+    return s[:10]
+
+
+def _by_links(root: Path, value: Any) -> list[str]:
+    """``by``: the people who made the decision, each a link to a page that exists."""
+    items = value if isinstance(value, (list, tuple)) else [value]
+    out = []
+    for item in items:
+        ref = _s(item).strip()
+        if not ref:
+            continue
+        try:
+            path = page_path(ref)
+        except VaultError as exc:
+            raise VaultError(f"by: {exc}") from None
+        if not (root / path).is_file():
+            raise VaultError(f"by: no such page: {_stem(path)}.")
+        out.append(f"[[{_stem(path)}]]")
+    if not out:
+        raise VaultError("A decision page needs by: who made the decision, as links to their pages.")
+    return out
+
+
 def _create_page(
     root: Path,
     page_type: str,
@@ -1423,11 +1831,29 @@ def _create_page(
         fm["name"] = title
         fm["email"] = _s(extra.pop("email", ""))
         fm["last_contact"] = _s(extra.pop("last_contact", ""))
+    if page_type == "decision":
+        fm["status"] = "current"
+        fm["decided"] = _decided_date(extra.pop("decided", ""))
+        fm["by"] = _by_links(root, extra.pop("by", None))
     fm.update({k: v for k, v in extra.items() if v not in (None, "")})
     fm["created_by"] = created_by
     page = Page(path=rel(root, p), fm=fm, title=title, lead=lead.strip())
     _history(page, ctx, "page created")
-    applied, refused = _apply_ops(page, [dict(f, op="add") for f in (facts or []) if isinstance(f, dict)], ctx)
+    ctx.creating = True  # a decision takes its facts here and nowhere else
+    try:
+        applied, refused = _apply_ops(page, [dict(f, op="add") for f in (facts or []) if isinstance(f, dict)], ctx)
+    finally:
+        ctx.creating = False
+    if page_type == "decision":
+        # the people who decided are linked both ways, like a role op would
+        for link in page.fm.get("by") or []:
+            who = _link_target(link)
+            _put_link(page.lines("People"), who, "decided", True)
+            ctx.deferred.append((page_path(who), _section_for("person", "decision"), page.stem, "decided"))
+        # nobody was asked: the model wrote this from a record, so it is flagged and listed for the user
+        page.fm["flags"] = [UNCONFIRMED_FLAG]
+        choice = page.facts[0].text if page.facts else (summary or title)
+        ctx.review.append(f'- [ ] [[{page.stem}]] — unconfirmed decision: "{choice}" — confirm or drop ({ctx.where})')
     if ctx.record:
         _add_record_line(page, ctx.record["link"], ctx.record["date"], ctx.record["summary"])
     _finalize(page, ctx)
@@ -1514,7 +1940,9 @@ def read(path: str, sections: Optional[list[str]] = None, max_chars: int = 2000)
             out["notes"] = page.notes
         else:
             name = next((n for n in page.sections if n.lower() == s), s.capitalize())
-            out.setdefault("sections", {})[name] = "\n".join(page.sections.get(name, []))
+            # the Open and Milestones lines live in page.opens / page.milestones, not in sections
+            lines = [o.line() for o in page.items(name)] if name in ITEM_SECTIONS else page.sections.get(name, [])
+            out.setdefault("sections", {})[name] = "\n".join(lines)
     if max_chars and max_chars > 0:
         for _ in range(200):
             if len(json.dumps(out, ensure_ascii=False)) <= max_chars:
@@ -1538,6 +1966,7 @@ def ingest(record_path: str, pages: Optional[list[dict[str, Any]]] = None, creat
     rec = _record_info(root, record_path)
     with _wiki_lock(root):
         adopted = _hand_edits(root, True)
+        confirmed = _settle_ticked_decisions(root)  # a decision the user ticked in Review.md
         results = []
         touched: set[str] = set()
         for spec in pages or []:
@@ -1552,19 +1981,24 @@ def ingest(record_path: str, pages: Optional[list[dict[str, Any]]] = None, creat
                                    {k: v for k, v in new.items() if k not in ("type", "title", "aliases", "lead", "summary")})
                 if res["created"] and ops:
                     ctx2 = _Ctx(root=root, src=rec["src"], since=rec["date"], record=rec, touched=touched)
+                    ctx2.creating = True  # the ops of the same call still belong to the page's creation
                     more = _write_ops(root, res["path"], ops, ctx2, "ingest")
                     res.update(applied=res["applied"] + more["applied"], refused=res["refused"] + more["refused"], written=more["written"], sizes=more["sizes"])
+                    if _s(new.get("type")).strip().lower() == "decision":
+                        _name_the_decision(root, res["path"])
                 elif res["created"]:
                     res["written"] = True
                 results.append(res)
                 continue
             path = page_path(_s(spec.get("path")))
             results.append(_write_ops(root, path, ops, ctx, "ingest"))
-        cand = _candidate_note(root, rec["path"], rec["subject"], rec["date"])
+        cand = _candidate_note(root, rec["path"], rec["subject"], rec["date"], rec["summary"])
         _write_index(root, touched)
     out = {"record": rec["link"], "pages": results, "candidate": cand}
     if adopted:
         out["adopted"] = adopted
+    if confirmed:
+        out["confirmed_decisions"] = confirmed
     return out
 
 
@@ -1657,7 +2091,7 @@ def review(action: str = "list", item: Optional[str] = None, resolution_ops: Opt
             tp = root / page_path(target)
             if tp.is_file():
                 pg = _load(root, rel(root, tp))
-                flags = [f for f in (pg.fm.get("flags") or []) if f != "contradiction"]
+                flags = [f for f in (pg.fm.get("flags") or []) if f not in ("contradiction", UNCONFIRMED_FLAG)]
                 if flags != list(pg.fm.get("flags") or []):
                     pg.fm["flags"] = flags
                     ctx = _Ctx(root=root, src="user", since=_today(), record=None, touched=touched)
@@ -1673,7 +2107,8 @@ def review(action: str = "list", item: Optional[str] = None, resolution_ops: Opt
 
 def prep_pages(root: Path, person_paths: list[str], subject: str, people: Optional[list[str]] = None, facts_max: int = 8, topics_max: int = 3) -> list[dict[str, Any]]:
     """The ``wiki`` list of vault_prep_context: the attendees' person pages plus
-    the topic pages matched on the subject, each as {path, type, lead, open, facts}."""
+    the topic and decision pages matched on the subject, each as
+    {path, type, title, status, lead, open, facts}."""
     out = []
     seen: set[str] = set()
     paths = [p for p in person_paths if p and p.startswith(WIKI_DIR + "/")]
@@ -1681,9 +2116,11 @@ def prep_pages(root: Path, person_paths: list[str], subject: str, people: Option
         from administrator_vault import wiki_search  # imported here: the engine imports this module
 
         named = wiki_search.page_candidates(subject, root)
-        topics = [(p, fm) for p, fm in _all_pages(root) if fm.get("type") == "topic" and _stem(p) in named]
+        topics = [(p, fm) for p, fm in _all_pages(root) if fm.get("type") in ("topic", "decision") and _stem(p) in named]
         topics.sort(key=lambda t: _stem(t[0]))
         topics.sort(key=lambda t: _s(t[1].get("verified") or t[1].get("created")), reverse=True)
+        # within the same score: the projects first, then the decisions, then the other topics
+        topics.sort(key=lambda t: 0 if _is_project(t[1]) else 1 if _s(t[1].get("type")) == "decision" else 2)
         topics.sort(key=lambda t: -named[_stem(t[0])][0])
         paths += [p for p, _fm in topics[:topics_max]]
     for path in paths:
@@ -1702,10 +2139,77 @@ def prep_pages(root: Path, person_paths: list[str], subject: str, people: Option
             "title": page.title,
             "status": _s(page.fm.get("status")),
             "lead": page.lead,
-            "open": list(page.sections.get("Open") or []),
+            "open": [o.line() for o in page.opens],
             "facts": [f.as_dict() for f in page.facts[:facts_max]],
         })
     return out
+
+
+# ------------------------------------------------------------------ public: commitments
+
+
+COMMITMENTS_MAX = 200
+
+
+def _owner_display(owner: Any, titles: dict[str, str]) -> str:
+    """The owner as a person reads it: ``me``, the linked page's title, or the plain name."""
+    value = _s(owner).strip()
+    if not value:
+        return ""
+    if value.lower() == "me":
+        return "me"
+    target = _link_target(value)
+    if target.startswith("Wiki/"):
+        return titles.get(target) or target.rsplit("/", 1)[-1]
+    return value
+
+
+def commitments(
+    root: Path,
+    owner: Optional[str] = None,
+    due_before: Optional[str] = None,
+    page: Optional[str] = None,
+    include_done: bool = False,
+    limit: int = COMMITMENTS_MAX,
+) -> list[dict[str, Any]]:
+    """The open items of the wiki pages, oldest ``since`` first.
+
+    ``owner`` keeps only the user's own items (``me``) or only the ones someone
+    else owes (``others``); ``due_before`` keeps the items due before that date;
+    ``page`` keeps to one page. Ticked items are left out unless
+    ``include_done``."""
+    want = _s(owner).strip().lower() or None
+    if want not in (None, "me", "others"):
+        raise VaultError("owner must be 'me', 'others' or nothing.")
+    before = _s(due_before).strip()[:10]
+    only = _stem(page_path(_s(page))) if _s(page).strip() else ""
+    listing = _all_pages(root)
+    titles = {_stem(p): _s(fm.get("title") or fm.get("name")) or _stem(p).rsplit("/", 1)[-1] for p, fm in listing}
+    keyed: list[tuple[tuple[str, str, int], dict[str, Any]]] = []
+    for path, _fm in listing:
+        stem = _stem(path)
+        if only and stem != only:
+            continue
+        try:
+            pg = _load(root, path)
+        except (VaultError, fmt.FrontmatterError, UnicodeDecodeError):
+            continue
+        for n, o in enumerate(pg.opens):
+            if o.raw or (o.done and not include_done):
+                continue
+            own = _s(o.owner).strip()
+            if want == "me" and own.lower() != "me":
+                continue
+            if want == "others" and (not own or own.lower() == "me"):
+                continue
+            if before and not (o.due and o.due[:10] < before):
+                continue
+            keyed.append(((_s(o.since) or "9999", stem, n), {
+                "page": path, "stem": stem, "type": pg.type, "title": pg.title,
+                "owner_name": _owner_display(o.owner, titles), **o.as_dict(),
+            }))
+    keyed.sort(key=lambda pair: pair[0])
+    return [row for _key, row in keyed][: max(1, int(limit or COMMITMENTS_MAX))]
 
 
 # ------------------------------------------------------------------ public: save_email hook
@@ -1852,7 +2356,8 @@ def person_write(fm: dict[str, Any], body: str, mode: str = "create") -> dict[st
 
 
 __all__ = [
-    "CREATED_BY", "WIKI_DIR", "TYPES", "SECTIONS", "CAPS", "Page", "Fact",
+    "CREATED_BY", "WIKI_DIR", "TYPES", "SECTIONS", "CAPS", "Page", "Fact", "OpenItem",
     "parse_page", "format_page", "measure", "page_path", "slugify", "init_files", "new_page_id",
     "match", "read", "ingest", "create", "apply", "log", "review", "record_person", "person_write", "prep_pages",
+    "commitments",
 ]

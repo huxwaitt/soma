@@ -502,14 +502,57 @@ def _no_prep(root: Path, events: list[dict[str, Any]]) -> list[str]:
     return out
 
 
-def _followup_row(root: Path, people: list[tuple[str, dict[str, Any]]], since: str, who_name: str, who_addr: str, what: str, email_path: Optional[str], today: str, key: str, label: str = "entry_id") -> bool:
+def _open_commitment(
+    root: Path,
+    people: list[tuple[str, dict[str, Any]]],
+    since: str,
+    who_name: str,
+    who_addr: str,
+    what: str,
+    record_path: Optional[str],
+    src: str,
+    owner_link: Optional[str] = None,
+    due: Optional[str] = None,
+) -> bool:
+    """A thread the user is waiting on becomes an open item on the counterpart's
+    person page (a draft page is created when there is none). The owner says who
+    owes it; the record is added to that page's Records. True when it was written."""
     hit = _person_for(people, who_addr)
-    who = _link(hit[0]) if hit else (who_name or who_addr)
-    row = [since, who, _short(notes.strip_prefixes(what), 80), _link(email_path) if email_path else "", today]
-    try:
-        return bool(store.append_row(FOLLOWUPS_PATH, "Open", row, key, key_label=label)["appended"])
-    except VaultError:
-        return False
+    path = hit[0] if hit else None
+    if path is None:
+        name = _s(who_name).strip() or _s(who_addr).strip()
+        if not name:
+            return False
+        try:
+            if record_path:
+                res = wiki.record_person(
+                    name=name, email=_s(who_addr).strip(), aliases=[], last_contact=since, company=None,
+                    record_path=record_path, record_date=since, summary=_short(what, 120), created_by=CREATED_BY,
+                )
+            else:
+                res = wiki.create("person", name, extra={"email": _s(who_addr).strip()}, created_by=CREATED_BY)
+        except (VaultError, NoteError):
+            return False
+        path = _s(res.get("path"))
+        if not path:
+            return False
+    rec = None
+    if record_path:
+        try:
+            rec = wiki._record_info(root, record_path)
+        except VaultError:
+            rec = None
+    op: dict[str, Any] = {
+        "op": "open", "text": _short(notes.strip_prefixes(what), 80),
+        "owner": owner_link or f"[[{wiki._stem(path)}]]", "since": since, "src": src or "user",
+    }
+    if due:
+        op["due"] = due
+    with wiki._wiki_lock(root):
+        ctx = wiki._Ctx(root=root, src=src or "user", since=since or wiki._today(), record=rec)
+        res = wiki._write_ops(root, path, [op], ctx, "apply")
+        wiki._write_index(root, ctx.touched)
+    return bool(res.get("written") and res.get("applied"))
 
 
 def write_daily(
@@ -566,7 +609,7 @@ def write_daily(
         watch = [w for w in watch if ("- " + w) not in existing_text]
 
     if hit["found"] and not rows and not cal_rows and not watch:
-        return {"path": hit["path"], "action": "unchanged", "rows_written": 0, "duplicates_skipped": dups, "followups_added": 0, "unlabelled": unlabelled}
+        return {"path": hit["path"], "action": "unchanged", "rows_written": 0, "duplicates_skipped": dups, "followups_added": 0, "promised": 0, "unlabelled": unlabelled}
 
     h = "###" if hit["found"] else "##"
     heading =f"{h} Inbox (since {since})" if folder.lower() == "inbox" else f"{h} Inbox ({folder}, since {since})"
@@ -586,13 +629,21 @@ def write_daily(
     followups_added = 0
     if waiting or not hit["found"]:
         body += [f"{h} Waiting on", ""]
-        body += [f"- {r['from']} — {r['subject']} (since {_date_of(r['received'])}) → also in [[Follow-ups]]" for r in waiting] or ["- none"]
+        body += [f"- {r['from']} — {r['subject']} (since {_date_of(r['received'])}) → open item on their page" for r in waiting] or ["- none"]
         body.append("")
         by_id = {_s(i.get("entry_id")): i for i in fresh if isinstance(i, dict)}
         for r in waiting:
             it = by_id.get(r["entry_id"], {})
-            if _followup_row(root, people, _date_of(r["received"]), r["from"], _s(it.get("from_address")), r["subject"], r["note_path"], day, r["entry_id"]):
+            src = _s(it.get("internet_message_id")) or _s(r["entry_id"])
+            if _open_commitment(root, people, _date_of(r["received"]), r["from"], _s(it.get("from_address")), r["subject"], r["note_path"], src):
                 followups_added += 1
+                people = _people(root)  # a new person page may have been written
+    promised: list[dict[str, Any]] = []
+    if not hit["found"]:  # once a day: what the user promised and owes within the week
+        promised = wiki.commitments(root, owner="me", due_before=(_parse_date(day, "date") + timedelta(days=8)).isoformat())
+        body += [f"{h} Promised", ""]
+        body += [f"- {c['text']} — due {c['due']} — [[{c['stem']}]]" for c in promised] or ["- none"]
+        body.append("")
     if cal_rows:
         body += [f"{h} Calendar", ""] + _table(CALENDAR_HEADER, cal_rows) + [""]
     if watch or (events and not hit["found"]):
@@ -623,6 +674,7 @@ def write_daily(
         "rows_written": len(rows),
         "duplicates_skipped": dups,
         "followups_added": followups_added,
+        "promised": len(promised),
         "calendar_rows": len(cal_rows),
         "unlabelled": unlabelled,
     }
@@ -780,11 +832,13 @@ def save_email(
 
     followup_added = False
     if status == "waiting":
+        # the counterpart is the one who owes the answer: the first recipient of the user's own mail, else the sender
         if from_self and to_list:
             who_name, who_addr = to_list[0]["name"], to_list[0]["address"]
         else:
             who_name, who_addr = from_name, from_addr
-        followup_added = _followup_row(root, people, _date_of(received), who_name, who_addr, fm["subject"], path, date.today().isoformat(), fm["entry_id"] or fm["internet_message_id"], "entry_id" if fm["entry_id"] else "internet_message_id")
+        src = fm["internet_message_id"] or fm["entry_id"]
+        followup_added = _open_commitment(root, _people(root), _date_of(received), who_name, who_addr, fm["subject"], path, src)
     return {"path": path, "action": res["action"], "status": status, "person_path": person_path, "person_action": person_action, "followup_added": followup_added}
 
 
@@ -810,26 +864,17 @@ def _email_lines(body: str, limit: int = 3) -> list[str]:
     return found[:limit]
 
 
-def _followups_open(root: Path) -> list[dict[str, str]]:
-    p = resolve(root, FOLLOWUPS_PATH)
-    if not p.is_file():
-        return []
-    body = fmt.split_note(read_text(p))[2]
-    lines = body.split("\n")
-    for _level, heading, lo, hi in _sections(body):
-        if heading.strip().lower() == "open":
-            tables = _tables(lines, lo, hi)
-            return tables[0] if tables else []
-    return []
-
-
-def _row_mentions(row: dict[str, str], names: set[str], addresses: set[str], paths: set[str]) -> bool:
-    who = row.get("Who", "")
-    targets = {t.lower() for t in _wikilink_targets(who)}
+def _mentions(item: dict[str, Any], names: set[str], addresses: set[str], paths: set[str]) -> bool:
+    """Is this commitment about one of the people in the meeting? Either it sits
+    on their page, or they own it."""
+    if item["stem"].lower() in {p.lower() for p in paths}:
+        return True
+    owner = _s(item.get("owner"))
+    targets = {t.lower() for t in _wikilink_targets(owner)}
     if targets & {p.lower() for p in paths}:
         return True
-    plain = _strip_comment(who).lower()
-    return plain in names or plain in addresses
+    plain = _s(item.get("owner_name")).strip().lower()
+    return bool(plain) and plain != "me" and (plain in names or plain in addresses)
 
 
 def prep_context(occurrence_key: str, global_id: str = "", attendees: Optional[list[Any]] = None, subject: str = "") -> dict[str, Any]:
@@ -871,7 +916,8 @@ def prep_context(occurrence_key: str, global_id: str = "", attendees: Optional[l
             body = fmt.split_note(read_text(resolve(root, hit[0])))[2]
             entry.update({"path": hit[0], "last_contact": _s(hit[1].get("last_contact")), "company": _s(hit[1].get("org") or hit[1].get("company")), "last_emails": _email_lines(body)})
         people_out.append(entry)
-    rows = [row["_line"] for row in _followups_open(root) if _row_mentions(row, names, addresses, paths)]
+    commitments = [c for c in wiki.commitments(root) if _mentions(c, names, addresses, paths)]
+    rows = [f"{c['since']} — {c['owner_name']}: {c['text']}" for c in commitments if _s(c["owner"]).lower() != "me"]
     subject = _s(subject).strip() or (_s(existing["frontmatter"].get("subject")) if existing["found"] else "")
     wiki_pages = wiki.prep_pages(root, [e["path"] for e in people_out if e["path"]], subject, sorted(addresses))
     return {
@@ -879,6 +925,7 @@ def prep_context(occurrence_key: str, global_id: str = "", attendees: Optional[l
         "existing_status": _s(existing["frontmatter"].get("status")) if existing["found"] else None,
         "previous_occurrence": previous,
         "people": people_out,
+        "commitments": commitments,
         "followups_open": rows,
         "wiki": wiki_pages,
     }
@@ -914,11 +961,18 @@ def weekly_facts(week: str, today: Optional[str] = None) -> dict[str, Any]:
                 open_rows.append({"date": _date_of(fm.get("date")), "label": label, "subject": subject, "from": row.get("From", ""), "entry_id": eid, "note": f"[[{note_links[0]}]]" if note_links else (hit and _link(hit[0])) or None, "daily": path})
 
     waiting = []
-    for row in _followups_open(root):
-        since = _date_of(row.get("Since"))
+    for c in wiki.commitments(root, owner="others"):
+        since = _date_of(c["since"])
         age = (ref - date.fromisoformat(since)).days if since else None
-        waiting.append({"since": since, "who": _strip_comment(row.get("Who", "")), "what": _strip_comment(row.get("What", "")), "email": _strip_comment(row.get("Email", "")), "age_days": age})
+        waiting.append({"since": since, "who": c["owner_name"], "what": c["text"],
+                        "email": f"[[{c['record']}]]" if c["record"] else "", "age_days": age})
     waiting.sort(key=lambda w: w["since"] or "9999")
+    promised_overdue = [
+        {"due": c["due"], "what": c["text"], "page": c["stem"], "id": c["id"],
+         "days_over": (ref - date.fromisoformat(c["due"])).days}
+        for c in wiki.commitments(root, owner="me", due_before=today_d.isoformat())
+    ]
+    promised_overdue.sort(key=lambda p: p["due"])
 
     held, no_notes = [], []
     for p, fm in store._iter_notes(root, "meeting"):
@@ -951,6 +1005,7 @@ def weekly_facts(week: str, today: Optional[str] = None) -> dict[str, Any]:
         "end": end.isoformat(),
         "open_from_inbox": open_rows,
         "waiting": waiting,
+        "promised_overdue": promised_overdue,
         "meetings_held": held,
         "no_notes": no_notes,
         "quiet_people": quiet[:20],

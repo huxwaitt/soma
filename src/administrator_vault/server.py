@@ -27,13 +27,17 @@ daily (date), weekly (week), chat (chat_id and date), time-block (week).
 Every tool returns a JSON string.
 
 The wiki (Administrator/Wiki/) holds pages the model keeps: person, org,
-topic, howto, me. vault_wiki_search answers a question with ranked facts
+topic, decision, howto, me. A topic with an owner and a due date is a
+project; a decision page (Wiki/Decisions/) records one choice and is added
+to, never rewritten. vault_wiki_search answers a question with ranked facts
 (brief=true stitches them into one text), vault_wiki_match finds pages,
 vault_wiki_read returns a page's lead and facts (with ids),
 vault_wiki_ingest / vault_wiki_apply take
 op lists (add, update, supersede, confirm, retire, contest, lead, summary,
-status, title, alias, related, role, open, steps, due, owner, org).
-vault_wiki_lint runs the fifteen checks, vault_wiki_merge folds one page
+status, title, alias, related, role, open, done, reschedule, steps, due,
+owner, org, outcome, milestone, risk, link, superseded_by, reversal). Open
+items carry an owner and a due date, and Follow-ups.md is
+written from them. vault_wiki_lint runs its checks, vault_wiki_merge folds one page
 into another (only on a yes), vault_wiki_migrate moves a 0.1.0 vault's
 People/ folder into the wiki (dry run first).
 
@@ -131,7 +135,7 @@ Attendees = Annotated[
 WikiPage = Annotated[str, Field(min_length=1, description="Wiki page as a path, stem or wikilink: Administrator/Wiki/Topics/q3-budget.md, Wiki/Topics/q3-budget or [[Wiki/Topics/q3-budget]].")]
 WikiOps = Annotated[
     list[dict[str, Any]],
-    Field(description="Ops, each {op, ...}: add {text, since, src}; update {id, text, src}; supersede {id, text, since, src}; confirm {id, src}; retire {id, src, reason}; contest {id, text, src}; lead {text}; summary {text}; status {value}; title {text}; alias {text}; related {page}; role {page, role}; open {text, src}; steps {text}; due {value}; owner {value}; org {value}. Ids come from vault_wiki_read."),
+    Field(description="Ops, each {op, ...}: add {text, since, src}; update {id, text, src}; supersede {id, text, since, src}; confirm {id, src}; retire {id, src, reason}; contest {id, text, src}; lead {text}; summary {text}; status {value}; title {text}; alias {text}; related {page}; role {page, role}; open {text, owner ('me' by default, a [[Wiki/People/…]] link or a plain name), due, since, src}; done {id, src}; reschedule {id, due, src}; steps {text}; due {value}; owner {value}; org {value}. Topic pages only: outcome {text}; milestone {text, due, src}; risk {text, src}; link {url or page, label}. Decision pages only: superseded_by {page}; reversal {text} — everything that would rewrite a decision (add, update, supersede, retire, contest, due, steps and the topic ops) is refused with 'append-only'. Ids come from vault_wiki_read."),
 ]
 WikiSrc = Annotated[str, Field(description="Source written on the facts: 'user' for things the user said, else a record id.")]
 
@@ -296,7 +300,7 @@ def register(mcp: FastMCP) -> None:
         folder: Annotated[str, Field(description="Folder that was read; 'inbox' unless the user named another.")] = "inbox",
         created_by: CreatedBy = workflows.CREATED_BY,
     ) -> str:
-        """Render Daily/YYYY-MM-DD.md from labels + items (items default to the vault_inbox_prepare cache): inbox table sorted act/reply/waiting/fyi/noise with hidden entry_id comments, To do, Waiting on (rows also go to Follow-ups.md), Calendar from events with occurrence_key comments, Watch out (given bullets + clashes + missing prep notes). A second run on the same day appends only the new rows under '## Update'. Returns {path, action (created/appended/unchanged), rows_written, duplicates_skipped, followups_added, calendar_rows, unlabelled}."""
+        """Render Daily/YYYY-MM-DD.md from labels + items (items default to the vault_inbox_prepare cache): inbox table sorted act/reply/waiting/fyi/noise with hidden entry_id comments, To do, Waiting on (each row also becomes an open item on the sender's page), Promised (the user's own open items due within seven days, on the first run of the day), Calendar from events with occurrence_key comments, Watch out (given bullets + clashes + missing prep notes). A second run on the same day appends only the new rows under '## Update'. Returns {path, action (created/appended/unchanged), rows_written, duplicates_skipped, followups_added, promised, calendar_rows, unlabelled}."""
         return _json(workflows.write_daily(date, labels, items, events, watch_out, since, inbox_checked, tokens_used, folder, created_by))
 
     @mcp.tool(
@@ -315,7 +319,7 @@ def register(mcp: FastMCP) -> None:
         company: Annotated[Optional[str], Field(description="Company for a new person note, only from outlook_search_contacts.")] = None,
         created_by: CreatedBy = workflows.CREATED_BY,
     ) -> str:
-        """Build the email note from outlook_get_mail JSON (body_trimmed when present), write it (upsert: an existing note gets an Update with the new summary), create the sender's draft person page under Wiki/People or add a Records line to it (last_contact, aliases), and add a Follow-ups row when status is waiting. Returns {path, action, status, person_path, person_action, followup_added}."""
+        """Build the email note from outlook_get_mail JSON (body_trimmed when present), write it (upsert: an existing note gets an Update with the new summary), create the sender's draft person page under Wiki/People or add a Records line to it (last_contact, aliases), and, when status is waiting, add an open item owned by the counterpart (the first recipient of the user's own mail, else the sender) to that person's page. Returns {path, action, status, person_path, person_action, followup_added}."""
         return _json(workflows.save_email(mail, summary, action_items, attachments_saved, msg_file, status, self_addresses, company, created_by))
 
     @mcp.tool(
@@ -329,7 +333,7 @@ def register(mcp: FastMCP) -> None:
         attendees: Attendees = None,
         subject: Annotated[str, Field(description="The event's subject; matched against wiki topic pages. Taken from the existing note when empty.")] = "",
     ) -> str:
-        """Everything the vault knows for a prep in one call: {existing_note, existing_status, previous_occurrence: {path, date, open_actions} or null, people: [{email, name, path, last_contact, company, last_emails (up to 3 Records lines)}], followups_open: [rows mentioning any attendee], wiki: [{path, type, title, status, lead, open[], facts[] (up to 8)} for the attendees' person pages and up to 3 topic pages matched on the subject]}."""
+        """Everything the vault knows for a prep in one call: {existing_note, existing_status, previous_occurrence: {path, date, open_actions} or null, people: [{email, name, path, last_contact, company, last_emails (up to 3 Records lines)}], commitments: [{page, stem, type, title, owner_name, id, text, owner, due, since, src, record, done} for the open items on the attendees' pages and the items anywhere they own], followups_open: [one line per commitment someone else owes, kept for one release], wiki: [{path, type, title, status, lead, open[], facts[] (up to 8)} for the attendees' person pages and up to 3 topic or decision pages matched on the subject, projects first, then decisions]}."""
         return _json(workflows.prep_context(occurrence_key, global_id, attendees, subject))
 
     @mcp.tool(
@@ -341,7 +345,7 @@ def register(mcp: FastMCP) -> None:
         week: Annotated[str, Field(description="ISO week, e.g. 2026-W34.")],
         today: Annotated[Optional[str], Field(description="Local date YYYY-MM-DD; defaults to the machine date.")] = None,
     ) -> str:
-        """Computed from the vault only: {week, start, end, open_from_inbox: [{date, label, subject, from, entry_id, note, daily}] (act/reply rows of the week's daily notes not ticked and with no email note of status done), waiting: [Follow-ups Open rows with age_days], meetings_held: [{path, subject, date, unchecked_actions}], no_notes: [past meetings still 'upcoming'], quiet_people: [{name, email, path, last_contact, days}] over 30 days, wiki: {review_open, stale, uningested, candidates} counts for the '## Wiki' section}."""
+        """Computed from the vault only: {week, start, end, open_from_inbox: [{date, label, subject, from, entry_id, note, daily}] (act/reply rows of the week's daily notes not ticked and with no email note of status done), waiting: [{since, who, what, email, age_days} from the open items other people owe], promised_overdue: [{due, what, page, id, days_over} from the user's own items past their due date], meetings_held: [{path, subject, date, unchecked_actions}], no_notes: [past meetings still 'upcoming'], quiet_people: [{name, email, path, last_contact, days}] over 30 days, wiki: {review_open, stale, uningested, candidates} counts for the '## Wiki' section}."""
         return _json(workflows.weekly_facts(week, today))
 
     @mcp.tool(
@@ -380,19 +384,20 @@ def register(mcp: FastMCP) -> None:
     @_guard
     def vault_wiki_search(
         query: Annotated[str, Field(description="The question in plain words. \"quoted phrases\", ids, dates and amounts are looked up as written; /regex/ searches the raw text.")],
-        kinds: Annotated[Optional[list[str]], Field(description="Keep only these page kinds: person, org, topic, howto, me.")] = None,
+        kinds: Annotated[Optional[list[str]], Field(description="Keep only these page kinds: person, org, topic, decision, howto, me.")] = None,
         limit: Annotated[int, Field(ge=1, le=50, description="How many hits to answer with.")] = 10,
         since: Annotated[Optional[str], Field(description="Only facts dated on or after this ISO date.")] = None,
         include_superseded: Annotated[bool, Field(description="Also answer with the old wording of facts that were replaced (always shown as superseded and always ranked below).")] = False,
         brief: Annotated[bool, Field(description="Answer with one stitched text instead of a list of hits.")] = False,
         max_chars: Annotated[int, Field(ge=200, le=8000, description="Cap for the stitched text.")] = 1500,
-        open_items: Annotated[bool, Field(description="Answer with the open items of the matching pages instead of facts.")] = False,
-        owner: Annotated[Optional[str], Field(description="Open items only: whose item it is; matched once the lines carry an owner.")] = None,
-        due_before: Annotated[Optional[str], Field(description="Open items only: due on or before this ISO date; matched once the lines carry a due date.")] = None,
+        open_items: Annotated[bool, Field(description="Answer with the open items (the commitments) of the matching pages instead of facts.")] = False,
+        owner: Annotated[Optional[str], Field(description="Open items only: 'me' for what the user owes, 'others' for what other people owe the user.")] = None,
+        due_before: Annotated[Optional[str], Field(description="Open items only: keep the items due before this ISO date (that date itself is left out).")] = None,
         page: Annotated[Optional[str], Field(description="Keep to this one page (path, stem or wikilink).")] = None,
+        include_done: Annotated[bool, Field(description="Open items only: also answer with the items already ticked.")] = False,
     ) -> str:
-        """Ranked facts read from the wiki pages themselves: [{page, kind, title, fact_id, text, since, src, score, why[], superseded, streams, confirmed}], best first, at most three facts per page. brief=true answers with {text, pages[], facts[], chars} — the top pages with their lead, facts, open items and the dated facts of the pages they link to. open_items=true answers with [{page, title, text, record, line}]. Notes are never read."""
-        return _json(wiki_search.search_tool(query, kinds, limit, since, include_superseded, brief, max_chars, open_items, owner, due_before, page))
+        """Ranked facts read from the wiki pages themselves: [{page, kind, title, fact_id, text, since, src, score, why[], superseded, streams, confirmed}], best first, at most three facts per page. brief=true answers with {text, pages[], facts[], chars} — the top pages with their lead, facts, open items and the dated facts of the pages they link to. open_items=true answers with the commitments [{page, stem, type, title, owner_name, id, text, owner, due, since, src, record, done}], oldest since first, at most 200 of them (limit is not used there). Notes are never read."""
+        return _json(wiki_search.search_tool(query, kinds, limit, since, include_superseded, brief, max_chars, open_items, owner, due_before, page, include_done))
 
     @mcp.tool(
         name="vault_wiki_read",
@@ -417,7 +422,7 @@ def register(mcp: FastMCP) -> None:
         pages: Annotated[list[dict[str, Any]], Field(description="Per page: {path, ops} for an existing page or {new: {type, title, aliases, lead, summary}, ops} for a new one. An empty ops list still adds the Records line.")],
         created_by: CreatedBy = wiki.CREATED_BY,
     ) -> str:
-        """Apply op lists to wiki pages with the record as source (src and since default to the record's id and date). Per page: applied / refused ops with reasons, new ids, sizes; writes Records, History, the record's wiki: link, Log.md and Index.md; reports the topic candidate for the record's subject. Every page is read back after the write: one that does not come back as it was written keeps its previous text and answers written: false with reason 'verify-failed'."""
+        """Apply op lists to wiki pages with the record as source (src and since default to the record's id and date). Per page: applied / refused ops with reasons, new ids, sizes; writes Records, History, the record's wiki: link, Log.md and Index.md; reports the topic candidate for the record's subject (candidate.suggest_due says a record named a day, so propose an owner and a due date). The answer carries confirmed_decisions: [page stems] when the user ticked an 'unconfirmed decision' line in Review.md. Every page is read back after the write: one that does not come back as it was written keeps its previous text and answers written: false with reason 'verify-failed'."""
         return _json(wiki.ingest(record_path, pages, created_by))
 
     @mcp.tool(
@@ -426,7 +431,7 @@ def register(mcp: FastMCP) -> None:
     )
     @_guard
     def vault_wiki_create(
-        type: Annotated[str, Field(description="person, org, topic, howto or me.")],
+        type: Annotated[str, Field(description="person, org, topic, decision, howto or me. A decision needs extra {decided, by}.")],
         title: Annotated[str, Field(description="Noun phrase, 6 words or fewer, no dates.")],
         aliases: Optional[list[str]] = None,
         lead: Annotated[str, Field(description="2-4 sentences, 80 words or fewer.")] = "",
@@ -434,9 +439,9 @@ def register(mcp: FastMCP) -> None:
         facts: Annotated[Optional[list[dict[str, Any]]], Field(description="[{text, since, src}] written as add ops.")] = None,
         src: WikiSrc = "user",
         created_by: CreatedBy = wiki.CREATED_BY,
-        extra: Annotated[Optional[dict[str, Any]], Field(description="Type-specific keys: email (person), domains (org), owner / org / due (topic). Code-owned keys are refused.")] = None,
+        extra: Annotated[Optional[dict[str, Any]], Field(description="Type-specific keys: email (person), domains (org), owner / org / due (topic), decided (date, required) and by (person page links, required) for a decision. Code-owned keys are refused.")] = None,
     ) -> str:
-        """Create a page under Wiki/<Type>/ (slug filename). Refused with the matching index line when a page with this title, alias or address exists: {created: false, reason: 'exists', path, match}."""
+        """Create a page under Wiki/<Type>/ (slug filename). Refused with the matching index line when a page with this title, alias or address exists: {created: false, reason: 'exists', path, match}. A new decision page is written with status current and flags [unconfirmed-decision] and gets one Review line ('unconfirmed decision: … — confirm or drop'); confirming it clears the flag, ticking that line in Obsidian does the same on the next lint or ingest."""
         return _json(wiki.create(type, title, aliases, lead, summary, facts, src, created_by, extra))
 
     @mcp.tool(
@@ -472,7 +477,7 @@ def register(mcp: FastMCP) -> None:
         resolution_ops: Annotated[Optional[list[dict[str, Any]]], Field(description="resolve: ops applied to the page the item names (src user), e.g. a supersede the user decided on.")] = None,
         created_by: CreatedBy = wiki.CREATED_BY,
     ) -> str:
-        """list: {open: [{n, text}], done}. resolve: applies resolution_ops (if any) to the item's page, moves the item to Done with today's date, clears the page's contradiction flag when no other open item names it."""
+        """list: {open: [{n, text}], done}. resolve: applies resolution_ops (if any) to the item's page, moves the item to Done with today's date, clears the page's contradiction and unconfirmed-decision flags when no other open item names it."""
         if action not in ("list", "resolve"):
             raise RuntimeError("action must be 'list' or 'resolve'.")
         return _json(wiki.review(action, item, resolution_ops, created_by))
@@ -486,7 +491,7 @@ def register(mcp: FastMCP) -> None:
         fix: Annotated[bool, Field(description="Apply the safe fixes: regenerate the index, recompute code-owned keys, fix section order, turn dangling links in code-owned sections into plain text, tick open items whose record action is done, set stale topics to dormant, rotate History / Log.")] = False,
         created_by: CreatedBy = wiki.CREATED_BY,
     ) -> str:
-        """The fifteen wiki checks (index vs files, dangling links, orphans, frontmatter, sections, oversized, stale, due in the past, open items done, duplicate pages, records never ingested, topic candidates, History / Log rotation, pages to ask the model about, unconfirmed facts). Flags (orphan, stale, oversized, possible-duplicate) and Review lines are written in both modes; fix=true also applies the safe fixes. Returns {date, fix, pages, counts, checks: {0..15}, flagged, review_added, written, cache}. checks['0'] is the pass that reads back what the user changed by hand in Obsidian; it runs at the start of every wiki tool, and when it took something over the answer carries adopted: [{page, changes}] — pass that on in one line. checks['14'].ask_model lists the pages touched since the last lint: read their facts and report pairs that cannot both be true with a contest op."""
+        """The wiki checks (index vs files, dangling links, orphans, frontmatter, sections, oversized, stale, due in the past, open items done, duplicate pages, records never ingested, topic candidates, History / Log rotation, pages to ask the model about, unconfirmed facts, and 19 overdue: the user's own open items past their due date). Flags (orphan, stale, oversized, possible-duplicate) and Review lines are written in both modes; fix=true also applies the safe fixes. Decision pages are left out of the stale check. Returns {date, fix, pages, counts, checks: {0..15, 19}, flagged, review_added, written, cache}, plus confirmed_decisions: [page stems] when the user ticked an 'unconfirmed decision' line in Review.md (the one line a tick alone settles). checks['0'] is the pass that reads back what the user changed by hand in Obsidian; it runs at the start of every wiki tool, and when it took something over the answer carries adopted: [{page, changes}] — pass that on in one line. checks['14'].ask_model lists the pages touched since the last lint: read their facts and report pairs that cannot both be true with a contest op."""
         return _json(wiki_lint.lint(fix, created_by))
 
     @mcp.tool(
@@ -511,7 +516,7 @@ def register(mcp: FastMCP) -> None:
         dry_run: Annotated[bool, Field(description="true returns the plan and writes nothing; false does it with a backup.")] = True,
         created_by: CreatedBy = wiki.CREATED_BY,
     ) -> str:
-        """Move Administrator/People/*.md to Wiki/People/ as person pages following the page contract (old Emails / Meetings lines become Records, a 'Voice with this person:' block and other user text go under Notes), rewrite [[People/...]] links to [[Wiki/People/...]] in every other note including frontmatter, update the .base views, generate the index, write one Log line, and remove the old folder when empty. A copy of People/ is kept under Administrator/_backup/<stamp>/People/. Returns the plan ({needed, people, links, views, left, backup}) plus, after a real run, {moved, skipped, links_rewritten, old_folder_removed, old_folder_left}."""
+        """Bring an older vault up to date in three parts. people: Administrator/People/*.md move to Wiki/People/ as person pages following the page contract (old Emails / Meetings lines become Records, a 'Voice with this person:' block and other user text go under Notes), [[People/...]] links are rewritten to [[Wiki/People/...]] everywhere including frontmatter, and the old folder goes when it is empty. followups: the Open rows of Follow-ups.md become open items on the person page the Who names (an unknown name lands on Wiki/Me.md with the name in the text) and the Done rows become History lines, after which the file is written from the pages. views: the .base views are brought up to date. A copy of what is replaced is kept under Administrator/_backup/<stamp>/. Returns the plan ({needed, parts: {people, followups, views}, people, links, views, followups: {open, done, count, backup}, left, backup}) plus, after a real run, {moved, skipped, links_rewritten, followups_moved: {open, done}, old_folder_removed, old_folder_left}."""
         return _json(wiki_migrate.migrate(dry_run, created_by))
 
     # ---------------------------------------------------------------- collect (0.3.0)
@@ -572,7 +577,7 @@ def register(mcp: FastMCP) -> None:
         now: Annotated[Optional[str], Field(description="Local time HH:MM (from outlook_whoami.local_time). Only matters on today: nothing is placed before it. Omit and today is planned from work_start.")] = None,
         peak_hours: PeakHours = None,
     ) -> str:
-        """Plan focus and admin blocks for the working days of week from today on, from Preferences.md (peak_hours, focus_block_minutes, focus_blocks_per_day, admin_blocks_per_day, admin_block_minutes, slack_share, work hours, buffer_minutes, no_meeting_blocks) and the priorities (the numbered lines of Priorities.md, then active wiki topics due within 30 days or with open items). peak_hours, when given, replaces the file's peak hours for this plan only (Preferences.md is not changed). Nothing is booked; the model creates the appointments after a yes. Bookable minutes per day = (1 - slack_share) * work minutes - meeting minutes; a day with none left is in skipped_days with the reason. Existing [Focus] / [Admin] appointments are kept (existing: true) and never duplicated. Returns {week, priorities: [{rank, name, page}], days: [{date, day, work_minutes, meeting_minutes, bookable_minutes, booked_minutes, slack_minutes, blocks: [{start, end, minutes, kind, subject, priority, page, existing}]}], totals: {focus_minutes, admin_minutes, new_blocks, existing_blocks, slack_share_kept}, unplaced, skipped_days: [{date, reason}], preferences_used, missing_keys}."""
+        """Plan focus and admin blocks for the working days of week from today on, from Preferences.md (peak_hours, focus_block_minutes, focus_blocks_per_day, admin_blocks_per_day, admin_block_minutes, slack_share, work hours, buffer_minutes, no_meeting_blocks) and the priorities (the numbered lines of Priorities.md, then the user's own open items due by the end of the week, then active wiki topics due within 30 days or with open items). What has a due date is placed first, in the latest free new focus block before that day. peak_hours, when given, replaces the file's peak hours for this plan only (Preferences.md is not changed). Nothing is booked; the model creates the appointments after a yes. Bookable minutes per day = (1 - slack_share) * work minutes - meeting minutes; a day with none left is in skipped_days with the reason. Existing [Focus] / [Admin] appointments are kept (existing: true) and never duplicated. Returns {week, priorities: [{rank, name, page, due}], days: [{date, day, work_minutes, meeting_minutes, bookable_minutes, booked_minutes, slack_minutes, blocks: [{start, end, minutes, kind, subject, priority, page, existing}]}], totals: {focus_minutes, admin_minutes, new_blocks, existing_blocks, slack_share_kept}, deadlines: [{name, due, page, block_date}], unplaced, skipped_days: [{date, reason}], preferences_used, missing_keys}."""
         return _json(timeblock.time_block_plan(week, events, today, now, peak_hours))
 
     @mcp.tool(

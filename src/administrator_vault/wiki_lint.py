@@ -1,7 +1,8 @@
 """Wiki lint and merge: PLAN-wiki.md §8 / §8.1.
 
-``lint(fix)`` runs the fifteen checks over ``Administrator/Wiki/``. Checks
-1–13 and 15 are decided in code; check 14 (contradictions) only returns the
+``lint(fix)`` runs the checks over ``Administrator/Wiki/`` — 0 to 15 and 19
+(16 to 18 come with the next release, so the numbers have a gap). Checks
+1–13, 15 and 19 are decided in code; check 14 (contradictions) only returns the
 pages touched since the last lint so the model can read their Facts. Flags
 (``orphan``, ``stale``, ``oversized``, ``possible-duplicate``) and Review
 lines are written in both modes; the fixes marked "auto" in the plan run
@@ -27,10 +28,10 @@ from administrator_vault import store, wiki
 from administrator_vault.notes import ADMIN_DIR
 from administrator_vault.store import VaultError, read_text, rel
 from administrator_vault.wiki import (
-    CAP_HINT, HISTORY_MAX, LOG_MAX, SECTIONS, STATUSES, TYPES, WIKI_DIR, Fact, Page, _Ctx, _LINK_RE, _LOG_RE, _UNCHECKED_RE,
+    CAP_HINT, HISTORY_MAX, ITEM_SECTIONS, LIVE_STATUSES, LOG_MAX, SECTIONS, TYPES, WIKI_DIR, Fact, Page, _Ctx, _LINK_RE, _LOG_RE,
     _add_alias, _aliases, _all_pages, _atomic_write, _candidates_over, _finalize, _history, _link_target, _load, _log, _norm, _norm_name,
-    _put_link, _RECORD_RE, _review_add, _review_text, _s, _stem, _today, _write_index, _write_page, _wiki_lock, format_page, measure,
-    page_path,
+    _put_link, _RECORD_RE, _review_add, _review_text, _s, _statuses, _stem, _today, _write_index, _write_page, _wiki_lock,
+    format_page, measure, page_path,
 )
 
 CACHE_DIR = wiki.CACHE_DIR
@@ -42,12 +43,15 @@ LINT_FLAGS = ("orphan", "stale", "oversized", "possible-duplicate")
 REQUIRED_KEYS = ("type", "id", "title", "aliases", "summary", "status", "created", "updated", "verified", "sources", "open_items", "flags", "created_by")
 TYPE_KEYS = {
     "person": ("name", "email", "last_contact"),
+    "decision": ("decided", "by"),
 }
-OPTIONAL_KEYS = {"owner", "org", "due", "domains", "last_done", "email", "name", "last_contact"}
+OPTIONAL_KEYS = {
+    "owner", "org", "due", "domains", "last_done", "email", "name", "last_contact",
+    "outcome", "decided", "by", "superseded_by", "reversal", "options_rejected", "links", "risks",
+}
 CODE_SECTIONS = ("Facts", "People", "Topics", "Contacts", "Open", "Records", "Related", "History")
 _STOP_TITLE = {"the", "a", "of"}
 _H2_RE = re.compile(r"^## (.+?)\s*$")
-_OPEN_RE = re.compile(r"^- \[ \] (?P<text>.*?)(?: — \[\[(?P<rec>[^\]|]+)(?:\|[^\]]*)?\]\])?\s*$")
 _CHECKED_LINE_RE = re.compile(r"^\s*- \[x\] (.*)$", re.IGNORECASE)
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _LINT_FILE_RE = re.compile(r"^lint-\d{4}-\d{2}-\d{2}\.json$")
@@ -205,6 +209,7 @@ def lint(fix: bool = False, created_by: str = wiki.CREATED_BY) -> dict[str, Any]
     with _wiki_lock(root):
         started = store.now_iso()
         edits = wiki_reconcile.reconcile(root, lock_held=True)  # 0 what the user changed by hand
+        confirmed = wiki._settle_ticked_decisions(root)  # a decision the user ticked in Review.md
         previous = _last_lint(root)
         last_done = _s((previous or {}).get("finished"))
         listing = _all_pages(root)
@@ -259,6 +264,16 @@ def lint(fix: bool = False, created_by: str = wiki.CREATED_BY) -> dict[str, Any]
                         if any(not resolver.ok(t) for t in _link_targets(line)):
                             lines[i] = _strip_links(line)
                             changed = True
+                for name in ITEM_SECTIONS:  # the open items and milestones keep their own lines
+                    for o in page.items(name):
+                        if o.record and not resolver.ok(o.record):
+                            o.record = ""
+                            changed = True
+                        for key in ("text", "raw"):
+                            was = getattr(o, key)
+                            if was and any(not resolver.ok(t) for t in _link_targets(was)):
+                                setattr(o, key, _strip_links(was))
+                                changed = True
                 if changed:
                     to_write.add(path)
         checks["2"] = {"name": "dangling-links", "count": len(dangling), "items": dangling[:50], "fixed": fix}
@@ -279,7 +294,7 @@ def lint(fix: bool = False, created_by: str = wiki.CREATED_BY) -> dict[str, Any]
             missing = [k for k in need if k not in fm]
             extra = [k for k in fm if k not in need and k not in OPTIONAL_KEYS]
             bad = []
-            if _s(fm.get("status")) not in STATUSES:
+            if _s(fm.get("status")) not in _statuses(page.type):
                 bad.append("status")
             for k in ("aliases", "flags"):
                 if k in fm and not isinstance(fm[k], list):
@@ -291,7 +306,7 @@ def lint(fix: bool = False, created_by: str = wiki.CREATED_BY) -> dict[str, Any]
                 if k in fm and not isinstance(fm[k], int):
                     bad.append(k)
             expect_sources = wiki.count_sources(root, page, id_cache)
-            expect_open = sum(1 for l in (page.sections.get("Open") or []) if _UNCHECKED_RE.match(l))
+            expect_open = sum(1 for o in page.opens if not o.raw and not o.done)
             hand = []
             if "sources" in fm and fm.get("sources") != expect_sources:
                 hand.append("sources")
@@ -301,7 +316,7 @@ def lint(fix: bool = False, created_by: str = wiki.CREATED_BY) -> dict[str, Any]
                 schema.append({"page": page.stem, "missing": missing, "extra": extra, "mistyped": bad, "code_owned_edited": hand})
                 if fix and (missing or bad or hand):
                     if "status" in bad:
-                        fm["status"] = "active" if page.lead else "draft"
+                        fm["status"] = _statuses(page.type)[0] if page.lead or page.type == "decision" else "draft"
                     for k in bad:
                         if k in ("aliases", "flags"):
                             fm[k] = [_s(fm[k])] if _s(fm[k]) else []
@@ -346,10 +361,10 @@ def lint(fix: bool = False, created_by: str = wiki.CREATED_BY) -> dict[str, Any]
         stale = []
         for path, page in pages.items():
             fm = page.fm
-            if _s(fm.get("status")) != "active":
-                continue
+            if _s(fm.get("status")) not in LIVE_STATUSES or page.type not in STALE_DAYS:
+                continue  # a decision never goes stale: it is what was decided, not what is new
             age = _days_ago(_s(fm.get("verified") or fm.get("created")), today)
-            limit = STALE_DAYS.get(page.type, 120)
+            limit = STALE_DAYS[page.type]
             if age is not None and age > limit:
                 flags[path].append("stale")
                 item = {"page": page.stem, "verified": _s(fm.get("verified"))[:10], "days": age, "set_dormant": False}
@@ -365,27 +380,25 @@ def lint(fix: bool = False, created_by: str = wiki.CREATED_BY) -> dict[str, Any]
         due = []
         for path, page in pages.items():
             d = _s(page.fm.get("due"))[:10]
-            if page.type == "topic" and _s(page.fm.get("status")) == "active" and _DATE_RE.match(d) and d < today_s:
+            if page.type == "topic" and _s(page.fm.get("status")) in LIVE_STATUSES and _DATE_RE.match(d) and d < today_s:
                 due.append({"page": page.stem, "due": d})
         checks["8"] = {"name": "due-past", "count": len(due), "items": due}
 
         # 9 open items done in the record
         done_open = []
         for path, page in pages.items():
-            opens = page.sections.get("Open") or []
-            for i, line in enumerate(opens):
-                m = _OPEN_RE.match(line)
-                if not m or not m.group("rec"):
+            for o in page.opens:
+                if o.raw or o.done or not o.record:
                     continue
-                rp = root / ADMIN_DIR / (m.group("rec").strip() + ".md")
+                rp = root / ADMIN_DIR / (o.record.strip() + ".md")
                 if not rp.is_file():
                     continue
                 checked = [_norm(c.group(1)) for c in (_CHECKED_LINE_RE.match(l) for l in read_text(rp).split("\n")) if c]
-                want = _norm(m.group("text"))
+                want = _norm(o.text)
                 if any(want and (want in c or c in want) for c in checked):
-                    done_open.append({"page": page.stem, "text": m.group("text"), "record": m.group("rec")})
+                    done_open.append({"page": page.stem, "id": o.id, "text": o.text, "record": o.record})
                     if fix:
-                        opens[i] = "- [x] " + line[6:]
+                        o.done = True
                         to_write.add(path)
         checks["9"] = {"name": "open-done", "count": len(done_open), "items": done_open, "fixed": fix}
 
@@ -451,7 +464,7 @@ def lint(fix: bool = False, created_by: str = wiki.CREATED_BY) -> dict[str, Any]
         unconfirmed: dict[str, list[dict[str, str]]] = {}
         n_unc = 0
         for path, page in pages.items():
-            if _s(page.fm.get("status")) != "active":
+            if _s(page.fm.get("status")) not in LIVE_STATUSES:
                 continue
             for f in page.facts:
                 age = _days_ago(f.since, today)
@@ -460,6 +473,18 @@ def lint(fix: bool = False, created_by: str = wiki.CREATED_BY) -> dict[str, Any]
                     if n_unc <= UNCONFIRMED_MAX:
                         unconfirmed.setdefault(page.stem, []).append({"id": f.id, "text": f.text, "since": f.since})
         checks["15"] = {"name": "unconfirmed", "count": n_unc, "shown": min(n_unc, UNCONFIRMED_MAX), "pages": unconfirmed}
+
+        # 16-18 are taken by the next release; 19 overdue: the user's own items past their due date
+        overdue = []
+        for path, page in pages.items():
+            for o in page.opens:
+                if o.raw or o.done or _s(o.owner).lower() != "me":
+                    continue
+                if not _DATE_RE.match(_s(o.due)[:10]) or _s(o.due)[:10] >= today_s:
+                    continue
+                overdue.append({"page": page.stem, "id": o.id, "text": o.text, "due": _s(o.due)[:10]})
+                review_lines.append(f'- [ ] [[{page.stem}]] — overdue: "{o.text}" due {_s(o.due)[:10]} — done, reschedule, or drop')
+        checks["19"] = {"name": "overdue", "count": len(overdue), "items": overdue}
 
         # stale / orphan / oversized / duplicate pages with no other open Review line get one
         for path, page in pages.items():
@@ -495,7 +520,7 @@ def lint(fix: bool = False, created_by: str = wiki.CREATED_BY) -> dict[str, Any]
             "oversized": checks["6"]["count"], "stale": checks["7"]["count"], "due_past": checks["8"]["count"], "open_done": checks["9"]["count"],
             "duplicates": checks["10"]["count"], "uningested": checks["11"]["count"], "candidates": checks["12"]["count"],
             "history_over": len(long_hist), "ask_model": len(touched), "unconfirmed": n_unc,
-            "hand_edits": len(edits["adopted"]),
+            "overdue": checks["19"]["count"], "hand_edits": len(edits["adopted"]),
         }
         _log(root, "lint", "Wiki", "-", ("fix, " if fix else "") + f"{len(pages)} pages, {len(flagged)} flagged, {len(added)} review lines, {len(written)} written")
         finished = store.now_iso()
@@ -506,6 +531,8 @@ def lint(fix: bool = False, created_by: str = wiki.CREATED_BY) -> dict[str, Any]
         }
         if edits["adopted"]:
             report["adopted"] = edits["adopted"]
+        if confirmed:
+            report["confirmed_decisions"] = confirmed
         cache = root / CACHE_DIR / f"lint-{today_s}.json"  # one file per day; a later run the same day replaces it
         _atomic_write(cache, json.dumps(report, ensure_ascii=False, indent=1))
         report["cache"] = rel(root, cache)
@@ -558,6 +585,8 @@ def merge(keep: str, drop: str, created_by: str = wiki.CREATED_BY) -> dict[str, 
         for pg in (kp, dp):
             if pg.type not in TYPES:
                 raise VaultError(f"{pg.stem} is a {pg.type or 'typeless'} page; only {', '.join(TYPES)} pages can be merged.")
+            if pg.type == "decision":
+                raise VaultError(f"{pg.stem} is a decision; decisions are never merged. Link them with superseded_by instead.")
         ctx = _Ctx(root=root, src="user", since=_today(), record=None)
         ctx.record = {"link": f"[[{dp.stem}]]", "path": dp.path, "date": _today(), "src": "user", "summary": ""}  # History lines name the dropped page
         added, confirmed, refused = [], [], []
@@ -593,8 +622,9 @@ def merge(keep: str, drop: str, created_by: str = wiki.CREATED_BY) -> dict[str, 
             if not _s(kp.fm.get(k)) and _s(dp.fm.get(k)):
                 kp.fm[k] = dp.fm[k]
         # sections
-        for name in ("Records", "Open"):
-            kp.lines(name).extend(l for l in dp.sections.get(name) or [] if l not in kp.lines(name))
+        kp.lines("Records").extend(l for l in dp.sections.get("Records") or [] if l not in kp.lines("Records"))
+        have = {_norm(o.text) for o in kp.opens}
+        kp.opens.extend(o for o in dp.opens if not o.raw and _norm(o.text) not in have)
         for name in ("People", "Topics", "Contacts", "Related"):
             for l in dp.sections.get(name) or []:
                 m = wiki._LINK_LINE_RE.match(l)
@@ -603,8 +633,13 @@ def merge(keep: str, drop: str, created_by: str = wiki.CREATED_BY) -> dict[str, 
                     if t != kp.stem and t != dp.stem:
                         _put_link(kp.lines(name), t, m.group(2) or "", name != "Related")
         for name in list(kp.sections):
-            if name in ("Open", "Records"):
+            if name == "Records":
                 kp.sections[name] = _dedupe_links([l for l in kp.sections[name] if dp.stem not in l])
+        for o in kp.opens:  # an item that named the dropped page now names the kept one
+            if o.record == dp.stem:
+                o.record = ""
+            if _link_target(_s(o.owner)) == dp.stem:
+                o.owner = f"[[{kp.stem}]]"
         _history(kp, ctx, f'merged [[{dp.stem}]] into this page: facts added {len(added)}, confirmed {len(confirmed)}')
         # the merge answers the duplicate question; the flag goes with it
         kp.fm["flags"] = [f for f in (kp.fm.get("flags") or []) if f != "possible-duplicate"]

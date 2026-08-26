@@ -121,7 +121,7 @@ def test_plan_fixed_week_budget_rule_peak_first_and_existing_blocks():
     # rank 1 takes every other new focus block; the others follow in order
     focus = [b["priority"] for d in plan["days"] for b in d["blocks"] if b["kind"] == "focus" and not b["existing"]]
     assert focus == ["Acme contract", "Hiring a PM", "Acme contract", "Offsite", "Acme contract", "Hiring a PM", "Acme contract"]
-    assert plan["priorities"] == PRIORITIES and plan["unplaced"] == []
+    assert plan["priorities"] == [dict(p, due=None) for p in PRIORITIES] and plan["unplaced"] == [] and plan["deadlines"] == []
     assert plan["totals"] == {"focus_minutes": 720, "admin_minutes": 315, "new_blocks": 14, "existing_blocks": 1, "slack_share_kept": 0.27}
     assert plan["preferences_used"]["peak_hours"] == ["09:00-12:00"] and plan["missing_keys"] == []
     # deterministic
@@ -202,10 +202,10 @@ def test_priorities_from_file_then_pressing_wiki_topics(vault):
     )
     got = timeblock.read_priorities(vault, TODAY)
     assert got == [
-        {"rank": 1, "name": "Acme contract", "page": "[[Wiki/Topics/acme-contract]]"},
-        {"rank": 2, "name": "Hiring a PM", "page": None},
-        {"rank": 3, "name": "Something new", "page": "[[Wiki/Topics/not-a-page]]"},
-        {"rank": 4, "name": "Office move", "page": "[[Wiki/Topics/office-move]]"},
+        {"rank": 1, "name": "Acme contract", "page": "[[Wiki/Topics/acme-contract]]", "due": None},
+        {"rank": 2, "name": "Hiring a PM", "page": None, "due": None},
+        {"rank": 3, "name": "Something new", "page": "[[Wiki/Topics/not-a-page]]", "due": None},
+        {"rank": 4, "name": "Office move", "page": "[[Wiki/Topics/office-move]]", "due": None},
     ]
     assert acme.endswith("acme-contract.md") and soon.endswith("office-move.md") and far.endswith("strategy-2027.md")
     # later the far topic is inside the window, the overdue one still counts, the closed one never does
@@ -335,6 +335,57 @@ def test_peak_hours_override_is_used_once_and_never_written(vault):
     out = asyncio.run(server.call_tool("vault_time_block_plan", {"week": WEEK, "events": [], "today": "2026-08-24", "peak_hours": ["14:00-17:00"]}))
     got = json.loads(out[0].text if isinstance(out, list) else out[0][0].text)
     assert got["preferences_used"]["peak_hours"] == ["14:00-17:00"]
+
+
+def test_the_deadline_pass_books_a_block_before_the_due_day(vault):
+    """The user's own open items due this week come first: each takes the latest
+    free new focus block before its due day."""
+    page = wiki.create("topic", "Acme contract", lead="The supplier contract.")["path"]
+    wiki.apply(page, [
+        {"op": "open", "text": "Send the signed contract", "due": "2026-08-26", "since": "2026-08-20", "src": "a"},
+        {"op": "open", "text": "Book the venue", "due": "2026-08-31", "since": "2026-08-20", "src": "b"},  # after the week
+    ])
+    pri = timeblock.read_priorities(vault, TODAY, date(2026, 8, 30))
+    # the item names its own page, so the topic is not listed a second time
+    assert [(p["name"], p["due"]) for p in pri] == [("Send the signed contract", "2026-08-26")]
+    pri = pri + [{"rank": 2, "name": "Hiring a PM", "page": None}]
+    plan = timeblock.plan(WEEK, week_events(), TODAY, PREFS, pri)
+    assert plan["deadlines"] == [{"name": "Send the signed contract", "due": "2026-08-26",
+                                 "page": "[[Wiki/Topics/acme-contract]]", "block_date": "2026-08-25"}]
+    booked = [b for d in plan["days"] for b in d["blocks"] if b["priority"] == "Send the signed contract"]
+    assert len(booked) == 1 and booked[0]["date"] == "2026-08-25" and booked[0]["subject"] == "[Focus] Send the signed contract"
+    assert booked[0]["start"] > "2026-08-25T12:00"  # the latest free block of the last day before the due day
+    assert plan["unplaced"] == [] and all(b["priority"] == "Hiring a PM" for b in plan["days"][0]["blocks"] if b["kind"] == "focus")
+    assert timeblock.plan(WEEK, week_events(), TODAY, PREFS, pri) == plan  # the same inputs, the same plan
+
+
+def test_two_items_due_on_the_same_page_are_two_priorities(vault):
+    """One page can owe two things this week; the second must not be dropped by
+    the one-line-per-page rule."""
+    page = wiki.create("topic", "Acme contract", lead="The supplier contract.")["path"]
+    wiki.apply(page, [
+        {"op": "open", "text": "Send the signed contract", "due": "2026-08-26", "since": "2026-08-20", "src": "a"},
+        {"op": "open", "text": "Draft the annex", "due": "2026-08-27", "since": "2026-08-20", "src": "b"},
+    ])
+    pri = timeblock.read_priorities(vault, TODAY, date(2026, 8, 30))
+    assert [(p["rank"], p["name"], p["due"]) for p in pri] == [
+        (1, "Send the signed contract", "2026-08-26"), (2, "Draft the annex", "2026-08-27")]
+    plan = timeblock.plan(WEEK, week_events(), TODAY, PREFS, pri)
+    # both get their own block, the soonest due first (the week has no bookable Thursday)
+    assert [(d["name"], d["block_date"]) for d in plan["deadlines"]] == [
+        ("Send the signed contract", "2026-08-25"), ("Draft the annex", "2026-08-25")]
+    blocks = {b["priority"]: b["start"] for d in plan["days"] for b in d["blocks"] if d["date"] == "2026-08-25"}
+    assert blocks["Send the signed contract"] > blocks["Draft the annex"] and plan["unplaced"] == []
+
+
+def test_a_deadline_with_no_block_before_it_says_so(vault):
+    pri = [{"rank": 1, "name": "Send the numbers", "page": "[[Wiki/Topics/x]]", "due": "2026-08-24"}]
+    plan = timeblock.plan(WEEK, [ev("All hands", "2026-08-24T09:00:00", "2026-08-24T17:00:00")], TODAY, PREFS, pri)
+    assert plan["deadlines"][0]["block_date"] == "2026-08-25"  # the earliest block left, after the due day
+    plan2 = timeblock.plan(WEEK, [], date(2026, 8, 29), PREFS, pri)  # Saturday: no working day left
+    assert plan2["deadlines"] == [{"name": "Send the numbers", "due": "2026-08-24", "page": "[[Wiki/Topics/x]]", "block_date": None}]
+    assert plan2["unplaced"] == [{"rank": 1, "name": "Send the numbers", "page": "[[Wiki/Topics/x]]", "due": "2026-08-24",
+                                  "reason": "no focus block before 2026-08-24"}]
 
 
 def test_now_keeps_today_free_before_the_clock(vault):

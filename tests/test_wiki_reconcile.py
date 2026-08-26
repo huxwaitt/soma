@@ -419,3 +419,23 @@ def test_bullets_under_a_bare_title_become_facts(vault):
     assert [f["text"] for f in facts] == ["It starts in October", "Bob owns it"]
     assert all(f["src"] == ["user"] for f in facts)
     assert fm_of(vault, path)["status"] == "draft" and wiki.read(path)["lead"] == ""
+
+
+def test_an_open_item_typed_by_hand_gets_an_id_an_owner_and_a_date(vault):
+    """A commitment written in Obsidian is adopted like a bullet: without an id
+    nothing could tick or reschedule it later."""
+    path = topic(vault)
+    person = wiki.create("person", "Jane Doe", extra={"email": "jane@example.com"}, created_by=CB)["path"]
+    hand_edit(vault, path, text_of(vault, path).replace(
+        "## Open\n", f"## Open\n\n- [ ] call Jane — owner: me\n- [ ] Jane sends the sheet — owner: [[{wiki._stem(person)}]]\n"))
+
+    out = wiki.read(path)
+    assert out["adopted"] == [{"page": "Wiki/Topics/q3-budget", "changes": "2 new open items"}]
+    items = wiki.commitments(vault, page="Wiki/Topics/q3-budget")
+    assert [i["text"] for i in items] == ["call Jane", "Jane sends the sheet"]
+    for item in items:
+        assert item["id"] and item["since"] == wiki._today() and item["src"] == ["user"]
+    assert items[0]["owner"] == "me" and items[1]["owner_name"] == "Jane Doe"
+    assert fm_of(vault, path)["open_items"] == 2
+    wiki_reconcile._MEMO.clear()
+    assert wiki.read(path).get("adopted") is None  # once, not on every pass

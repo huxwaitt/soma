@@ -9,7 +9,7 @@ import json
 import pytest
 
 from administrator_vault import frontmatter as fmt
-from administrator_vault import store, workflows
+from administrator_vault import store, wiki, workflows
 from administrator_vault.server import build_server
 
 CB = "administrator/0.0.5"
@@ -107,6 +107,23 @@ def test_rules_get_and_match(vault):
 # ------------------------------------------------------------------ inbox prepare + write daily
 
 
+def test_write_daily_lists_what_the_user_promised_this_week(vault):
+    page = wiki.create("topic", "Q3 budget", lead="Numbers.")["path"]
+    wiki.apply(page, [
+        {"op": "open", "text": "Send the numbers", "due": "2026-08-27", "since": "2026-08-20", "src": "a"},
+        {"op": "open", "text": "Book the venue", "due": "2026-09-30", "since": "2026-08-20", "src": "b"},
+        {"op": "open", "text": "Jane signs", "owner": "Jane Doe", "due": "2026-08-26", "since": "2026-08-20", "src": "c"},
+    ])
+    res = workflows.write_daily(DAY, [], [], [], since="2026-08-21T18:02:00+02:00")
+    assert res["promised"] == 1
+    text = (vault / res["path"]).read_text(encoding="utf-8")
+    assert "## Promised\n\n- Send the numbers — due 2026-08-27 — [[Wiki/Topics/q3-budget]]\n" in text
+    assert "Book the venue" not in text and "Jane signs" not in text
+    # a second run the same day does not repeat the section
+    res2 = workflows.write_daily(DAY, [{"entry_id": "00A1", "label": "act", "reason": "x"}], [item(1)], [])
+    assert res2["promised"] == 0 and (vault / res["path"]).read_text(encoding="utf-8").count("Promised") == 1
+
+
 def test_inbox_prepare_and_write_daily_twice(vault):
     store.append_row("Administrator/Rules.md", "Never save", ["spam.example", "domain"])
     items = [
@@ -152,14 +169,20 @@ def test_inbox_prepare_and_write_daily_twice(vault):
     assert rows[1][5] == "Will send the draft | next week"
     assert rows[0][6] == "<!-- entry_id: 00A1 -->"
     assert "- [ ] act — Subject 1 (Person 1)" in text
-    assert "- Person 4 — Subject 4 (since 2026-08-21) → also in [[Follow-ups]]" in text
+    assert "- Person 4 — Subject 4 (since 2026-08-21) → open item on their page" in text
+    assert "## Promised\n\n- none\n" in text  # the first run of the day, nothing of the user's own falls due
     assert "| all day | all day | Holiday |" in text
     assert "| 09:30 | 10:00 | Stand-up | Teams | Bob Lee <!-- occurrence_key: G1\\|2026-08-22T09:30:00+02:00 --> |" in text
     assert "- Bring the contract" in text
     assert "- Clash: Budget review (13:00–14:00) overlaps Dentist (13:30–14:30)" in text
     assert "- No prep note: Stand-up" in text and "No prep note: Holiday" not in text
+    # the waiting row is an open item on the sender's page, and Follow-ups.md shows it
+    items4 = wiki.commitments(vault, owner="others")
+    assert [(i["stem"], i["text"], i["owner"], i["since"]) for i in items4] == [
+        ("Wiki/People/Person 4", "Subject 4", "[[Wiki/People/Person 4]]", "2026-08-21")]
     fu = (vault / "Administrator" / "Follow-ups.md").read_text(encoding="utf-8")
-    assert "| 2026-08-21 | Person 4 | Subject 4 |  | 2026-08-22 <!-- entry_id: 00A4 --> |" in fu
+    assert "| 2026-08-21 | [[Wiki/People/Person 4]] | Subject 4 |" in fu
+    assert f"@ Wiki/People/Person 4 -->" in fu
 
     # second run the same day: one new mail, the rest already seen
     prep2 = workflows.inbox_prepare(items + [item(5)], DAY)
@@ -273,16 +296,25 @@ def test_save_email_updates_person_and_follow_ups(vault):
     assert res["person_action"] == "appended" and res["followup_added"] is True
     pfm = fmt.split_note((vault / res["person_path"]).read_text(encoding="utf-8"))[0]
     assert pfm["aliases"] == ["Doe, Jane"] and pfm["last_contact"] == "2026-08-22T09:14:00+02:00"
+    jane = wiki.commitments(vault, page="Wiki/People/Jane Doe")
+    assert [(i["text"], i["owner"], i["record"], i["src"]) for i in jane] == [
+        ("Budget Q3", "[[Wiki/People/Jane Doe]]", "Emails/2026-08-22 Budget Q3", ["<7f3a9c@example.com>"])]
     fu = (vault / "Administrator" / "Follow-ups.md").read_text(encoding="utf-8")
-    assert "| 2026-08-22 | [[Wiki/People/Jane Doe]] | Budget Q3 | [[Emails/2026-08-22 Budget Q3]] |" in fu and "<!-- entry_id: 00AA -->" in fu
-    # from the user: no person note for self, waiting row points at the recipient
+    assert "| 2026-08-22 | [[Wiki/People/Jane Doe]] | Budget Q3 | [[Emails/2026-08-22 Budget Q3]] |" in fu
+    # the same mail again is the same item: no second row
+    workflows.save_email(mail_json(**{"from": "Doe, Jane"}), "s", [], status="waiting")
+    assert len(wiki.commitments(vault, page="Wiki/People/Jane Doe")) == 1
+    # from the user: no person note for self, the waiting item lands on the recipient's page
     res2 = workflows.save_email(
         mail_json(entry_id="00AB", internet_message_id="<own@example.com>", from_address="hux@example.com", **{"from": "Hux Waitt"}),
         "I asked Hux's colleague for the numbers.", ["Get numbers — owner: Hux Waitt"], self_addresses=["HUX@example.com"],
     )
     assert res2["status"] == "waiting" and res2["person_path"] is None
+    mine = wiki.commitments(vault, page="Wiki/People/Hux Waitt")
+    assert [(i["text"], i["owner"], i["record"]) for i in mine] == [
+        ("Budget Q3", "[[Wiki/People/Hux Waitt]]", "Emails/2026-08-22 Budget Q3 (2)")]
     fu = (vault / "Administrator" / "Follow-ups.md").read_text(encoding="utf-8")
-    assert "| 2026-08-22 | Hux Waitt | Budget Q3 | [[Emails/2026-08-22 Budget Q3 (2)]] |" in fu
+    assert "| 2026-08-22 | [[Wiki/People/Hux Waitt]] | Budget Q3 | [[Emails/2026-08-22 Budget Q3 (2)]] |" in fu
     fm = fmt.split_note((vault / res2["path"]).read_text(encoding="utf-8"))[0]
     assert fm["from_link"] == ""
     with pytest.raises(Exception):
@@ -306,9 +338,14 @@ def test_prep_context(vault):
     store.write("meeting", meeting_fm("GID1|2026-08-18T13:00:00+02:00", "2026-08-18T13:00:00+02:00", status="held"),
                 "# Supplier sync\n\n## Action items\n\n- [ ] Send forecast — owner: me\n- [x] done thing\n\n## Update x\n\n### Action items\n\n- [ ] Confirm address — owner: Tom Lee\n\n### Closed\n\n- [ ] not this one\n")
     store.write("meeting", meeting_fm("GID1|2026-08-11T13:00:00+02:00", "2026-08-11T13:00:00+02:00", status="held"), "older")
-    store.append_row("Administrator/Follow-ups.md", "Open", ["2026-08-21", "[[Wiki/People/Jane Doe]]", "Contract draft", "", "2026-08-22"], "00AC")
-    store.append_row("Administrator/Follow-ups.md", "Open", ["2026-08-21", "Tom Lee", "Schedule", "", "2026-08-22"], "00AD")
-    store.append_row("Administrator/Follow-ups.md", "Open", ["2026-08-21", "Someone Else", "x", "", "2026-08-22"], "00AE")
+    jane_page = "Wiki/People/Jane Doe"
+    wiki.apply(jane_page, [
+        {"op": "open", "text": "Contract draft", "owner": f"[[{jane_page}]]", "since": "2026-08-21", "src": "00AC"},
+        {"op": "open", "text": "Schedule", "owner": "Tom Lee", "since": "2026-08-21", "src": "00AD"},
+        {"op": "open", "text": "Send the signed contract", "since": "2026-08-21", "src": "00AF"},  # owner me
+    ])
+    other = wiki.create("person", "Someone Else", extra={"email": "else@example.com"})["path"]
+    wiki.apply(other, [{"op": "open", "text": "x", "owner": f"[[{wiki._stem(other)}]]", "since": "2026-08-21", "src": "00AE"}])
 
     ctx = workflows.prep_context("GID1|2026-08-25T13:00:00+02:00", "", ["jane.doe@example.com", {"name": "Tom Lee", "address": "tom.lee@example.com"}])
     assert ctx["existing_note"] is None
@@ -319,7 +356,10 @@ def test_prep_context(vault):
     # the old-style body became Records lines on the wiki page (status tails dropped)
     assert jane["last_emails"] == ["- 2026-08-20 — [[Emails/2026-08-20 Old mail]]", "- 2026-08-10 — [[Emails/2026-08-10 Older]]"]
     assert tom["path"] is None and tom["name"] == "Tom Lee"
-    assert len(ctx["followups_open"]) == 2 and all("Someone Else" not in r for r in ctx["followups_open"])
+    # the items on the attendees' pages, both directions; nothing about people not in the meeting
+    assert [(c["text"], c["owner_name"]) for c in ctx["commitments"]] == [
+        ("Contract draft", "Jane Doe"), ("Schedule", "Tom Lee"), ("Send the signed contract", "me")]
+    assert ctx["followups_open"] == ["2026-08-21 — Jane Doe: Contract draft", "2026-08-21 — Tom Lee: Schedule"]
     # wiki[]: the attendee's person page (draft, identity lead), no topic without a subject match
     assert [w["path"] for w in ctx["wiki"]] == ["Administrator/Wiki/People/Jane Doe.md"]
     assert ctx["wiki"][0]["type"] == "person" and ctx["wiki"][0]["lead"] == "Jane Doe (jane.doe@example.com)." and ctx["wiki"][0]["facts"] == []
@@ -350,7 +390,12 @@ def test_weekly_facts(vault):
            "from": "bob@example.com", "from_name": "Bob Lee", "from_link": "", "to": [], "cc": [], "received": "2026-08-19T08:40:00+02:00",
            "status": "done", "created_by": CB}
     store.write("email", efm, "x")
-    store.append_row("Administrator/Follow-ups.md", "Open", ["2026-08-16", "[[Wiki/People/Tom Lee]]", "Delivery", "", "2026-08-22"], "00B1")
+    tom = wiki.create("person", "Tom Lee", extra={"email": "tom.lee@example.com"})["path"]
+    wiki.apply(tom, [
+        {"op": "open", "text": "Delivery", "owner": "[[Wiki/People/Tom Lee]]", "since": "2026-08-16", "src": "00B1"},
+        {"op": "open", "text": "Send the packaging spec", "due": "2026-08-20", "since": "2026-08-14", "src": "00B2"},
+        {"op": "open", "text": "Book the room", "due": "2026-09-30", "since": "2026-08-14", "src": "00B3"},
+    ])
     store.write("meeting", meeting_fm("GID1|2026-08-18T13:00:00+02:00", "2026-08-18T13:00:00+02:00", status="held"), "# m\n\n## Action items\n\n- [ ] Confirm address — owner: Tom Lee\n")
     store.write("meeting", meeting_fm("GID1|2026-08-20T13:00:00+02:00", "2026-08-20T13:00:00+02:00"), "upcoming in the past")
     person(vault, "Carol Ng", "carol@example.com", last_contact="2026-07-10T10:00:00+02:00")
@@ -361,7 +406,10 @@ def test_weekly_facts(vault):
     assert facts["start"] == "2026-08-17" and facts["end"] == "2026-08-23"
     assert [(r["subject"], r["label"]) for r in facts["open_from_inbox"]] == [("Budget Q3", "act")]
     assert facts["open_from_inbox"][0]["note"] == "[[Emails/2026-08-19 Budget Q3]]" and facts["open_from_inbox"][0]["entry_id"] == "00A1"
-    assert facts["waiting"] == [{"since": "2026-08-16", "who": "[[Wiki/People/Tom Lee]]", "what": "Delivery", "email": "", "age_days": 6}]
+    assert facts["waiting"] == [{"since": "2026-08-16", "who": "Tom Lee", "what": "Delivery", "email": "", "age_days": 6}]
+    assert facts["promised_overdue"] == [
+        {"due": "2026-08-20", "what": "Send the packaging spec", "page": "Wiki/People/Tom Lee",
+         "id": facts["promised_overdue"][0]["id"], "days_over": 2}]
     assert len(facts["meetings_held"]) == 1 and facts["meetings_held"][0]["unchecked_actions"] == ["- [ ] Confirm address — owner: Tom Lee"]
     assert [m["date"] for m in facts["no_notes"]] == ["2026-08-20"]
     assert [(q["name"], q["days"]) for q in facts["quiet_people"]] == [("Carol Ng", 44)]

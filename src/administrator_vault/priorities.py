@@ -47,6 +47,7 @@ def _topic_rows(pages: list[tuple[str, dict[str, Any]]]) -> list[dict[str, Any]]
                 "title": t["name"],
                 "page": t["page"],
                 "status": _s(fm.get("status")) or "active",
+                "owner": _s(fm.get("owner")),
                 "due": t["due"].isoformat() if t["due"] else None,
                 "open_items": t["open_items"],
                 "verified": _s(fm.get("verified") or fm.get("created"))[:10] or None,
@@ -57,14 +58,15 @@ def _topic_rows(pages: list[tuple[str, dict[str, Any]]]) -> list[dict[str, Any]]
 
 
 def _followup_rows(root: Path, today: date) -> list[dict[str, Any]]:
+    """What other people owe the user: the open items of the pages, oldest first."""
     out = []
-    for row in workflows._followups_open(root):
-        since = workflows._date_of(row.get("Since"))
+    for c in wiki.commitments(root, owner="others"):
+        since = workflows._date_of(c["since"])
         out.append(
             {
                 "since": since,
-                "who": workflows._strip_comment(row.get("Who", "")),
-                "what": workflows._strip_comment(row.get("What", "")),
+                "who": c["owner_name"],
+                "what": c["text"],
                 "age_days": (today - date.fromisoformat(since)).days if since else None,
             }
         )

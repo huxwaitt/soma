@@ -10,7 +10,7 @@ import re
 import pytest
 
 from administrator_vault import frontmatter as fmt
-from administrator_vault import store, wiki, wiki_migrate, workflows
+from administrator_vault import notes, store, wiki, wiki_migrate, workflows
 from administrator_vault.server import build_server
 
 OLD = "administrator/0.1.0"
@@ -31,6 +31,16 @@ def person_note(name, email, company="", records=(), voice="", extra_text=""):
         body += f"\n{extra_text}\n"
     body += "\n## Update 2026-08-21T10:00:00+02:00\n\n- 2026-08-21 — [[Emails/2026-08-21 Mail 5]] (fyi)\n"
     return fm + "\n" + body
+
+
+def legacy_followups(root):
+    """Follow-ups.md as the older releases kept it: rows, no `generated` key."""
+    cols = "| --- | --- | --- | --- | --- |"
+    text = ["---", "type: followups", "source: outlook", f"created_by: {OLD}", "---", "",
+            "# Follow-ups", "", "Things I am waiting on.", "", "## Open", "",
+            "| " + " | ".join(notes.FOLLOWUPS_OPEN_HEADER) + " |", cols, "", "## Done", "",
+            "| " + " | ".join(notes.FOLLOWUPS_DONE_HEADER) + " |", cols]
+    (root / A / "Follow-ups.md").write_text("\n".join(text) + "\n", encoding="utf-8")
 
 
 @pytest.fixture
@@ -63,6 +73,7 @@ def old_vault(tmp_path, monkeypatch):
         fm = {"type": "meeting", "source": "outlook", "global_id": f"G{day}", "occurrence_key": f"G{day}|{day}T13:00:00+02:00", "subject": subj, "start": f"{day}T13:00:00+02:00", "end": f"{day}T14:00:00+02:00",
               "location": "Teams", "organizer": org, "organizer_link": f"[[People/{org}]]", "attendees": att, "attendee_links": [f"[[People/{a}]]" for a in att], "is_recurring": False, "status": "held", "created_by": OLD}
         store.write("meeting", fm, f"# {subj}\n\n### People\n\n" + "\n".join(f"- [[People/{a}]]" for a in att) + "\n\n## Summary\n\nTalked.\n")
+    legacy_followups(root)
     store.append_row(f"{A}/Follow-ups.md", "Open", ["2026-08-15", "[[People/Carol Ng]]", "Mail 4", "[[Emails/2026-08-15 Mail 4]]", "2026-08-16"], "00A4")
     store.append_row(f"{A}/Follow-ups.md", "Done", ["2026-08-10", "[[People/Bob Lee]]", "Old thing", "", "2026-08-12"], "00A9")
     store.write("daily", {"type": "daily", "source": "outlook", "date": "2026-08-20", "folder": "inbox", "since": "2026-08-19T18:00:00+02:00", "inbox_checked": "2026-08-20T08:30:00+02:00", "mails_seen": 1, "status": "todo", "created_by": OLD},
@@ -104,9 +115,58 @@ def test_dry_run_reports_the_plan_and_writes_nothing(old_vault):
     assert plan["links"]["files"] == 10 and plan["links"]["count"] == len(old_links(root)) == 27
     assert {v["path"] for v in plan["views"]} == {f"{A}/_views/People.base", f"{A}/_views/Wiki.base"}
     assert plan["left"] == [] and "_backup/<stamp>/People/" in plan["backup"]
+    assert plan["parts"] == {"people": True, "followups": True, "views": True}
+    fu = plan["followups"]
+    assert fu["count"] == 2 and "_backup/<stamp>/Follow-ups.md" in fu["backup"]
+    assert fu["open"] == [{"who": "[[Wiki/People/Carol Ng]]", "text": "Mail 4", "since": "2026-08-15", "closed": "",
+                           "page": "Wiki/People/Carol Ng", "record": "Emails/2026-08-15 Mail 4", "src": "00A4"}]
+    assert fu["done"] == [{"who": "[[Wiki/People/Bob Lee]]", "text": "Old thing", "since": "2026-08-10", "closed": "2026-08-12",
+                           "page": "Wiki/People/Bob Lee", "record": "", "src": "00A9"}]
     after = {p.relative_to(root).as_posix(): p.read_text(encoding="utf-8") for p in (root / A).rglob("*.md")}
     assert after == before
     assert not (root / A / "_backup").exists() and not (root / A / "Wiki" / ".lock").exists()
+
+
+def test_the_follow_ups_rows_move_onto_the_pages(old_vault):
+    root = old_vault
+    store.append_row(f"{A}/Follow-ups.md", "Open", ["2026-08-14", "Someone Unknown", "Send the map", "", "2026-08-16"], "00B7")
+    res = wiki_migrate.migrate(dry_run=False, created_by=CB)
+    assert res["followups_moved"] == {"open": 2, "done": 1}
+    # the linked person keeps the item, with the row's date, source and record
+    carol = wiki.commitments(root, page="Wiki/People/Carol Ng")
+    assert [(c["text"], c["owner"], c["since"], c["src"], c["record"]) for c in carol] == [
+        ("Mail 4", "[[Wiki/People/Carol Ng]]", "2026-08-15", ["00A4"], "Emails/2026-08-15 Mail 4")]
+    # an unknown name lands on Me.md, with the name in the text
+    me = wiki.commitments(root, page="Wiki/Me")
+    assert [(c["text"], c["owner"]) for c in me] == [("Someone Unknown: Send the map", "Someone Unknown")]
+    # the Done row is a History line on Bob's page
+    bob = (root / A / "Wiki" / "People" / "Bob Lee.md").read_text(encoding="utf-8")
+    assert '- 2026-08-12 — done "Old thing" — owner: [[Wiki/People/Bob Lee]] · since 2026-08-10 (user)' in bob
+    # the file itself is now written from the pages, and a second run has nothing to do
+    fu = (root / A / "Follow-ups.md").read_text(encoding="utf-8")
+    assert fmt.split_note(fu)[0]["generated"] is True
+    assert "| 2026-08-15 | [[Wiki/People/Carol Ng]] | Mail 4 | [[Emails/2026-08-15 Mail 4]] |" in fu
+    assert "| 2026-08-10 | [[Wiki/People/Bob Lee]] | Old thing |  | 2026-08-12 |" in fu
+    again = wiki_migrate.migrate(dry_run=True)
+    assert again["parts"]["followups"] is False and again["followups"]["count"] == 0
+    backup = next((root / A / "_backup").iterdir())
+    assert "00A4" in (backup / "Follow-ups.md").read_text(encoding="utf-8")
+
+
+def test_a_row_naming_an_org_lands_on_me(old_vault):
+    """An org page has no Open section in the contract, so the row goes to Me.md
+    with the name in the text rather than onto a page that cannot hold it."""
+    root = old_vault
+    wiki.create("org", "Partner AG", created_by=CB)
+    store.append_row(f"{A}/Follow-ups.md", "Open", ["2026-08-14", "Partner AG", "Send the price list", "", "2026-08-16"], "00B8")
+    row = next(o for o in wiki_migrate.migrate(dry_run=True)["followups"]["open"] if o["src"] == "00B8")
+    assert row["page"] == "Wiki/Me" and row["text"] == "Partner AG: Send the price list"
+    store.append_row(f"{A}/Follow-ups.md", "Open", ["2026-08-15", "[[Wiki/Orgs/partner-ag]]", "Send the invoice", "", "2026-08-16"], "00B9")
+    row2 = next(o for o in wiki_migrate.migrate(dry_run=True)["followups"]["open"] if o["src"] == "00B9")
+    assert row2["text"] == "Partner AG: Send the invoice"  # the page's title, not its slug
+    wiki_migrate.migrate(dry_run=False, created_by=CB)
+    assert sorted(c["text"] for c in wiki.commitments(root, page="Wiki/Me")) == ["Partner AG: Send the invoice", "Partner AG: Send the price list"]
+    assert "## Open" not in (root / A / "Wiki" / "Orgs" / "partner-ag.md").read_text(encoding="utf-8")
 
 
 def test_migrate_moves_people_and_rewrites_every_link(old_vault):
@@ -167,7 +227,8 @@ def test_migrate_moves_people_and_rewrites_every_link(old_vault):
     assert 'file.inFolder("Administrator/Wiki/People")' in pb and "note.company" not in pb and pb == (store.VIEWS_DIR / "People.base").read_text(encoding="utf-8")
     assert (root / A / "_views" / "Wiki.base").read_text(encoding="utf-8") == (store.VIEWS_DIR / "Wiki.base").read_text(encoding="utf-8")
     log = wiki.log()["lines"]
-    assert len(log) == 1 and log[0].endswith("migrate | Wiki/People | - | 3 people, 27 links")
+    assert log[0].endswith("migrate | Wiki/People | - | 3 people, 27 links")
+    assert any(l.endswith("migrate | Follow-ups | - | 1 open, 1 done") for l in log)
     # second run: nothing left to move except the stray file
     again = wiki_migrate.migrate(dry_run=False)
     assert again["people"] == [] and again["links"]["count"] == 0 and again["old_folder_removed"] is False
