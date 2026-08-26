@@ -18,8 +18,8 @@ The rules on this page are enforced by the `vault` MCP server (`administrator-va
 | --- | --- |
 | Is this mail / meeting / person already in the vault? | `vault_find(type, identity)` — identity `{"internet_message_id": …, "entry_id": …}`, `{"occurrence_key": …, "global_id": …}`, an SMTP address, a date, or a week |
 | Write or update a note | `vault_write(type, frontmatter, body, mode="upsert")` — returns `action: created` or `appended` plus the path |
-| A row in `Follow-ups.md` or a daily table | `vault_append_row(path, section, row, dedupe_key=<entry_id>)` (`key_label="occurrence_key"` for meeting rows) |
-| Close a follow-up | `vault_move_row("Administrator/Follow-ups.md", "Open", "Done", <entry_id>, set_last_cell=<today>)` |
+| A row in a daily table, `Rules.md` or a Time-blocks `## Held` table | `vault_append_row(path, section, row, dedupe_key=<entry_id>)` (`key_label="occurrence_key"` for calendar and held rows). `Follow-ups.md` is generated and refuses rows. |
+| Something somebody owes: open it, move it, close it | `vault_wiki_apply(path=<the page it is about>, ops=[{"op": "open" \| "reschedule" \| "done", …}])` — see "Follow-ups.md" below |
 | Read a note, list notes | `vault_read(path)`, `vault_list(type, since)` |
 | Which daily note was last written? | `vault_list("daily", limit=1, fields=["date", "inbox_checked"])` |
 | Do the mechanical part of a workflow in code | `vault_rules`, `vault_inbox_prepare`, `vault_write_daily`, `vault_save_email`, `vault_prep_context`, `vault_weekly_facts`, `vault_attach_transcript` — see "Workflow helpers" below |
@@ -29,16 +29,16 @@ The rules on this page are enforced by the `vault` MCP server (`administrator-va
 
 On `append` the server only changes `status`, `last_contact`, `inbox_checked`, `mails_seen` and adds new `aliases` (and `vault_wiki_ingest` replaces `wiki`); every other frontmatter key and all existing body text stay as they are. `append` still checks the required keys, so pass the frontmatter `vault_find` returned with just the intended key changed. Use `created_by: administrator/0.4.0` in every frontmatter you pass.
 
-`dedupe_key` for meeting rows is `<occurrence_key> # <What>` (one meeting can create several rows); for proposed-times rows it is `<address> # pick a time — <subject>` with `key_label="proposal"`; for rows `followups` writes from the user's own sent mail it is the `internet_message_id` of that mail with `key_label="internet_message_id"` (`entry_id` when it is empty). The server treats a row as a duplicate when the key value appears in any hidden comment anywhere in the file, whatever the label.
+`dedupe_key` for a daily calendar row and a Time-blocks `## Held` row is the `occurrence_key` with `key_label="occurrence_key"`; `Rules.md` lines take none. The server treats a row as a duplicate when the key value appears in any hidden comment anywhere in the file, whatever the label. (Open items are not rows: they carry their own `src` — an `internet_message_id`, an `entry_id`, `proposal:<address>` or `user` — and the same record twice on one page is refused as `duplicate`.)
 
 A key or a cell may contain `|` (an `occurrence_key` always does); the server stores it as `\|` and gives it back unescaped, so pass raw values and compare against the raw key.
 
 ## Workflow helpers
 
-These tools do the moving, comparing and formatting so the model only decides. They take the JSON the outlook tools returned and write through the same code as `vault_write` / `vault_append_row`, so every rule on this page still holds. Pass `created_by="administrator/0.4.0"` to the ones that write.
+These tools do the moving, comparing and formatting so the model only decides. They take the JSON the outlook tools returned and write through the same code as `vault_write` / `vault_append_row` / `vault_wiki_apply`, so every rule on this page still holds. Pass `created_by="administrator/0.4.0"` to the ones that write.
 
 - `vault_inbox_prepare(items, date)` — pass the `items[]` from `outlook_list_mails`. Back come only the mails not yet in any daily note of that ISO week and not matched by a never-save rule; each has `label` / `rule` filled when a rule decided. Read the `preview` only of the ones with `label: null`, then call `vault_write_daily(date, labels=[{entry_id, label, reason}], since, inbox_checked, events)` with your labels — items come from the cached list (`Attachments/_cache/inbox-<date>.json`), so do not pass them back. Pass `events` from `outlook_list_events` in `daily`; clashes and missing prep notes are worked out in code, `watch_out` is for anything else. A second run on the same day appends only new rows; `action: unchanged` means nothing was written. Items with no label from the model or a rule come back in `unlabelled` and are left out of the note.
-- `vault_save_email(mail, summary, action_items, attachments_saved, msg_file, self_addresses, company)` — `mail` is the `outlook_get_mail(trim_quoted=true)` JSON. The note, the person note and the Follow-ups row (for `waiting`) are written in one call; `status` defaults to `todo` with action items, `fyi` without, `waiting` when the mail is from one of `self_addresses` and has action items.
+- `vault_save_email(mail, summary, action_items, attachments_saved, msg_file, self_addresses, company)` — `mail` is the `outlook_get_mail(trim_quoted=true)` JSON. The note, the person page and (for `waiting`) one open item owned by the counterpart — the first recipient of the user's own mail, else the sender — are written in one call; `status` defaults to `todo` with action items, `fyi` without, `waiting` when the mail is from one of `self_addresses` and has action items.
 - `vault_prep_context(occurrence_key, global_id, attendees, subject)` replaces the `vault_find` / `vault_read` round trips of `prep` and `notes` and returns `wiki[]` (`path, type, title, status, lead, open[], facts[]`, at most 8 facts) for the attendees' pages and up to 3 topic pages matched on `subject` (taken from the existing note when empty); `vault_weekly_facts(week)` replaces those of `weekly`. Both are read-only.
 - `vault_attach_transcript(meeting_path, transcript_path)` — write the transcript under `Attachments/<meeting>/` with the host's Write tool once, then call this; never paste the text back through `vault_write`.
 - `Administrator/Rules.md` (`type: rules`, created by `vault_init`, never overwritten) holds the user's rules: `## Labels` table `| Match | Field | Label |`, `## Never save` table `| Match | Field |`, `## Fyi senders` list. `Field` is `from`, `domain`, `name` or `subject`; `Match` is a case-insensitive part of the value or a `*` / `?` pattern. Built-in rules (List-Unsubscribe, auto-replies, meeting responses, no-reply senders, people with `status: fyi`) run first. `vault_rules(action="get")` shows them; the plugin writes a line only through `vault_append_row("Administrator/Rules.md", "Labels", [match, field, label])` after the user said yes to a proposal.
@@ -180,7 +180,11 @@ Labels: **act** (do something), **reply** (answer), **waiting** (they owe me), *
 
 ## Waiting on
 
-- Carol Ng — Contract draft (since 2026-08-21) → also in [[Follow-ups]]
+- Carol Ng — Contract draft (since 2026-08-21) → open item on their page
+
+## Promised
+
+- Send the signed contract — due 2026-08-26 — [[Wiki/Topics/acme-supplier-contract]]
 
 ## Calendar
 
@@ -205,7 +209,7 @@ Rules:
 - Table sorted `act`, `reply`, `waiting`, `fyi`, `noise`, newest first within a label. `Received` is `HH:MM` for today's mail, `YYYY-MM-DD HH:MM` otherwise. `Why` is one short line (under 80 characters).
 - Every row ends with `<!-- entry_id: … -->` inside the `Note` cell (hidden in Obsidian reading view). That is the dedupe key for a second run.
 - The `Note` column links to the email note only when one exists (match on `internet_message_id`, else `entry_id`). No link = not saved.
-- `## To do` holds `act` and `reply` items only. `## Waiting on` mirrors what went into `Follow-ups.md`.
+- `## To do` holds `act` and `reply` items only. `## Waiting on` names the open item each `waiting` mail opened on the sender's page. `## Promised` is written on the first run of the day: the user's own open items due within seven days, `- <what> — due <date> — [[<page>]]`, or `- none`.
 - `## Calendar` and `## Watch out` are only written by `/administrator:daily` (from the `events` passed to `vault_write_daily`); `/administrator:inbox` leaves them out. Times from `outlook_list_events`, `HH:MM` local. All-day events show `all day` in both time columns. Calendar rows end with `<!-- occurrence_key: … -->` inside the last cell (written by `daily`, or by `schedule` through `vault_append_row`). `## Watch out` lists clashes (overlapping ranges) and meetings with no prep note (worked out in code; all-day events exempt), then any `watch_out` bullets the model passed. Offer `/administrator:prep` for those.
 - Batch actions are offered in the chat, not written to the note. When the user says yes and the action runs, a one-line `vault_write(mode="append")` records it: `Done <ISO timestamp>: marked 2 as read`.
 - When the folder is not the inbox, the heading reads `## Inbox (Inbox/Invoices, since …)`.
@@ -224,7 +228,7 @@ People live in the wiki: `Wiki/People/<Display Name>.md`, `type: person`, follow
 
 ## Wiki
 
-`Administrator/Wiki/` is the one place the plugin keeps *current* facts instead of records: `Index.md`, `Log.md`, `Review.md` (all generated), `Wiki.md` (the contract), and pages under `People/`, `Orgs/`, `Topics/`, `Howto/`. Pages are read and written only through `vault_wiki_search` (ranked facts for a question, `brief=true` for one stitched answer), `vault_wiki_match`, `vault_wiki_read`, `vault_wiki_ingest`, `vault_wiki_create`, `vault_wiki_apply`, `vault_wiki_lint`, `vault_wiki_log`, `vault_wiki_review`, `vault_wiki_merge`, `vault_wiki_migrate` — never through `vault_write`, which refuses a `Wiki/` path. The page contract, the op list, refusal meanings, size caps, the index, log and review files, and the lint checklist are in `skills/wiki/references/wiki.md` (the same text the vault holds as `Wiki/Wiki.md`); the workflow is `skills/wiki/SKILL.md`. A page you edit in Obsidian is read back at the start of the next wiki call, and the answer then carries `adopted: [{page, changes}]` — say so in one line.
+`Administrator/Wiki/` is the one place the plugin keeps *current* facts instead of records: `Index.md`, `Log.md`, `Review.md` (all generated), `Wiki.md` (the contract), and pages of six kinds: `People/`, `Orgs/`, `Decisions/` (one choice that was made and now stands, added to and never rewritten), `Topics/` (a subject with a timeline; with an owner and a due date it is a project and the index groups it under Projects), `Howto/` and `Me.md`. Pages are read and written only through `vault_wiki_search` (ranked facts for a question, `brief=true` for one stitched answer), `vault_wiki_match`, `vault_wiki_read`, `vault_wiki_ingest`, `vault_wiki_create`, `vault_wiki_apply`, `vault_wiki_lint`, `vault_wiki_log`, `vault_wiki_review`, `vault_wiki_merge`, `vault_wiki_migrate` — never through `vault_write`, which refuses a `Wiki/` path. The page contract, the op list, refusal meanings, size caps, the index, log and review files, and the lint checklist are in `skills/wiki/references/wiki.md` (the same text the vault holds as `Wiki/Wiki.md`); the workflow is `skills/wiki/SKILL.md`. A page you edit in Obsidian is read back at the start of the next wiki call, and the answer then carries `adopted: [{page, changes}]` — say so in one line.
 
 ## Meeting note
 
@@ -332,37 +336,42 @@ Rules:
 - Senders that match a person page by name or alias get a `## Records` line on it (`- 2026-08-24 — [[Teams/2026-08-24 Q3 budget]] — Q3 budget: <first line>`, one per record) and `last_contact` moves forward; those pages go into the record's `wiki:` key. Senders without a page come back in `unknown_people` and get none — a chat carries no address, and no person page is ever created without one. The user's own messages (`is_self`, or a sender in `self_names`) are recorded but never matched.
 - Chat records are ingested like emails and meetings (`vault_wiki_ingest(record_path=<Teams/…>)`; `src` defaults to `record_id`, `since` to `date`); lint check 11 counts chat records never ingested.
 
-## Follow-ups.md
+## Follow-ups.md — generated from the wiki pages
 
 ```markdown
 ---
 type: followups
-source: outlook
+source: wiki
+generated: true
+updated: 2026-08-25T09:12:04+02:00
+open: 3
 created_by: administrator/0.4.0
 ---
 
 # Follow-ups
 
-Things I am waiting on. One row per thread. Move a row to Done when it is closed.
+Generated from the Open items of the wiki pages — edit or tick the item on its page, or say 'done' in chat; changes here are overwritten.
 
 ## Open
 
 | Since | Who | What | Email | Last checked |
 | --- | --- | --- | --- | --- |
-| 2026-08-21 | [[Wiki/People/Carol Ng]] | Contract draft | [[Emails/2026-08-21 Contract draft]] | 2026-08-22 <!-- entry_id: 00000000AC… --> |
+| 2026-08-21 | [[Wiki/People/Carol Ng]] | Contract draft | [[Emails/2026-08-21 Contract draft]] | 2026-08-25 <!-- o: 4m2t @ Wiki/People/Carol Ng --> |
 
 ## Done
 
 | Since | Who | What | Email | Closed |
 | --- | --- | --- | --- | --- |
+| 2026-08-18 | [[Wiki/People/Tom Lee]] | Leipzig delivery address | [[Meetings/2026-08-25 1300 Supplier sync]] | 2026-08-25 |
 ```
 
-Row rules:
+Rules:
 
-- `Since` = date of the mail that started the wait. `Who` = wikilink to the person note when one exists, else the display name. `What` = ten words or fewer (usually the subject). `Email` = wikilink to the email note, empty if not saved. `Last checked` = date of the run that wrote the row, followed by the hidden key comment `vault_append_row` adds.
-- A row is identified by the hidden key comment (`entry_id`, `internet_message_id` for rows written by `followups` from the user's own sent mail, or `occurrence_key`), else by the `Email` link, else by `Who` + `What`. Existing row (same key) → left as it is (`vault_append_row` answers `duplicate`). New → append to the bottom of `## Open`.
-- Closing a row (user says it is done, or a reply from `Who` on the same subject appears): `vault_move_row(..., "Open", "Done", key, set_last_cell=<date>)` cuts the row and sets `Closed`. Never delete rows. `inbox`, `save`, `notes`, `schedule` and `followups` write rows; `inbox` and `followups` close them (`notes` closes a meeting row when the user's notes say it is done).
-- Rows created from a meeting (`/administrator:notes`): `Since` = meeting date, `Email` = `[[Meetings/…]]` link, key `<occurrence_key> # <What>` with `key_label="occurrence_key"` (one meeting can create several rows). Rows created by a proposed-times draft (`/administrator:schedule`): `What` = "pick a time — <subject>", `Email` empty, key `<address> # pick a time — <subject>` with `key_label="proposal"`.
+- The file is written by code from the `## Open` lines of every wiki page, after every wiki write. `## Open` holds what **other people** owe the user (an item with `owner: me` never appears); `## Done` the newest 50 `done` lines out of the pages' History. The five columns are the ones the file has always had, so the Bases view still works.
+- `Since` = the item's `since`, `Who` = its owner, `What` = its text cut to 80 characters, `Email` = the record it came from, `Last checked` = the day the file was written, followed by `<!-- o: <item id> @ <page stem> -->`.
+- `vault_append_row` and `vault_move_row` **refuse** this file (`… is written from the wiki pages, so a row cannot be added here`). An item is opened, moved or ticked on its page: `{"op": "open", "text", "owner", "due", "since", "src"}`, `{"op": "reschedule", "id", "due"}`, `{"op": "done", "id"}` through `vault_wiki_apply` or `vault_wiki_ingest` (`skills/wiki/SKILL.md`). Ticking the box on the page in Obsidian does the same on the next wiki call.
+- Reading them back: `vault_wiki_search(query="", open_items=true, owner="me" | "others", due_before=<ISO date>, page=<one page>, include_done=false)` → `[{page, stem, type, title, owner_name, id, text, owner, due, since, src, record, done}]`, oldest first, at most 200. `inbox`, `save`, `daily`, `notes`, `schedule`, `collect-information` and `followups` open items; `inbox`, `notes` and `followups` tick them.
+- A `Follow-ups.md` from before 0.4.0 (rows kept by hand, no `generated: true`) is left exactly as it is until `vault_wiki_migrate` moves its rows onto the pages — `/administrator:setup` offers that with a dry run first.
 
 ## Preferences.md
 
@@ -370,7 +379,7 @@ Row rules:
 
 ## Priorities.md
 
-`<vault>/Administrator/Priorities.md` — `type: priorities`, `source: administrator`, created by `vault_init` once (also with `overwrite=true`); owned by the user. Body: a short explanation and one `## Priorities` section with a numbered list, three to five lines, each a wiki topic link (`[[Wiki/Topics/acme-supplier-contract]]`) or plain words, ranked. `/administrator:time-block` reads the numbered lines through `vault_read` and gives rank 1 every other focus block; the placeholder line `vault_init` writes counts as empty. The plugin writes this file only with lines the user confirmed: `vault_priorities_write(action="candidates")` returns the material for a suggestion — `topics` (active wiki topics with `due`, `open_items`, `verified`, `summary`, soonest due first), `followups` (open rows, oldest first), `weekly_open` (open act / reply rows of the latest weekly), `current` (the numbered lines now in the file) — and writes nothing; after the user's yes to "Use these as your priorities?", `vault_priorities_write(action="write", lines=[…], note=…, created_by="administrator/0.4.0")` replaces the numbered list (and the plugin's own `<!-- suggested by administrator, confirmed <date> -->` comment) under `## Priorities` and nothing else — frontmatter, the text above the heading and every other line stay byte for byte; the old lines come back as `previous`. The user edits the file in Obsidian any time.
+`<vault>/Administrator/Priorities.md` — `type: priorities`, `source: administrator`, created by `vault_init` once (also with `overwrite=true`); owned by the user. Body: a short explanation and one `## Priorities` section with a numbered list, three to five lines, each a wiki topic link (`[[Wiki/Topics/acme-supplier-contract]]`) or plain words, ranked. `/administrator:time-block` reads the numbered lines through `vault_read` and gives rank 1 every other focus block; the placeholder line `vault_init` writes counts as empty. The plugin writes this file only with lines the user confirmed: `vault_priorities_write(action="candidates")` returns the material for a suggestion — `topics` (active wiki topics with `owner`, `due`, `open_items`, `verified`, `summary`, soonest due first), `followups` (the open items other people owe, oldest first), `weekly_open` (open act / reply rows of the latest weekly), `current` (the numbered lines now in the file) — and writes nothing; after the user's yes to "Use these as your priorities?", `vault_priorities_write(action="write", lines=[…], note=…, created_by="administrator/0.4.0")` replaces the numbered list (and the plugin's own `<!-- suggested by administrator, confirmed <date> -->` comment) under `## Priorities` and nothing else — frontmatter, the text above the heading and every other line stay byte for byte; the old lines come back as `previous`. The user edits the file in Obsidian any time.
 
 ## Rules.md
 
@@ -440,4 +449,4 @@ Jane
 
 ## Worked example 2 — running inbox twice on one day
 
-Both runs are one `vault_inbox_prepare` plus one `vault_write_daily` call; the model passes only `[{entry_id, label, reason}]`. The second run finds the earlier rows by their `<!-- entry_id: … -->` comments in code and appends only what is new under `## Update <ISO>`, replacing `inbox_checked` in the frontmatter. Nothing new → `action: unchanged`, nothing written. A reply from the `Who` of an open Follow-ups row is the one case the model still closes by hand: `vault_read("Administrator/Follow-ups.md")` once, then `vault_move_row("Administrator/Follow-ups.md", "Open", "Done", "00000000AC…", set_last_cell="2026-08-22")`. Call by call: `skills/inbox/references/examples.md`.
+Both runs are one `vault_inbox_prepare` plus one `vault_write_daily` call; the model passes only `[{entry_id, label, reason}]`. The second run finds the earlier rows by their `<!-- entry_id: … -->` comments in code and appends only what is new under `## Update <ISO>`, replacing `inbox_checked` in the frontmatter. Nothing new → `action: unchanged`, nothing written. A reply from someone who owes an open item is the one case the model still closes by hand: `vault_wiki_search(query="", open_items=true, owner="others", page="Wiki/People/Carol Ng")` once, then `vault_wiki_apply(path="Wiki/People/Carol Ng", ops=[{"op": "done", "id": "4m2t", "src": "user"}])`. Call by call: `skills/inbox/references/examples.md`.

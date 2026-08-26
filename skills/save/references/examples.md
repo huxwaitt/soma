@@ -117,7 +117,7 @@ One more thing: please confirm the delivery address is still the Leipzig warehou
 - image001.png (4 KB, not exported)
 ```
 
-`Wiki/People/Jane Doe.md` was created with `company: ACME Parts GmbH`, `last_contact: 2026-08-21T16:42:10+02:00` and the line `- 2026-08-21 — [[Emails/2026-08-21 Q3 supplier contract – signature needed]] (todo)`. `Follow-ups.md` untouched (status `todo`).
+`Wiki/People/Jane Doe.md` was created with `company: ACME Parts GmbH`, `last_contact: 2026-08-21T16:42:10+02:00` and the line `- 2026-08-21 — [[Emails/2026-08-21 Q3 supplier contract – signature needed]] (todo)`. No open item (status `todo`), so `Follow-ups.md` does not change.
 
 6. Report:
 

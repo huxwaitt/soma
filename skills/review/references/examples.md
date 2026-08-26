@@ -39,32 +39,37 @@ Two `Accepted:` responses in Sent were skipped by the server; nothing was read b
 
 ### Step 3
 
-`vault_read("Administrator/Follow-ups.md")` → `## Open` has two rows: Carol Ng / Contract draft (`<!-- entry_id: 00000000AC… -->`, written by `inbox`) and `[[Wiki/People/Tom Lee]]` / Delivery schedule September (`<!-- entry_id: 00000000AB… -->`, written by `prep` from Tom's 19 Aug mail).
+`vault_wiki_search(query="", open_items=true, owner="others")` → two items: Carol Ng / "Contract draft" on `Wiki/People/Carol Ng.md` (`id: "4m2t"`, `src: ["00000000AC…"]`, written by `inbox`) and "Delivery schedule September" on `Wiki/People/Tom Lee.md` (`id: "9r7d"`, `owner: "[[Wiki/People/Tom Lee]]"`, `src: ["00000000AB…"]`, written by `prep` from Tom's 19 Aug mail).
 
-- Item 1: no key match, but the row has the same `Who` (Tom Lee) and the same `What` → already listed.
-- Item 2: `vault_find("person", "priya.nair@northwind.example", fields=["name"])` → not found; `vault_find("email", {"internet_message_id": "<DB7PR05MB1234A9@…>", "entry_id": "00000000B5…"}, fields=[])` → not found.
-- Item 3: `vault_find("person", "bob.lee@example.com", fields=["name"])` → `Administrator/Wiki/People/Bob Lee.md`; email note not found.
+- Item 1: no `src` match, but Tom's page holds an item with the same text → already listed.
+- Item 2: `vault_find("person", "priya.nair@northwind.example", fields=["name"])` → not found → one `vault_write("person", {type: person, name: "Priya Nair", email: "priya.nair@northwind.example", last_contact: "", aliases: [], created_by: "administrator/0.4.0"}, "", mode="create")` → `Administrator/Wiki/People/Priya Nair.md`.
+- Item 3: `vault_find("person", "bob.lee@example.com", fields=["name"])` → `Administrator/Wiki/People/Bob Lee.md`.
 
 ```
-vault_append_row("Administrator/Follow-ups.md", "Open",
-    ["2026-08-18", "Priya Nair", "Offsite venue options", "", "2026-08-22"],
-    dedupe_key="<DB7PR05MB1234A9@…>", key_label="internet_message_id")
-vault_append_row("Administrator/Follow-ups.md", "Open",
-    ["2026-08-19", "[[Wiki/People/Bob Lee]]", "offsite dates", "", "2026-08-22"],
-    dedupe_key="<DB7PR05MB1234B1@…>", key_label="internet_message_id")
+vault_wiki_apply(path="Wiki/People/Priya Nair", ops=[{"op": "open", "text": "Offsite venue options",
+    "owner": "[[Wiki/People/Priya Nair]]", "since": "2026-08-18", "src": "<DB7PR05MB1234A9@…>"}],
+    src="<DB7PR05MB1234A9@…>")
+vault_wiki_apply(path="Wiki/People/Bob Lee", ops=[{"op": "open", "text": "offsite dates",
+    "owner": "[[Wiki/People/Bob Lee]]", "since": "2026-08-19", "src": "<DB7PR05MB1234B1@…>"}],
+    src="<DB7PR05MB1234B1@…>")
 ```
 
-Closing: the Carol Ng row matched no item and has an `entry_id` key → `outlook_get_conversation(entry_id="00000000AC…", include_body=false, limit=50, fields=["entry_id","from_address","received"])` → last item `from_address: carol.ng@example.com`, `received: 2026-08-22T08:15:00+02:00` → `vault_move_row("Administrator/Follow-ups.md", "Open", "Done", "00000000AC…", set_last_cell="2026-08-22")`. Tom's row matched item 1 by `Who` + `What` → stays.
+Both answer `written: true` with one `applied: [{op: "open", id: …, owner: "[[Wiki/People/…]]"}]`.
 
-`## Open` now reads:
+Closing: Carol Ng's item matched no thread and its `src` is an `entry_id` → `outlook_get_conversation(entry_id="00000000AC…", include_body=false, limit=50, fields=["entry_id","from_address","received"])` → last item `from_address: carol.ng@example.com`, `received: 2026-08-22T08:15:00+02:00` → `vault_wiki_apply(path="Wiki/People/Carol Ng", ops=[{"op": "done", "id": "4m2t", "src": "user"}])`. Tom's item matched thread 1 → stays.
+
+`Administrator/Follow-ups.md`, written again after each of those calls, now shows under `## Open`:
 
 ```markdown
 | Since | Who | What | Email | Last checked |
 | --- | --- | --- | --- | --- |
-| 2026-08-19 | [[Wiki/People/Tom Lee]] | Delivery schedule September | [[Meetings/2026-08-25 1300 Weekly supplier sync]] | 2026-08-21 <!-- entry_id: 00000000AB… --> |
-| 2026-08-18 | Priya Nair | Offsite venue options |  | 2026-08-22 <!-- internet_message_id: <DB7PR05MB1234A9@…> --> |
-| 2026-08-19 | [[Wiki/People/Bob Lee]] | offsite dates |  | 2026-08-22 <!-- internet_message_id: <DB7PR05MB1234B1@…> --> |
+| 2026-08-18 | [[Wiki/People/Priya Nair]] | Offsite venue options |  | 2026-08-22 <!-- o: 7k2q @ Wiki/People/Priya Nair --> |
+| 2026-08-19 | [[Wiki/People/Bob Lee]] | offsite dates |  | 2026-08-22 <!-- o: c3mm @ Wiki/People/Bob Lee --> |
+| 2026-08-19 | [[Wiki/People/Tom Lee]] | Delivery schedule September | [[Meetings/2026-08-25 1300 Weekly supplier sync]] | 2026-08-22 <!-- o: 9r7d @ Wiki/People/Tom Lee --> |
 ```
+
+Carol Ng's line is under `## Done`, from her page's History.
+
 
 ### Step 4
 
@@ -90,11 +95,11 @@ User: "yes" → `outlook_reply_mail(entry_id="00000000B3…", body=<text>, reply
 
 ### Step 5
 
-> 23 threads checked from 39 sent mails. 3 waiting longer than 3 days (Tom Lee 6 d, Priya Nair 4 d, Bob Lee 3 d). Follow-ups: 2 rows added, 1 already listed (Tom Lee), 1 closed (Carol Ng replied on Contract draft, 2026-08-22). 2 nudge drafts saved to Drafts (Tom Lee, Bob Lee); nothing sent.
+> 23 threads checked from 39 sent mails. 3 waiting longer than 3 days (Tom Lee 6 d, Priya Nair 4 d, Bob Lee 3 d). Follow-ups: 2 items opened, 1 already listed (Tom Lee), 1 closed (Carol Ng replied on Contract draft, 2026-08-22). 2 nudge drafts saved to Drafts (Tom Lee, Bob Lee); nothing sent.
 > obsidian://open?vault=MyVault&file=Administrator/Follow-ups
 > Tokens this turn: 4 900
 
-Calls: 1 `awaiting_reply`, 1 `vault_read`, 4 `vault_find`, 2 `vault_append_row`, 1 `get_conversation`, 1 `vault_move_row`, 2 `voice_sample`, 2 `reply_mail` = 14 (plus `vault_status` / `whoami` once per session). A second run ten minutes later finds all three keys in the file: "3 waiting, 0 new rows, 0 closed".
+Calls: 1 `awaiting_reply`, 1 `vault_wiki_search`, 2 `vault_find`, 1 `vault_write`, 3 `vault_wiki_apply`, 1 `get_conversation`, 2 `voice_sample`, 2 `reply_mail` = 13 (plus `vault_status` / `whoami` once per session). A second run ten minutes later finds all three `src` keys on the pages: "3 waiting, 0 new items, 0 closed".
 
 ## weekly
 
@@ -106,7 +111,8 @@ Calls: 1 `awaiting_reply`, 1 `vault_read`, 4 `vault_find`, 2 `vault_append_row`,
 
 ```
 open_from_inbox: 4 rows (six act/reply rows across Daily/2026-08-19, -21, -22; one ticked in To do, one with a done email note — both dropped by the tool)
-waiting: 3 rows, age_days 5 / 4 / 4
+waiting: 3 items other people owe, age_days 5 / 4 / 4
+promised_overdue: [{due: "2026-08-20", what: "Send revised forecast to Jane", page: "Wiki/Topics/q3-budget", id: "7k2q", days_over: 2}]
 meetings_held: [{path: "Administrator/Meetings/2026-08-18 1300 Weekly supplier sync.md", date: "2026-08-18",
                  unchecked_actions: ["- [ ] Send revised forecast to Jane — owner: me", "- [ ] Confirm Leipzig delivery address — owner: Tom Lee"]}]
 no_notes: [{path: "Administrator/Meetings/2026-08-20 1000 Budget review with Jane.md", subject: "Budget review with Jane", date: "2026-08-20"}]
@@ -147,6 +153,10 @@ created_by: administrator/0.4.0
 | 2026-08-18 | Priya Nair | Offsite venue options | 5 |
 | 2026-08-19 | [[Wiki/People/Tom Lee]] | Delivery schedule September | 4 |
 | 2026-08-19 | [[Wiki/People/Bob Lee]] | offsite dates | 4 |
+
+**Past due from me**
+
+- 2026-08-20 — Send revised forecast to Jane — [[Wiki/Topics/q3-budget]] (2 days over)
 
 ## Meetings held
 
@@ -196,7 +206,7 @@ Everything above `## Notes` is the two tool results laid out; the three bullets 
 
 ### Step 3
 
-> Week 2026-W34 written to `Weekly/2026-W34.md`. Open from inbox: 4. Waiting on: 3 (oldest 5 days). Meetings held: 1 with 2 open items; 1 without notes. Next week: 9 meetings, 1 clash, 7 without prep. Going quiet: 2. Run /administrator:prep for next week.
+> Week 2026-W34 written to `Weekly/2026-W34.md`. Open from inbox: 4. Waiting on: 3 (oldest 5 days), 1 of mine past due. Meetings held: 1 with 2 open items; 1 without notes. Next week: 9 meetings, 1 clash, 7 without prep. Going quiet: 2. Run /administrator:prep for next week.
 > obsidian://open?vault=MyVault&file=Administrator/Weekly/2026-W34
 > Tokens this turn: 6 200
 

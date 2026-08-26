@@ -49,7 +49,7 @@ vault_wiki_ingest(record_path="Administrator/Emails/2026-08-22 Budget Q3.md", cr
     {"op": "supersede", "id": "7k2q", "text": "Deadline for the user's numbers is 2026-08-29", "since": "2026-08-22", "src": "<7f3a9c@example.com>"},
     {"op": "add", "text": "Forecast closes 2026-09-02", "since": "2026-08-22", "src": "<7f3a9c@example.com>"},
     {"op": "confirm", "id": "c3mm", "src": "<7f3a9c@example.com>"},
-    {"op": "open", "text": "Send Q3 numbers to Jane by 2026-08-29", "src": "<7f3a9c@example.com>"},
+    {"op": "open", "text": "Send Q3 numbers to Jane", "owner": "me", "due": "2026-08-29", "src": "<7f3a9c@example.com>"},
     {"op": "lead", "text": "Jane Doe (finance) is collecting final Q3 numbers from each team lead by 2026-08-29 to close the forecast on 2026-09-02. The user owes the sales-team figures."},
     {"op": "summary", "text": "Final Q3 numbers due to Jane by 2026-08-29; forecast closes 2026-09-02."}]},
   {"path": "Administrator/Wiki/People/Jane Doe.md", "ops": [
@@ -61,7 +61,7 @@ vault_wiki_ingest(record_path="Administrator/Emails/2026-08-22 Budget Q3.md", cr
 {"record": "[[Emails/2026-08-22 Budget Q3]]",
  "pages": [
   {"path": "Administrator/Wiki/Topics/q3-budget.md", "written": true,
-   "applied": [{"op": "supersede", "id": "m4rt", "replaced": "7k2q"}, {"op": "add", "id": "9x1a"}, {"op": "confirm", "id": "c3mm"}, {"op": "open"}, {"op": "lead"}, {"op": "summary"}],
+   "applied": [{"op": "supersede", "id": "m4rt", "replaced": "7k2q"}, {"op": "add", "id": "9x1a"}, {"op": "confirm", "id": "c3mm"}, {"op": "open", "id": "b8k2", "owner": "me"}, {"op": "lead"}, {"op": "summary"}],
    "refused": [], "record_added": true, "history_added": 1, "sizes": {"lines": 41, "max_lines": 120, "chars": 1870, "max_chars": 6000}},
   {"path": "Administrator/Wiki/People/Jane Doe.md", "written": true,
    "applied": [{"op": "confirm", "id": "a8p1"}, {"op": "role", "page": "Wiki/Topics/q3-budget", "section": "Topics"}],
@@ -105,8 +105,8 @@ vault_wiki_ingest(record_path="Administrator/Meetings/2026-08-25 1300 Weekly sup
   {"path": "Administrator/Wiki/Topics/acme-supplier-contract.md", "ops": [
     {"op": "supersede", "id": "d2f8", "text": "Payment terms are net 45", "since": "2026-08-25", "src": "0400A1…|2026-08-25T13:00:00+02:00"},
     {"op": "supersede", "id": "q5hh", "text": "First September delivery is on 2026-09-08", "since": "2026-08-25", "src": "0400A1…|2026-08-25T13:00:00+02:00"},
-    {"op": "open", "text": "Sign contract v3 and return it to Jane", "src": "0400A1…|2026-08-25T13:00:00+02:00"},
-    {"op": "open", "text": "Tom sends the updated delivery schedule by 2026-08-27", "src": "0400A1…|2026-08-25T13:00:00+02:00"},
+    {"op": "open", "text": "Sign contract v3 and return it to Jane", "owner": "me", "due": "2026-08-26", "src": "0400A1…|2026-08-25T13:00:00+02:00"},
+    {"op": "open", "text": "Updated delivery schedule", "owner": "[[Wiki/People/Tom Lee]]", "due": "2026-08-27", "src": "0400A1…|2026-08-25T13:00:00+02:00"},
     {"op": "lead", "text": "Supply contract with ACME Parts for the Leipzig warehouse, now at v3 with net-45 terms and the first September delivery on 2026-09-08. Waiting on the user's signature and Tom's updated schedule."}]},
   {"path": "Administrator/Wiki/People/Tom Lee.md", "ops": [
     {"op": "confirm", "id": "r1ke", "src": "0400A1…|2026-08-25T13:00:00+02:00"}]},
@@ -160,6 +160,25 @@ vault_wiki_review(action="resolve", item="1", resolution_ops=[{"op": "confirm", 
 
 → `{"resolved": "- [ ] [[Wiki/Topics/q3-budget]] — f:m4rt …", "page": "Wiki/Topics/q3-budget", "applied": {...}}`. The Review line moves to `## Done` with the date, the `contradiction` flag is cleared, and `m4rt` gains `user` as its newest source — which now pins it (`user-pin`) against any later record that tries to supersede it.
 
+## Example 4 — a decision, written from the record's own words
+
+The same meeting note says "we agreed to go with net 45 for the whole contract; the 2 % early-payment discount was dropped". That is a choice that now stands, so the decision page goes into the same ingest, without asking:
+
+```
+vault_wiki_ingest(record_path="Administrator/Meetings/2026-08-25 1300 Weekly supplier sync.md", created_by="administrator/0.4.0", pages=[
+  {"new": {"type": "decision", "title": "Net 45 terms", "aliases": ["net-45"],
+           "lead": "The ACME Parts contract runs on net 45 from v3 on. The 2 % early-payment discount was dropped in exchange.",
+           "summary": "ACME Parts contract runs on net 45; the early-payment discount is dropped.",
+           "decided": "2026-08-25", "by": ["[[Wiki/People/Jane Doe]]"], "options_rejected": ["net 30 with a 2 % early-payment discount"]},
+   "ops": [{"op": "add", "text": "The ACME Parts contract runs on net 45"},
+           {"op": "add", "text": "The 2 % early-payment discount is dropped"},
+           {"op": "related", "page": "Wiki/Topics/acme-supplier-contract"}]}])
+```
+
+→ the page is written as `Wiki/Decisions/net-45-terms` with `status: current`, `flags: ["unconfirmed-decision"]`, and one line in `Review.md`: `- [ ] [[Wiki/Decisions/net-45-terms]] — unconfirmed decision: "The ACME Parts contract runs on net 45" — confirm or drop ([[Meetings/2026-08-25 1300 Weekly supplier sync]])`. The report says so in one line: "Decision `Decisions/net-45-terms` written from the meeting — confirm or drop it (`/administrator:wiki resolve review`)."
+
+Later, when the user says "yes, that one stands": `vault_wiki_review(action="resolve", item="net-45-terms", resolution_ops=[{"op": "confirm", "id": "f2np"}])` → the flag goes and the line moves to `## Done`. Dropping it instead is `resolution_ops=[{"op": "status", "value": "dropped"}]`. A later `{"op": "add", …}` on that page comes back `refused: [{"op": "add", "reason": "append-only", "detail": "A decision page is never rewritten. …"}]` — the consequence goes on the topic page, or into a new decision linked with `superseded_by`.
+
 ## What the model never does in these runs
 
 - Invents a fact id, a `since` date, or a `src` value; all three come from the read result and the record's frontmatter.
@@ -167,3 +186,4 @@ vault_wiki_review(action="resolve", item="1", resolution_ops=[{"op": "confirm", 
 - Creates a topic page for a subject seen in one record.
 - Sends `supersede` for an older record, or resolves a contradiction without the user.
 - Writes below `## Notes`, or touches a wiki page with `vault_write` or the host file tools.
+- Rewrites a decision page, or writes a row into `Follow-ups.md`: what somebody owes is an `open` op on the page it is about.

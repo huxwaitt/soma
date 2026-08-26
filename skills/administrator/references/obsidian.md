@@ -7,7 +7,7 @@ The vault is an ordinary Obsidian vault. The plugin writes plain markdown under 
 - `<vault>/.obsidian/` — Obsidian's own settings, workspace, themes, plugin list. Never read, never written. Do not "fix" a vault by editing anything in there.
 - Anything outside `<vault>/Administrator/`. The `vault_*` tools refuse every path that does not start with `Administrator/`, reads included. If the user keeps other notes in the vault, they are invisible to the plugin.
 - Existing text in a record. Appends only; see "Append on existing" in `references/vault.md`. Wiki pages are the exception by design: their lead and Facts are kept current by the `vault_wiki_*` tools, with every replaced fact kept in `## History`; anything under `## Notes` is never touched (`skills/wiki/references/wiki.md`).
-- `Preferences.md` after it was created, and `Follow-ups.md` except for adding or moving rows.
+- `Preferences.md` after it was created. `Follow-ups.md` is never edited either: code writes it from the open items of the wiki pages after every wiki change, and a row put in by hand is gone on the next write — tick or change the item on its page instead.
 
 The only exception to "plain markdown" is `Administrator/_views/*.base`, the five Bases files below. `vault_init` writes them from the server package; `vault_init(overwrite=true)` rewrites them (and `Preferences.md`) and nothing else.
 
@@ -35,7 +35,7 @@ Open: obsidian://open?vault=Work%20Vault&file=Administrator/Daily/2026-08-22
 Open: obsidian://open?vault=MyVault&file=Administrator/Preferences
 ```
 
-`Follow-ups.md` gets a link only when a row was added or moved. The `.base` files can be linked too (`file=Administrator/_views/People.base` — keep the extension for non-markdown files); `setup` prints those four once.
+`Follow-ups.md` gets a link only when an open item was added or ticked in that run. The `.base` files can be linked too (`file=Administrator/_views/People.base` — keep the extension for non-markdown files); `setup` prints those four once.
 
 ## The five Bases views
 
@@ -47,11 +47,11 @@ Open: obsidian://open?vault=MyVault&file=Administrator/Preferences
 | `Follow-ups.base` | `Emails/` + `Meetings/` | **Waiting on** (email notes with `status: waiting`, oldest first), **Held meetings** (`status: held`, newest first — these are the notes whose `## Waiting on` and `## Action items` may still be open), **Everything open** (every email/meeting note not `done` / `fyi` / `cancelled`, grouped by status) | note, who (`from_link` or `organizer_link`), since (`received` or `start`), "Waiting for" (relative) |
 | `Meetings.base` | `Meetings/`, `type: meeting` | **By week** (grouped by ISO week `YYYY-Www` from `start`, newest week first), **Upcoming**, **Held**, **Cancelled** | meeting, when, where, organizer, attendee count (`attendee_links.length`), status |
 | `Emails.base` | `Emails/`, `type: email` | **By status**, **By sender** (grouped by `from_link`), **To do**, **Last 7 days** | email, from, received, age, status, has attachments |
-| `Wiki.base` | `Wiki/**`, wiki page types | **Active topics by verified**, **Stale** (`flags` contains `stale`), **Review queue** (non-empty `flags`), **People by org** | title, type, status, `verified`, `sources`, `open_items`, `flags` |
+| `Wiki.base` | `Wiki/**`, wiki page types | **Projects** (topics with a `due`, soonest first), **Decisions** (`type: decision`, newest `decided` first), **Active topics by verified**, **Stale** (`flags` contains `stale`), **Review queue** (non-empty `flags`), **People by org**, **All pages** | title, type, status, owner, due, outcome, `decided`, `by`, what would reopen it, `verified`, `sources`, `open_items`, `flags` |
 
 Two limits worth knowing:
 
-- **`Follow-ups.md` itself is one file with markdown tables.** A Bases view reads frontmatter, not table rows, so `Follow-ups.base` cannot list the rows of `Follow-ups.md`. It shows the notes behind them instead: email notes with `status: waiting` and held meetings. The rolling list stays in `Follow-ups.md`; the Bases file is the cross-check ("which saved mails are still marked waiting").
+- **`Follow-ups.md` itself is one file with markdown tables.** A Bases view reads frontmatter, not table rows, so `Follow-ups.base` cannot list its rows. It shows the notes behind them instead: email notes with `status: waiting` and held meetings. The list itself is written from the wiki pages' open items; the Bases file is the cross-check ("which saved mails are still marked waiting"), and `Wiki.base`'s **Projects** view shows the pages those items sit on.
 - **Unchecked action items are body text.** Bases cannot count `- [ ]` lines, so `Meetings.base` groups by week and shows `status`; a held meeting with open boxes has to be opened to see them. `/administrator:weekly` reads the boxes itself and lists them in the weekly note.
 
 What was checked against the Obsidian help (`obsidian.md/help/bases/syntax`, `obsidian.md/help/bases/functions`, fetched 2026-08-22) and is used in the files: top-level `filters` / `formulas` / `properties` / `views`; `and` / `or` / `not` filter lists with string expressions; `file.inFolder("…")`, `file.name`, `file.links` and `list.length`; `note.<key>` references; `formula.<name>` references; `groupBy: {property, direction}`; `order:` lists; `properties: <column>: displayName:`; `if(…)`, `date("…")`, `.isType("date")`, `.format("<moment format>")`, `.relative()`; `now() - "7d"` style date arithmetic. The `sort:` list (`- property: …` / `direction: ASC|DESC`) is what Obsidian itself writes when you sort a column in the UI; the help page example does not show it, so if a view ever opens unsorted, sort it once in the UI and Obsidian rewrites the key. Date fields: Obsidian reads `received` / `start` / `last_contact` as text when the ISO value carries an offset (`+02:00`), so every formula wraps them in `if(x.isType("date"), x, date(x))` before calling `.format()` / `.relative()`.

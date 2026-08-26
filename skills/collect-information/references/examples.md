@@ -144,11 +144,11 @@ vault_save_chat(chat=<the "Q3 budget" entry>, messages=<its 3 messages>, self_na
 vault_wiki_ingest(record_path="Administrator/Emails/2026-08-22 Q3 supplier contract – signature needed.md", created_by="administrator/0.4.0", pages=[
   {"path": "Administrator/Wiki/Topics/acme-supplier-contract.md", "ops": [
     {"op": "contest", "id": "n30x", "text": "Payment terms are net 45 (contract v3)"},
-    {"op": "open", "text": "Sign and return contract v3 by 2026-08-29"}]},
+    {"op": "open", "text": "Sign and return contract v3", "owner": "me", "due": "2026-08-29"}]},
   {"path": "Administrator/Wiki/People/Tom Lee.md", "ops": []}])
 ```
 
-   → `pages[0].applied: [{"op": "contest", "id": "n30x", "review": 1}, {"op": "open"}]`, `pages[1].record_added: true`. The chat records go in with no `src` on the ops (it defaults to the `record_id`); the Mon 24 chat carries the `supersede` on `7k2q` with `since: "2026-08-24"`, the Tue 25 chat the `add` of the close date, Jane's mail a `confirm` on it.
+   → `pages[0].applied: [{"op": "contest", "id": "n30x", "review": 1}, {"op": "open", "id": "b8k2", "owner": "me"}]`, `pages[1].record_added: true`. The chat records go in with no `src` on the ops (it defaults to the `record_id`); the Mon 24 chat carries the `supersede` on `7k2q` with `since: "2026-08-24"`, the Tue 25 chat the `add` of the close date, Jane's mail a `confirm` on it.
 
 8. Stamps:
 

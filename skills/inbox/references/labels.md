@@ -77,7 +77,7 @@ Not `waiting`:
 - The status is final ("delivered", "approved", "closed") → `fyi`.
 - It is pending but the next move is the user's ("please provide X before we continue") → `act`.
 
-Reason should say what is pending and from whom: "Support acknowledged ticket 4411, no answer yet". Every `waiting` row also goes into `Follow-ups.md` — the server writes it.
+Reason should say what is pending and from whom: "Support acknowledged ticket 4411, no answer yet". Every `waiting` row also opens an item on the sender's wiki page, owned by them — the server writes it, and `Follow-ups.md` shows it.
 
 ## `fyi` — good to know, nothing to do
 

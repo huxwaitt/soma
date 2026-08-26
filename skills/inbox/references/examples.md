@@ -40,13 +40,13 @@ Two runs on Saturday 2026-08-22, user `hux@example.com`, vault `MyVault`. Every 
     "followups_added": 1, "calendar_rows": 0, "unlabelled": []}
    ```
 
-   The note now has the 15-row table (sorted act, reply, waiting, fyi, noise; `Why` for the rule-labelled rows is the rule text; the NDA row links `[[Emails/2026-08-22 Sign the NDA by Friday]]` because `save` wrote that note earlier), `## To do` with three lines, `## Waiting on` with the ticket, and `Follow-ups.md` has a new row keyed on `00000000A3…`.
+   The note now has the 15-row table (sorted act, reply, waiting, fyi, noise; `Why` for the rule-labelled rows is the rule text; the NDA row links `[[Emails/2026-08-22 Sign the NDA by Friday]]` because `save` wrote that note earlier), `## To do` with three lines, `## Waiting on` with the ticket (one open item on `Wiki/People/Acme Support.md` owned by them, `src` the mail's `internet_message_id`), and `## Promised` with the two items of the user's own due within seven days.
 
-7. No fresh mail is a reply from the `Who` of an open follow-up (Carol Ng's contract draft is still open, nothing from her came in) → `Follow-ups.md` is not read.
+7. No fresh mail is a reply from anyone who owes an open item (Carol Ng's contract draft is still open, nothing from her came in) → no `vault_wiki_search`.
 8. Report:
 
    > 23 unread since Fri 18:02: 1 already in Friday's note, 2 never-save, 7 labelled by rules, 8 by me (1 opened). act 1, reply 2, waiting 1, fyi 6, noise 5.
-   > To do: Sign the NDA by Friday (Jane Doe); Re: Q3 numbers (Tom Lee); Re: offsite dates (Bob Lee). Follow-ups: +1 (Acme Support, ticket 4411).
+   > To do: Sign the NDA by Friday (Jane Doe); Re: Q3 numbers (Tom Lee); Re: offsite dates (Bob Lee). Waiting: +1 open item (Acme Support, ticket 4411). Promised this week: 2.
    > Written: Daily/2026-08-22.md (created). This turn: 9.8k tokens.
    > Open: obsidian://open?vault=MyVault&file=Administrator%2FDaily%2F2026-08-22.md
    >
@@ -74,10 +74,10 @@ Calls: 9 (10 with the bulk action). Tokens in the turn: about 10k, of which the 
 
    Under `## Update 2026-08-22T15:40:05+02:00` the server wrote `### Inbox (since 2026-08-22T08:31:10+02:00)` with rows 16 and 17, `### To do` / `### Waiting on` only if needed, `### Calendar` with two rows (each ending in `<!-- occurrence_key: … -->`) and `### Watch out` with "Clash: Budget review with Jane (13:00–14:00) overlaps Dentist (13:30–14:30)" and "No prep note: Budget review with Jane" — both computed in code, nothing passed as `watch_out`.
 
-7. Carol Ng replied on a subject with an open row → `vault_read("Administrator/Follow-ups.md")`, the row's comment is `<!-- entry_id: 00000000AC… -->` → `vault_move_row("Administrator/Follow-ups.md", "Open", "Done", "00000000AC…", set_last_cell="2026-08-22")` → `moved: true`.
+7. Carol Ng replied on a subject with an open item → `vault_wiki_search(query="", open_items=true, owner="others", page="Wiki/People/Carol Ng")` → one item, `id: "4m2t"` → `vault_wiki_apply(path="Wiki/People/Carol Ng", ops=[{"op": "done", "id": "4m2t", "src": "user"}])` → applied.
 8. Report:
 
-   > 3 new since 08:31: 1 never-save, 1 by rule, 1 by me. Carol Ng sent the contract draft → Follow-ups row moved to Done.
+   > 3 new since 08:31: 1 never-save, 1 by rule, 1 by me. Carol Ng sent the contract draft → her open item is ticked.
    > Today: 09:30 Stand-up (Teams), 13:00 Budget review with Jane (Room 4). Watch out: clash 13:00–14:00 with Dentist; no prep note for the budget review — run /administrator:prep?
    > Written: Daily/2026-08-22.md (appended). This turn: 6.1k tokens.
    > Open: obsidian://open?vault=MyVault&file=Administrator%2FDaily%2F2026-08-22.md

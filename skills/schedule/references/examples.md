@@ -134,7 +134,7 @@ Body:
 Save this as a draft in Outlook? Nothing is sent; you send it from Drafts.
 ```
 
-A yes → `outlook_send_mail(to=["jane.doe@acme-parts.com"], subject="Proposed times — Budget review", body=…, save_only=true)`, then `vault_append_row("Administrator/Follow-ups.md", "Open", ["2026-08-22", "[[Wiki/People/Jane Doe]]", "pick a time — Budget review", "", "2026-08-22"], dedupe_key="jane.doe@acme-parts.com # pick a time — Budget review", key_label="proposal")` (the comment reads `<!-- proposal: … -->`), and the report "Draft saved in Drafts — open Outlook to send it. Added a follow-up for Jane." No event, no meeting note.
+A yes → `outlook_send_mail(to=["jane.doe@acme-parts.com"], subject="Proposed times — Budget review", body=…, save_only=true)`, then `vault_wiki_apply(path="Wiki/People/Jane Doe", ops=[{"op": "open", "text": "pick a time — Budget review", "owner": "[[Wiki/People/Jane Doe]]", "since": "2026-08-22", "src": "proposal:jane.doe@acme-parts.com"}], src="proposal:jane.doe@acme-parts.com")` (the item shows in `Follow-ups.md` on its next write), and the report "Draft saved in Drafts — open Outlook to send it. Added a follow-up for Jane." No event, no meeting note.
 
 ## Example 3 — "move my 2pm with Sam to Thursday"
 

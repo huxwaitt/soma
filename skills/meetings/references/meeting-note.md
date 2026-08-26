@@ -64,7 +64,7 @@ created_by: administrator/0.4.0
 
 ## Waiting on
 
-- [[Wiki/People/Tom Lee]] — <what, ten words or fewer> (since 2026-08-25) → also in [[Follow-ups]]
+- [[Wiki/People/Tom Lee]] — <what, ten words or fewer> (since 2026-08-25)
 
 ## Related emails
 
@@ -132,9 +132,8 @@ Written once by `/administrator:prep`, in this order; leave out a sub-heading on
 
 ### Open follow-ups with them
 
-| Since | Who | What | Email | Last checked |
-| --- | --- | --- | --- | --- |
-| 2026-08-21 | [[Wiki/People/Jane Doe]] | Contract draft | [[Emails/2026-08-21 Contract draft]] | 2026-08-22 <!-- entry_id: 00000000AC… --> |
+- Jane Doe: Contract draft (since 2026-08-21) — [[Wiki/People/Jane Doe]]
+- me: Send the signed contract (since 2026-08-22, due 2026-08-26) — [[Wiki/Topics/acme-supplier-contract]]
 
 ### Recent threads
 
@@ -153,7 +152,7 @@ Rules:
 
 - **Previous meeting**: only for recurring meetings (`is_recurring: true`) or when another note shares the `global_id`. Link the most recent earlier occurrence. Copy its unchecked `- [ ]` lines (from `## Action items` and from any `### Action items` under its `## Update` headings, skipping items named under a `### Closed` list) into `### Carried over`, each suffixed `(from <that note's date>)`. Do not copy checked lines, and do not tick anything in the old note.
 - **People**: one line per attendee, from the person note's `company` and `last_contact` (blank `last_contact` → "no email on record").
-- **Open follow-ups with them**: the rows from `Follow-ups.md` `## Open` whose `Who` links to any attendee's person note (or shows their display name). Copied verbatim, same table header. No rows → the line `- none`.
+- **Open follow-ups with them**: the `commitments[]` of `vault_prep_context` — the open items on the attendees' pages and the items anywhere they own, both directions. One line each: `- <owner_name>: <text> (since <since>[, due <due>]) — [[<page>]]`. None → the line `- none`.
 - **Recent threads**: up to 5, newest first, each one line: bold subject, `(sender, date)`, a summary of 25 words or fewer from the preview (items 3–5) or from the whole conversation (items 1–2, fetched with `outlook_get_conversation`), then a `[[Emails/…]]` link when a note exists for that `internet_message_id` / `entry_id`, otherwise `<!-- entry_id: … -->` of the newest mail in the thread. The same lines (link or comment only, no summary) also go into `## Related emails`.
 - **Suggested points**: 2–5 bullets, each pointing at the thread number or carried-over item it comes from. Nothing invented; if there is nothing to point at, write `- nothing open`.
 
@@ -168,7 +167,7 @@ Prep re-run via /administrator:prep.
 
 ### Prep
 
-<the same sub-headings as above, but only lines that are new since the last prep: new threads, new follow-up rows, new carried-over items. Nothing new → the single line "Nothing new since the last prep.">
+<the same sub-headings as above, but only lines that are new since the last prep: new threads, new open items with them, new carried-over items. Nothing new → the single line "Nothing new since the last prep.">
 ```
 
 with new thread lines under `### Related emails` inside the same Update. The frontmatter is unchanged except `status` (if the event turned out to be cancelled).
@@ -190,7 +189,7 @@ Notes added via /administrator:notes.
 
 ### Waiting on
 
-- [[Wiki/People/<Name>]] — <what> (since <meeting date>) → also in [[Follow-ups]]
+- [[Wiki/People/<Name>]] — <what> (since <meeting date>)
 
 ### Closed
 
@@ -211,16 +210,19 @@ Attendee person pages (wiki pages under `Wiki/People/`, created or updated by `p
 
 The line is the body of the `vault_write("person", …)` call (`mode="create"` for a stub, `mode="append"` for an existing page); the server puts it under `## Records` (newest first, capped at 15) and never adds an `## Update` heading to a person page. The meeting note's frontmatter is the source of truth for the status; the line carries none. A person stub created by `prep` has `last_contact: ""` (no email on record yet), `aliases: []` and `status: draft`; `notes` sets `last_contact` to the meeting `start` if that is later than the stored value (the server replaces that key on append), because a held meeting counts as contact.
 
-## Follow-ups rows from a meeting
+## Open items from a meeting
 
-Same table and same `Who`/`What` rules as `vault.md`. Differences for rows that come from a meeting:
+A waiting-on line of the notes becomes one open item on a wiki page, not a row in a file: `notes` sends it with the meeting's ingest as
 
-```markdown
-| 2026-08-25 | [[Wiki/People/Tom Lee]] | Confirm Leipzig delivery address | [[Meetings/2026-08-25 1300 Supplier sync]] | 2026-08-25 <!-- occurrence_key: 0400…|2026-08-25T13:00:00+02:00 # Confirm Leipzig delivery address --> |
+```
+{"op": "open", "text": "Confirm Leipzig delivery address", "owner": "[[Wiki/People/Tom Lee]]", "due": "2026-09-01", "since": "2026-08-25"}
 ```
 
-- `Since` = the meeting date. `Email` column holds the meeting note link. The trailing comment is `<!-- occurrence_key: <key> # <What> -->`, written by `vault_append_row(..., dedupe_key="<occurrence_key> # <What>", key_label="occurrence_key")`.
-- Row identity: that key (one meeting can create several rows, so the `What` text is part of it). Existing row → `vault_append_row` answers `duplicate`; leave it. `inbox` closes rows as before when a reply from `Who` on the same subject words shows up; `notes` closes a row only when the user's notes say it is done ("Tom confirmed the address") — `vault_move_row("Administrator/Follow-ups.md", "Open", "Done", <key>, set_last_cell=<meeting date>)`.
+on the topic or decision page the meeting matched, else on that person's page. `src` and `since` default to the meeting record, so the page's line ends `— [[Meetings/2026-08-25 1300 Supplier sync]]`.
+
+- The same wording twice, or this meeting twice, is refused as `duplicate`; leave it.
+- `notes` closes an item only when the user's notes say it is done ("Tom confirmed the address"): `{"op": "done", "id": <the id from `commitments[]`>}`. `inbox` and `followups` close their own items the same way. Old boxes in the meeting note are never ticked.
+- `Administrator/Follow-ups.md` shows the items other people owe, written from the pages after every wiki change; `vault_append_row` and `vault_move_row` refuse the file.
 
 ## Note written by `schedule`
 

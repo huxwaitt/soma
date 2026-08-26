@@ -5,7 +5,7 @@ description: Turn one Outlook email (or the thread it belongs to) into a note in
 
 # save — one email → one vault note
 
-One mail (or the mail plus its thread) goes from Outlook into `<vault>/Administrator/Emails/`. Outlook gives the facts, `vault_save_email` writes the note, the person note and the Follow-ups row; you decide only the summary, the action items and the status. Never send, move, delete, mark or categorise anything in Outlook. Outlook mechanics follow the `outlook` skill and `skills/administrator/references/outlook.md`; note layout is `skills/administrator/references/vault.md`; worked examples (single mail, thread, re-run) are in `references/examples.md` — load it the first time a save runs in a session.
+One mail (or the mail plus its thread) goes from Outlook into `<vault>/Administrator/Emails/`. Outlook gives the facts, `vault_save_email` writes the note, the person page and, for a `waiting` mail, one open item owned by the counterpart; you decide only the summary, the action items and the status. Never send, move, delete, mark or categorise anything in Outlook. Outlook mechanics follow the `outlook` skill and `skills/administrator/references/outlook.md`; note layout is `skills/administrator/references/vault.md`; worked examples (single mail, thread, re-run) are in `references/examples.md` — load it the first time a save runs in a session.
 
 Once per session: `vault_status` (any folder or file flag false → `vault_init(created_by="administrator/0.4.0")`; vault unset or not a directory → stop and tell the user, do not guess a path) and `outlook_whoami(response_format="json")` for `self_addresses` (every `accounts[].smtp_address`).
 
@@ -58,7 +58,7 @@ vault_save_email(mail=<step 2 result>, summary, action_items, attachments_saved=
                  company=<step 3, only when found>, created_by="administrator/0.4.0")
 ```
 
-The helper copies the body, builds the frontmatter (identity, recipients, `has_attachments`, links), names the file, writes or appends the email note, creates or updates the sender's person page in the wiki (`last_contact`, `aliases`, one `## Records` line) and adds the `Follow-ups.md` row for `waiting`. Result: `{path, action: created | appended, status, person_path, person_action, followup_added}`. A tool error (bad status, missing identity) is yours to fix: correct the input and call again; never write the file by hand.
+The helper copies the body, builds the frontmatter (identity, recipients, `has_attachments`, links), names the file, writes or appends the email note, creates or updates the sender's person page in the wiki (`last_contact`, `aliases`, one `## Records` line) and, when the status is `waiting`, adds one open item to the counterpart's page (the first recipient of the user's own mail, else the sender) owned by them, with the mail as its record. Result: `{path, action: created | appended, status, person_path, person_action, followup_added}` — `followup_added` is true when that item was written. It shows up in `Administrator/Follow-ups.md`, which is written from the pages. A tool error (bad status, missing identity) is yours to fix: correct the input and call again; never write the file by hand.
 
 ### 6. Wiki ingest (after the record is written)
 

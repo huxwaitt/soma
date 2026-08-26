@@ -52,13 +52,17 @@ For every chat kept in step 3: `vault_save_chat(chat=<the chat entry>, messages=
 
 Show the proposal as short bullets grouped by page, plus the Review items expected, and wait:
 
-> **Topics/q3-budget** — deadline 27 → 29 Aug (supersede, Teams chat Fri 21); forecast closes 2 Sep (add). **People/Jane Doe** — confirm "owns the forecast"; last contact Fri 21. **Review** — 1 expected: Tom's older mail says net 30. Apply these? (name a line to drop it)
+> **Topics/q3-budget** — deadline 27 → 29 Aug (supersede, Teams chat Fri 21); forecast closes 2 Sep (add); Jane sends the sheet by 27 Aug (open item, owner Jane). **Decisions/net-45-terms** — new page: "We go with net 45" (needs your yes). **People/Jane Doe** — confirm "owns the forecast"; last contact Fri 21. **Review** — 2 expected: Tom's older mail says net 30; the new decision. Apply these? (name a line to drop it)
 
 Nothing else happens in that turn. On a yes, drop the struck lines and go on; "no" ends the run with the records written and the stamps untouched.
 
 ### 7. Ingest, oldest first
 
-One `vault_wiki_ingest(record_path=<path>, pages=[...], created_by="administrator/0.4.0")` per record, oldest record first, exactly the ops that were agreed (`src` and `since` default to the record's id and date: `internet_message_id`, `occurrence_key`, or the chat's `record_id`). Refusals are answers (`older-than-current`, `user-pin` → Review; `cap` → resend smaller). A topic candidate over the threshold: ask in the report, create only on a yes.
+One `vault_wiki_ingest(record_path=<path>, pages=[...], created_by="administrator/0.4.0")` per record, oldest record first, exactly the ops that were agreed (`src` and `since` default to the record's id and date: `internet_message_id`, `occurrence_key`, or the chat's `record_id`). Refusals are answers (`older-than-current`, `user-pin` → Review; `cap` → resend smaller; `append-only` → the page is a decision, so write a new one or put it on the topic). A topic candidate over the threshold: ask in the report, create only on a yes.
+
+**What somebody owes.** A mail or chat where someone says they will send, check or decide something becomes an `open` op in the same call, on the topic or decision page the record matched, else on that person's page: `{"op": "open", "text": <what, ten words or fewer>, "owner": "[[Wiki/People/<Name>]]" (the plain name when there is no page), "due": <the date the message names, if any>}`. What the user promised is the same op with `owner: "me"`. A message that says one is finished becomes `{"op": "done", "id": <the id from the page's open items>}`. These lines are what `Administrator/Follow-ups.md` shows; never write a row into it.
+
+**A decision in the words.** "we agreed", "we are going with", "approved", "beschlossen" → a decision page in the same call, without asking: `{"new": {"type": "decision", "title": …, "lead": …, "summary": …}, "ops": [{"op": "add", "text": "<the choice>"}, …]}` with `decided` and `by` (see the `wiki` skill). Code flags it `unconfirmed-decision` and writes one Review line; say in the report that it needs a yes or a drop.
 
 ### 8. Advance the stamps
 

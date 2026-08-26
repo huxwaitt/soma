@@ -1,11 +1,11 @@
 ---
 name: inbox
-description: Go through the user's new Outlook mail, label each message as act / reply / waiting / fyi / noise, have the vault server render today's daily note in the Obsidian vault (waiting items also land in Follow-ups.md), and then offer (never run unasked) batch clean-up in Outlook. Trigger on /administrator:inbox, /administrator:daily, "go through my inbox", "what's new in my inbox", "anything urgent?", "what do I need to reply to", "what came in since yesterday", "sort my mail", "clear my inbox", "what's today". Requires the outlook_* and vault_* tools and ADMINISTRATOR_VAULT.
+description: Go through the user's new Outlook mail, label each message as act / reply / waiting / fyi / noise, have the vault server render today's daily note in the Obsidian vault (a waiting mail also opens an item on the sender's wiki page, and the first run of the day lists what the user promised), and then offer (never run unasked) batch clean-up in Outlook. Trigger on /administrator:inbox, /administrator:daily, "go through my inbox", "what's new in my inbox", "anything urgent?", "what do I need to reply to", "what came in since yesterday", "sort my mail", "clear my inbox", "what's today". Requires the outlook_* and vault_* tools and ADMINISTRATOR_VAULT.
 ---
 
 # Inbox
 
-The model decides, the tools move the bytes. You read a short list, label what no rule could, and hand the labels back; `vault_write_daily` renders the note, links existing email notes, adds the Follow-ups rows and (for `daily`) the calendar, clashes and missing prep notes. You never write a table row, never compare `entry_id`s, never copy text a tool already holds. Reads are free. Nothing that changes Outlook runs without an explicit yes.
+The model decides, the tools move the bytes. You read a short list, label what no rule could, and hand the labels back; `vault_write_daily` renders the note, links existing email notes, opens an item on the sender's page for every `waiting` mail, lists the user's own items due within seven days under `## Promised` on the first run of the day, and (for `daily`) adds the calendar, clashes and missing prep notes. You never write a table row, never compare `entry_id`s, never copy text a tool already holds. Reads are free. Nothing that changes Outlook runs without an explicit yes.
 
 Vault conventions live in the core `administrator` skill and `administrator/references/vault.md` ("Workflow helpers" section); Outlook mechanics in the `outlook` skill and `administrator/references/outlook.md`. Label rules: `references/labels.md`. A full run, call by call: `references/examples.md` — load it the first time you run this workflow in a session, not before.
 
@@ -69,9 +69,9 @@ vault_write_daily(date=<today>, labels=<the JSON from step 4>, since=<since>, in
     tokens_used=<the turn's token count when the host shows one, else omit>, created_by="administrator/0.4.0")
 ```
 
-Items come from the cache; rule-labelled mails need no entry in `labels`. The server sorts the table, writes the `<!-- entry_id -->` comments, links the `Note` column to existing email notes, fills `## To do` and `## Waiting on`, appends one `Follow-ups.md` row per `waiting` mail, and on a second run today appends only new rows under `## Update <ISO>` (the only frontmatter key that moves is `inbox_checked`). Read the result: `action` (`created` / `appended` / `unchanged`), `rows_written`, `duplicates_skipped`, `followups_added`, `unlabelled[]` (fix: label them and call again — they were left out of the note). `unchanged` means nothing was written; say so.
+Items come from the cache; rule-labelled mails need no entry in `labels`. The server sorts the table, writes the `<!-- entry_id -->` comments, links the `Note` column to existing email notes, fills `## To do` and `## Waiting on` (each `waiting` mail also opens an item on the sender's page, owned by them), writes `## Promised` on the first run of the day, and on a second run today appends only new rows under `## Update <ISO>` (the only frontmatter key that moves is `inbox_checked`). Read the result: `action` (`created` / `appended` / `unchanged`), `rows_written`, `duplicates_skipped`, `followups_added`, `promised`, `unlabelled[]` (fix: label them and call again — they were left out of the note). `unchanged` means nothing was written; say so.
 
-Closing a follow-up: when a fresh mail is a reply from the `Who` of an open row on the same subject, `vault_read("Administrator/Follow-ups.md")` once (it is small), take the key from that row's hidden comment and `vault_move_row("Administrator/Follow-ups.md", "Open", "Done", <key>, set_last_cell=<today>)`. Say so in the report. Skip the read when no fresh mail is a reply from a person.
+Closing a follow-up: when a fresh mail is a reply from someone who owes an open item on the same subject, `vault_wiki_search(query="", open_items=true, owner="others", page=<their person page>)` once, then `vault_wiki_apply(path=<the item's page>, ops=[{"op": "done", "id": <the item's id>, "src": "user"}])`. Say so in the report. Skip the search when no fresh mail is a reply from a person. Never write a row into `Follow-ups.md`; the file is written from the pages.
 
 ### 6. `daily` only — the calendar
 
@@ -79,7 +79,7 @@ Before step 5: `outlook_list_events(start="<date>T00:00:00", end="<date>T23:59:5
 
 ### 7. Report, then offer batch actions
 
-Three to five lines: counts per label (including `labelled_by_rule` and `already_seen`), the `act` and `reply` subjects, the Follow-ups rows added or closed, the note path, and `obsidian://open?vault=<vault_name>&file=<url-encoded path>` (`vault_name` from `vault_status`, `path` from `vault_write_daily`). No raw JSON. For `daily`, add the agenda lines and the watch-out bullets.
+Three to five lines: counts per label (including `labelled_by_rule` and `already_seen`), the `act` and `reply` subjects, the open items added or closed, the note path, and `obsidian://open?vault=<vault_name>&file=<url-encoded path>` (`vault_name` from `vault_status`, `path` from `vault_write_daily`). No raw JSON. For `daily`, add the agenda lines and the watch-out bullets.
 
 Then offer, as a numbered list, only the actions that apply, each with count and subjects (first 10 plus "and N more"):
 

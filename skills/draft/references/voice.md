@@ -62,7 +62,7 @@ Order of precedence when writing: hard rules in `## Voice` → `Voice with this 
 - Reuse at most one habit phrase per draft. Copying three makes it read like an imitation.
 - Never copy a sentence from an `opening`. The sample is for form, not content.
 - Language: the language of the other person's last mail. If the sample shows the user never writes that language, say so and write in the user's language instead.
-- Facts: only what the thread, the person note, `Follow-ups.md` or the user said. Anything missing becomes `[fill in: what is missing]` in the body, and the draft is shown with that marker in it. Never fill a date, a number, a price, a name or a promise from guesswork.
+- Facts: only what the thread, the person page, its open items or the user said. Anything missing becomes `[fill in: what is missing]` in the body, and the draft is shown with that marker in it. Never fill a date, a number, a price, a name or a promise from guesswork.
 
 ## The three variants
 
@@ -82,7 +82,7 @@ A nudge or minutes email shown to the user carries the same `[fill in: …]` mar
 
 1. `outlook_search_mails(query="delivery schedule tom", limit=5, fields=["entry_id","from","from_address","subject","received"], preview_chars=0, response_format="json")` → 2 hits, both `Re: Delivery schedule September` → one thread.
 2. `outlook_get_conversation(entry_id="00000000B3…", include_body=true, max_body_chars=4000, limit=20, trim_quoted=true, fields=["entry_id","internet_message_id","from","from_address","to","received","body_trimmed"])` → 4 items. Last: Tom Lee, 2026-08-21: "Hi Hux, does 8 Sep work for the first delivery? And which address should the driver use — the Leipzig site or the warehouse? Thanks, Tom". Open questions: (a) 8 Sep, (b) which address. `outlook_get_mail(entry_id="00000000B3…", include_body=false, fields=["recipients","subject"], response_format="json")` → only `hux@example.com` on `to` → `reply_all: false`.
-3. `vault_find("person", {"email": "tom.lee@acme-parts.com"})` → found, `vault_read` → `## Notes` says Tom prefers dates in ISO. `Follow-ups.md` → one `## Open` row "Tom Lee / Delivery schedule September". `vault_find("email", …)` → not found. `Preferences.md` has no `## Voice`.
+3. `vault_find("person", {"email": "tom.lee@acme-parts.com"})` → found, `vault_read` → `## Notes` says Tom prefers dates in ISO. `vault_wiki_search(query="", open_items=true, page="Wiki/People/Tom Lee")` → one item, "Updated September delivery schedule", owned by Tom since 2026-08-19. `vault_find("email", …)` → not found. `Preferences.md` has no `## Voice`.
 4. `outlook_voice_sample(address="tom.lee@acme-parts.com", n=10, max_chars=300)` → `used_address: true`, `count: 10`, `stats: {avg_chars: 350, greeting_counts: {"Hi Tom,": 8, "Tom,": 2}, signoff_counts: {"Thanks": 9, "Best": 1}}`; the openings are prose, contractions throughout, each ends with one question. Facts: `Hi Tom,` / `Thanks` + `Hux` / ~60 words / informal / prose / one question at the end.
 5. (a) answered by the user; (b) not in the thread, the note or the argument → `[fill in: Leipzig site or warehouse — you didn't say]`. The packaging spec becomes the closing question.
 

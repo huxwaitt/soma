@@ -26,7 +26,10 @@ User: `/administrator:prep supplier sync` on 2026-08-25 08:40.
                             "open_actions": ["- [ ] Send revised forecast to Jane — owner: me", "- [ ] Confirm Leipzig delivery address — owner: Tom Lee"]},
     "people": [{"email": "jane.doe@acme-parts.com", "name": "Jane Doe", "path": "Administrator/Wiki/People/Jane Doe.md", "last_contact": "2026-08-21T16:42:10+02:00", "company": "ACME Parts GmbH", "last_emails": ["- 2026-08-21 — [[Emails/2026-08-21 Q3 supplier contract – signature needed]] (todo)"]},
                {"email": "tom.lee@acme-parts.com", "name": "Tom Lee", "path": null, "last_contact": "", "company": "", "last_emails": []}],
-    "followups_open": ["| 2026-08-21 | [[Wiki/People/Jane Doe]] | Contract draft | [[Emails/2026-08-21 Contract draft]] | 2026-08-22 <!-- entry_id: 00000000AC… --> |"]}
+    "commitments": [{"page": "Administrator/Wiki/People/Jane Doe.md", "stem": "Wiki/People/Jane Doe", "type": "person", "title": "Jane Doe",
+                     "owner_name": "Jane Doe", "id": "4m2t", "text": "Contract draft", "owner": "[[Wiki/People/Jane Doe]]", "due": "",
+                     "since": "2026-08-21", "src": ["00000000AC…"], "record": "Emails/2026-08-21 Contract draft", "done": false}],
+    "followups_open": ["2026-08-21 — Jane Doe: Contract draft"]}
    ```
 
 3. `outlook_find(people=["jane.doe@acme-parts.com", "tom.lee@acme-parts.com"], since="2026-07-26T00:00:00", limit=5)` → 3 items, best first, each with `entry_id, subject, from_address, received, score, snippet, folder`. No `get_conversation`.
@@ -82,9 +85,7 @@ User: `/administrator:prep supplier sync` on 2026-08-25 08:40.
 
    ### Open follow-ups with them
 
-   | Since | Who | What | Email | Last checked |
-   | --- | --- | --- | --- | --- |
-   | 2026-08-21 | [[Wiki/People/Jane Doe]] | Contract draft | [[Emails/2026-08-21 Contract draft]] | 2026-08-22 <!-- entry_id: 00000000AC… --> |
+   - Jane Doe: Contract draft (since 2026-08-21) — [[Wiki/People/Jane Doe]]
 
    ### Recent threads
 
@@ -120,7 +121,7 @@ User: `/administrator:prep supplier sync` on 2026-08-25 08:40.
 
 Report:
 
-> Prep written: `Meetings/2026-08-25 1300 Weekly supplier sync.md` (previous: 2026-08-18, 2 items carried over, 3 threads, 1 open follow-up). New person note `Wiki/People/Tom Lee.md`.
+> Prep written: `Meetings/2026-08-25 1300 Weekly supplier sync.md` (previous: 2026-08-18, 2 items carried over, 3 threads, 1 open item with them). New person note `Wiki/People/Tom Lee.md`.
 > obsidian://open?vault=Vault&file=Administrator%2FMeetings%2F2026-08-25%201300%20Weekly%20supplier%20sync.md
 > Points: sign the contract or say what blocks it; answer Tom on the 8 Sep delivery; packaging spec; Leipzig address.
 
@@ -138,8 +139,8 @@ User, 2026-08-25 14:18: `/administrator:notes supplier sync` followed by:
 - forecast still owed by me
 ```
 
-1. `outlook_list_events` for today (same `fields`) → the 13:00 "Weekly supplier sync", ended. `vault_prep_context(occurrence_key, global_id, attendees=[…], subject=…)` → `existing_note` = the note from example 1, `existing_status: "upcoming"`, `people[]` now both with a `path` (Tom `last_contact: ""`), `followups_open` as before. Five lines, no turn pattern → plain notes.
-2. Pulled out: four action items (two owned by Tom Lee and Jane Doe → waiting), one closed item ("Tom confirmed Leipzig" matches the carried-over line; no Follow-ups row exists for it, so nothing moves). `vault_write("meeting", <frontmatter as found, status: held>, body, mode="append")` → `{"action": "appended", "update_heading": "Update 2026-08-25T14:18:02+02:00", "frontmatter_changed": ["status"]}`, body:
+1. `outlook_list_events` for today (same `fields`) → the 13:00 "Weekly supplier sync", ended. `vault_prep_context(occurrence_key, global_id, attendees=[…], subject=…)` → `existing_note` = the note from example 1, `existing_status: "upcoming"`, `people[]` now both with a `path` (Tom `last_contact: ""`), `commitments` as before (Jane's "Contract draft", id `4m2t`). Five lines, no turn pattern → plain notes.
+2. Pulled out: four action items (two owned by Tom Lee and Jane Doe → waiting), one closed item ("Tom confirmed Leipzig" matches the carried-over line; no open item exists for it, so no `done` op). `vault_write("meeting", <frontmatter as found, status: held>, body, mode="append")` → `{"action": "appended", "update_heading": "Update 2026-08-25T14:18:02+02:00", "frontmatter_changed": ["status"]}`, body:
 
    ```markdown
    Notes added via /administrator:notes.
@@ -161,15 +162,26 @@ User, 2026-08-25 14:18: `/administrator:notes supplier sync` followed by:
 
    ### Waiting on
 
-   - [[Wiki/People/Tom Lee]] — Updated September delivery schedule (since 2026-08-25) → also in [[Follow-ups]]
-   - [[Wiki/People/Jane Doe]] — Packaging spec draft (since 2026-08-25) → also in [[Follow-ups]]
+   - [[Wiki/People/Tom Lee]] — Updated September delivery schedule (since 2026-08-25)
+   - [[Wiki/People/Jane Doe]] — Packaging spec draft (since 2026-08-25)
 
    ### Closed
 
    - Confirm Leipzig delivery address (carried over from 2026-08-18) — Tom confirmed it in this meeting
    ```
 
-3. Two rows: `vault_append_row("Administrator/Follow-ups.md", "Open", ["2026-08-25", "[[Wiki/People/Tom Lee]]", "Updated September delivery schedule", "[[Meetings/2026-08-25 1300 Weekly supplier sync]]", "2026-08-25"], dedupe_key="0400…|2026-08-25T13:00:00+02:00 # Updated September delivery schedule", key_label="occurrence_key")` and the same for "Packaging spec draft" → both `appended: true`.
+3. Two open items, sent with the wiki ingest of step 7 (the subject matched `Wiki/Topics/acme-supplier-contract`, so both sit on that page):
+
+   ```
+   vault_wiki_ingest(record_path="Administrator/Meetings/2026-08-25 1300 Weekly supplier sync.md",
+       pages=[{"path": "Wiki/Topics/acme-supplier-contract", "ops": [
+           {"op": "supersede", "id": "9x1a", "text": "Payment terms are net 45"},
+           {"op": "open", "text": "Updated September delivery schedule", "owner": "[[Wiki/People/Tom Lee]]", "due": "2026-08-27"},
+           {"op": "open", "text": "Packaging spec draft", "owner": "[[Wiki/People/Jane Doe]]"}]}],
+       created_by="administrator/0.4.0")
+   ```
+
+   → both `open` ops applied with new ids; `src` and `since` came from the meeting record. `Administrator/Follow-ups.md` shows the two lines on its next write.
 4. `last_contact`: Tom `""` and Jane `2026-08-21T…` are both earlier than `start` → one `vault_write("person", <frontmatter, last_contact: "2026-08-25T13:00:00+02:00">, "- 2026-08-25 — [[Meetings/2026-08-25 1300 Weekly supplier sync]] (held)", mode="append")` each.
 5. `outlook_voice_sample(address="jane.doe@acme-parts.com", n=10, max_chars=300)` once (greeting "Hi", sign-off "Thanks" + first name). Draft shown, then: "Save this as a draft email to Jane Doe, Tom Lee? (goes to Drafts, nothing is sent)"
 
@@ -202,7 +214,7 @@ User, 2026-08-25 14:18: `/administrator:notes supplier sync` followed by:
 
 Report:
 
-> Notes added to `Meetings/2026-08-25 1300 Weekly supplier sync.md` (status: held). 4 action items, 2 waiting on (Tom Lee, Jane Doe) → 2 rows in Follow-ups.md; carried-over "Leipzig address" closed. `last_contact` updated on Jane Doe and Tom Lee. Minutes saved to Drafts — send it from Outlook when you are happy with it.
+> Notes added to `Meetings/2026-08-25 1300 Weekly supplier sync.md` (status: held). 4 action items, 2 waiting on (Tom Lee, Jane Doe) → 2 open items on `Topics/acme-supplier-contract`; carried-over "Leipzig address" closed. `last_contact` updated on Jane Doe and Tom Lee. Minutes saved to Drafts — send it from Outlook when you are happy with it.
 > obsidian://open?vault=Vault&file=Administrator%2FMeetings%2F2026-08-25%201300%20Weekly%20supplier%20sync.md
 
 ## Example 3 — notes (transcript)
@@ -257,8 +269,8 @@ Priya
 
    ### Waiting on
 
-   - [[Wiki/People/Tom Lee]] — updated September delivery schedule (since 2026-08-25) → also in [[Follow-ups]]
-   - Priya — packaging spec draft (since 2026-08-25) → also in [[Follow-ups]]
+   - [[Wiki/People/Tom Lee]] — updated September delivery schedule (since 2026-08-25)
+   - Priya — packaging spec draft (since 2026-08-25)
 
    ### Closed
 
@@ -266,8 +278,8 @@ Priya
    ```
 
    No `### Notes`: the user did not say "summarise", so `## Notes` still reads `_(none yet)_`.
-4. Two `vault_append_row` calls as in example 2; the second row's `Who` is the plain text `Priya` (not an attendee, no person note). Steps 5–6 as in example 2; the minutes bullets come from the two decisions and three action items.
+4. Two `open` ops as in example 2; the second one's `owner` is the plain text `Priya` (not an attendee, no person page). Steps 5–6 as in example 2; the minutes bullets come from the two decisions and three action items.
 
 Report:
 
-> Transcript filed for `Meetings/2026-08-25 1300 Weekly supplier sync.md` (9 turns, 4 speakers: Jane Doe, Tom Lee linked; Priya is not an attendee), stored in the note. 2 decisions, 3 action items (owner of "packaging spec draft" unknown — Priya is not on the invite), 2 waiting on → 2 rows in Follow-ups.md; carried-over "Leipzig address" closed. `## Notes` left for you — say "summarise" if you want 3–6 bullets from the transcript. Draft minutes shown above; save to Drafts?
+> Transcript filed for `Meetings/2026-08-25 1300 Weekly supplier sync.md` (9 turns, 4 speakers: Jane Doe, Tom Lee linked; Priya is not an attendee), stored in the note. 2 decisions, 3 action items (owner of "packaging spec draft" unknown — Priya is not on the invite), 2 waiting on → 2 open items (Priya's owner is the plain name); carried-over "Leipzig address" closed. `## Notes` left for you — say "summarise" if you want 3–6 bullets from the transcript. Draft minutes shown above; save to Drafts?
