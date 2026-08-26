@@ -51,7 +51,7 @@ Everything the plugin writes lives under `<vault>/Administrator/`. It never touc
   Daily/YYYY-MM-DD.md          one per day
   Emails/YYYY-MM-DD <slug>.md  one per saved mail; Teams/YYYY-MM-DD <chat slug>.md — one per Teams chat per day, written by /administrator:collect-information
   Meetings/YYYY-MM-DD HHmm <slug>.md  one per meeting occurrence (prepared, noted, or booked)
-  Wiki/                        the wiki: Index.md, Log.md, Review.md, Wiki.md (the page contract), People/<Display Name>.md, Orgs/, Topics/, Decisions/, Howto/, Me.md — six kinds of page, written only by the vault_wiki_* tools
+  Wiki/                        the wiki: Index.md, Log.md, Review.md, Wiki.md (the page contract), Questions.md (yours: what the wiki should be able to answer), People/<Display Name>.md, Orgs/, Topics/, Decisions/, Howto/, Me.md — six kinds of page, written only by the vault_wiki_* tools
   Attachments/                 .msg / files exported from Outlook, transcripts, the inbox cache
   Weekly/YYYY-Www.md           one per ISO week, written by /administrator:weekly; Time-blocks/YYYY-Www.md — one plan note per ISO week, written by /administrator:time-block, Held rows added by collect-information
   _views/*.base                five Bases views, written by vault_init

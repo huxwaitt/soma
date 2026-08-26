@@ -18,6 +18,7 @@ Administrator/Wiki/
   Log.md            generated, append-only: one line per change
   Review.md         generated: open questions for you
   Wiki.md           this file
+  Questions.md      yours: the questions the wiki should be able to answer, and which page answers each
   Me.md             optional: one page about you (role, team, recurring duties)
   People/<Display Name>.md
   Orgs/<slug>.md
@@ -133,7 +134,8 @@ Jane Doe (finance) is collecting final Q3 numbers from each team lead by 2026-08
 | `aliases` | merged by code, never removed by code | other names, spellings, addresses; what matching searches; Obsidian resolves `[[alias]]` links with them |
 | `summary` | model (`summary` op), at most 160 characters | the one line in `Index.md`; the only thing read before deciding to open the page |
 | `status` | model op or lint | topic: `active`, `at-risk`, `blocked`, `dormant` (no record in 60 days), `closed` (outcome reached), `draft` (created by code, no lead yet). decision: `current`, `superseded`, `dropped`, `draft`. The other types: `active`, `dormant`, `closed`, `draft`. |
-| `owner`, `org` | model | optional, quoted wikilinks |
+| `owner` | model | optional, a quoted wikilink to a person page |
+| `org` | model | optional, plain text (the company name; lint links it to the org page of that name) |
 | `due` | model (`due` op) | topic only: the date the thing is due. A topic with an owner and a due date is a project. |
 | `outcome` | model (`outcome` op), at most 160 characters | topic only: what "done" means here |
 | `links` | model (`link` op), at most 10 | topic only: `[label](url)` for a web address, `[[path\|label]]` for a note in the vault |
@@ -190,7 +192,7 @@ Facts are located by id (four characters, shown in the hidden comment; the model
 
 | Op | Fields | What happens |
 | --- | --- | --- |
-| `add` | text, since, src | New bullet, new id. Text identical to an existing fact (ignoring case and spacing) is treated as `confirm` (the result says `result: confirm`). |
+| `add` | text, since, src | New bullet, new id. Text identical to an existing fact (ignoring case and spacing) is treated as `confirm` (the result says `result: confirm`). Text that names a day or an amount where a fact about the same thing already names a different one is refused as `conflicts-with` (see below). |
 | `update` | id, text, src | Same claim, better wording. Id and `since` stay; `src` gains the new source (up to 3, newest first). History: `updated f:<id>`. |
 | `supersede` | id, text, since, src | The claim changed: a date moved, an owner changed, a decision reversed. Allowed only when the new `since` is on or after the old one; otherwise refused (`older-than-current`) and the pair goes to Review. Old bullet moves to History as `superseded "<old>" → "<new>"`; the new bullet gets a new id. |
 | `confirm` | id, src | The source repeats a known fact. `src` extended, `verified` bumped, text untouched. This is what keeps `verified` honest. |
@@ -198,6 +200,10 @@ Facts are located by id (four characters, shown in the hidden comment; the model
 | `contest` | id, text, src | The source disagrees with a fact but is older, same-day, or the model is unsure. Facts stay as they are; the page gets `flags: [contradiction]` and Review gets a line with both texts and both records. |
 
 Page-level ops: `lead` (text), `summary` (text), `status` (value), `title` (text; the old title becomes an alias), `alias` (text; add only), `related` (page; add a link), `role` (page, role), `steps` (text; howto only), `owner` (value), `org` (value); the commitments (`open`, `done`, `reschedule`), the project ops on a topic (`due`, `outcome`, `milestone`, `risk`, `link`) and the decision ops (`superseded_by`, `reversal`) are below. All but `lead`, `summary`, `title`, `related`, `role` need a `src` (at ingest it defaults to the record's id, so it is never missing there). An empty op list is a valid "nothing new": code still adds the Records line and a `seen` History line if the record was new to the page.
+
+### Two facts that disagree — `conflicts-with`
+
+A page may not hold two facts stating different days or different amounts for the same thing. An `add` is refused as `conflicts-with` when its text names a value (an ISO date, a number with a unit or a currency on either side of it — `€500`, `500€` and `500 EUR` are one and the same amount — or a bare number of four digits or more; `net 45` on its own is not one), a fact already on the page names a value too, the two share no value, and the two share at least two of the words they are about. The refusal carries `id`, `current`, `since` and the one line the model needs: use `supersede` when the new one is the newer, `contest` when it is the older or you are unsure. Only `add` is checked; a decision page never is, because it is added to, never corrected.
 
 ### Commitments — the `## Open` lines
 
@@ -296,7 +302,9 @@ The first run of this version reads every page once: each gets an `id`, bullets 
 
 `vault_wiki_search(query, kinds, limit, since, include_superseded, brief, max_chars, open_items, owner, due_before, page, include_done)` reads the pages themselves and ranks the facts on them, so a fact is found by what it says and not only by the name of the page it sits on. Ids, dates, amounts, `"quoted phrases"` and `/regex/` are looked up as written; a misspelled name still finds the person; the pages a good hit links to are pulled in with it. Each hit is `{page, kind, title, fact_id, text, since, src, score, why[], superseded, streams, confirmed}`, best first, at most three facts per page. Old wordings kept in History come back only with `include_superseded=true`, always below the current fact. `## Notes` is never read.
 
-`brief=true` answers with one stitched text instead of a list — the best three pages with their lead, their facts (with ids), their open items, then the decisions and dated facts of the pages they link to, under `max_chars` — as `{text, pages[], facts[], chars}`. `open_items=true` answers with the commitments (see "Commitments"), oldest first, at most 200 of them. Every question is appended to `_cache/queries.log`.
+`brief=true` answers with one stitched text instead of a list — the best three pages with their lead, their facts (with ids), their open items, then the decisions and dated facts of the pages they link to, under `max_chars` — as `{text, pages[], facts[], chars}`. `open_items=true` answers with the commitments (see "Commitments"), oldest first, at most 200 of them. Every question is written to `_cache/queries.log`, which is what lint check 21 reads.
+
+How well a fact is backed comes with it: `streams` is how many kinds of source say it (mail, meeting, chat, you) and `confirmed` how many days ago the newest of them was. One source and nothing for more than 180 days, and the brief writes it out — `- Deadline is 2026-08-29 (f:abcd, 2026-01-04) (one source, unconfirmed since 2026-01-04)` — so the model hedges or asks you instead of stating it flat.
 
 `vault_wiki_match` is unchanged — the index lines that match a subject, sender or domain — and runs on the same engine.
 
@@ -320,9 +328,24 @@ The first run of this version reads every page once: each gets an `id`, bullets 
 
 **`Wiki/Log.md`** is append-only: `- [2026-08-22T09:40:00+02:00] ingest | Wiki/Topics/q3-budget | [[Emails/2026-08-22 Budget Q3]] | add 2, supersede 1`. One line per page per ingest (`ingest`), per chat change (`apply`), per page created (`create`), per person page touched by a saved mail (`record`), per resolved review item (`review`), per page read back after you edited it in Obsidian (`adopt`), one per lint run (`lint`), merge (`merge`), migration (`migrate`), write that did not come back as written (`restore`) and index put right (`index-repaired`). At 500 lines it rolls over to `Wiki/_history/Log-YYYY.md`.
 
-**`Wiki/Review.md`** is the checklist of what code could not decide, under `## Open` (resolved lines move to `## Done`): contradictions, decisions written from a record and not yet confirmed, items of your own past their due date, pages that may be duplicates ("merge A into B?"), stale pages, refused supersedes and refused changes to your facts. Topic proposals from candidates are not written here; `vault_wiki_match`, ingest and lint check 12 report them. Every line links the page. `/administrator:weekly` lists the open count; `/administrator:lint` adds to it.
+**`Wiki/Review.md`** is the checklist of what code could not decide, under `## Open` (resolved lines move to `## Done`): contradictions, decisions written from a record and not yet confirmed, items of your own past their due date, pages that may be duplicates ("merge A into B?"), stale pages, two pages that disagree about each other, projects with no update in 90 days, pages still on one record after 60 days, refused supersedes and refused changes to your facts. Topic proposals from candidates are not written here; `vault_wiki_match`, ingest and lint check 12 report them. Every line links the page. `/administrator:weekly` lists the open count; `/administrator:lint` adds to it.
 
 **`_views/Wiki.base`** gives you Obsidian tables over the wiki: projects (topics with a due date), decisions, active topics by `verified`, stale pages, the review queue (pages with flags), people by organisation. Bases read frontmatter, which is exactly what code maintains, so the views are never stale.
+
+## Questions.md
+
+`Wiki/Questions.md` is yours: the questions you want the wiki to be able to answer, and the page that should answer each one. It is created with an empty list and two examples above it (they sit in a code block, so nothing asks the wiki about them), and never overwritten.
+
+```markdown
+## Questions
+
+- When are the Q3 numbers due? → [[Wiki/Topics/q3-budget]]
+- What did we agree with the supplier? → [[Wiki/Decisions/acme-terms]] f:a1b2
+```
+
+One line per question: the question, an arrow (`→` or `->`), and a link to the page. Add `f:<id>` after the link when one particular fact is the answer and nothing else will do; without it, any hit on that page counts. Lint check 20 asks the wiki every question and counts the answers — the page (or the named fact) has to come back in the first three hits — and reports the misses with what came back instead. A line pointing at a page that does not exist yet is listed and not counted. The score goes into the log line of every lint run (`questions 17/20`), so you can watch it move. Anything you write outside the `## Questions` list is left alone. The one thing code ever writes in this file: when a page is renamed or moved, the link in your question follows it, like every other link in the vault.
+
+Check 21 reads the other side of the same coin: the questions the wiki was actually asked and could not answer at all. Asked at least twice in the last 30 days, each becomes one Review line — no page answers "…" — create one? — so gaps turn into pages.
 
 ## Lint
 
@@ -346,7 +369,14 @@ The first run of this version reads every page once: each gets an `id`, bullets 
 | 13 | History over 40 lines, log over 500 | rolled over |
 | 14 | Contradictions on pages touched since the last lint | the model reads them; Review line only |
 | 15 | Facts older than 180 days with a single source, on live pages | reported as "unconfirmed", at most 20 |
+| 16 | Consistency: a person's `org` against that org page's `## Contacts`; an `owner` on a topic or howto that is not a person page; a `due` against a fact on the same page naming another day for the same thing; one-way links between `## Related`, `## People`, `## Topics` and `## Contacts` | the missing side of a link is written on the other page, and an owner that is a plain name a person page carries becomes a link; a real disagreement gets a Review line quoting both sides |
+| 17 | A topic with a due date and nothing new for 90 days (a page you already closed or left dormant is not asked about again: check 7 put that question and the status is the answer) | one Review line "no update in 90 days: close it?" |
+| 18 | A topic, org or howto still standing on one record 60 days after it was created (person, decision, the me page and anything closed or dormant are left out) | one Review line "one record after 60 days: merge or retire?" |
 | 19 | Overdue: an item of your own (`owner: me`) past its due date | one Review line "done, reschedule, or drop" |
+| 20 | Questions: every line of `Questions.md` asked of the wiki | the score, and the questions whose page did not come back in the first three hits |
+| 21 | Questions the wiki could not answer: no hit at all, asked at least twice in the last 30 days | one Review line: no page answers "…" — create one? |
+
+Every run adds one line to `Wiki/Log.md` carrying all of these counts (`… questions 17/20, unanswered 3, …`), so the log shows whether the wiki is getting better or worse from week to week.
 
 A merge (`vault_wiki_merge(keep, drop)`) moves the facts, aliases, records and links of `drop` onto `keep`, keeps `drop`'s full old text under `Wiki/_history/`, and leaves a short redirect page (`type: redirect`) in `drop`'s place, so no link breaks; a read of the old page follows the redirect. It only ever runs after you say the two pages are the same thing; a similar name alone only produces the question.
 
