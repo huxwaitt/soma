@@ -21,3 +21,9 @@ desktop.ini
 *.eml
 Attachments/
 scratch/
+
+# working notes never ship
+PLAN-*.md
+RESEARCH-*.md
+SCOPE-*.md
+notes/
