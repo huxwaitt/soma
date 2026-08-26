@@ -27,7 +27,7 @@ from soma_vault import notes, store
 from soma_vault.notes import ADMIN_DIR
 from soma_vault.store import VaultError, read_text, rel, resolve
 
-CREATED_BY = "soma/0.4.1"
+CREATED_BY = "soma/0.4.2"
 WIKI_DIR = f"{ADMIN_DIR}/Wiki"
 INDEX_PATH = f"{WIKI_DIR}/Index.md"
 LOG_PATH = f"{WIKI_DIR}/Log.md"

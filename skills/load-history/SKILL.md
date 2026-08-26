@@ -9,7 +9,7 @@ description: Reads the months *before* the "last collected" stamps into the wiki
 
 Every batch *is* `collect-information`'s pipeline. This skill names that skill's steps by number and does not restate them. Load `skills/collect-information/SKILL.md` and `skills/wiki/SKILL.md` before the first batch (plus their `references/examples.md` on the first run of a session). A full first batch and a run that picked up where it stopped: `references/examples.md`.
 
-Once per session: `vault_status` (any folder or file flag false → `vault_init(created_by="soma/0.4.1")`; vault unset or not a directory → stop and tell the user) and `outlook_whoami(response_format="json")` — `local_time` is "now", `accounts[].smtp_address` are `self_addresses`, `current_user` and `accounts[].display_name` are `self_names`.
+Once per session: `vault_status` (any folder or file flag false → `vault_init(created_by="soma/0.4.2")`; vault unset or not a directory → stop and tell the user) and `outlook_whoami(response_format="json")` — `local_time` is "now", `accounts[].smtp_address` are `self_addresses`, `current_user` and `accounts[].display_name` are `self_names`.
 
 ## Caps (fixed, say when one is hit)
 
@@ -55,7 +55,7 @@ In auto mode (`auto: true` in the `next` answer) with a `cap`, that line is also
 For the records that survived step 3, `collect-information`'s own steps, in order:
 
 - **step 3** for chats and **step 4** for mail — the relevance gate exactly as each of those steps runs it (a chat's `vault_wiki_search(pages=true)` is followed by one `vault_wiki_search(brief=true, max_chars=1200)` for its page context; a mail's is not): keep what touches a page or a candidate or carries work content on its own, skip banter and name it;
-- **step 6** — the records first (`vault_save(kind="chat")`, or the `save` skill's `outlook_get_mail` then `vault_save(kind="email")`, both with `created_by="soma/0.4.1"`), then one proposal as short bullets grouped by page with the Review items expected, and **one** question: "Apply these? (name a line to drop it)". Nothing else happens in that turn;
+- **step 6** — the records first (`vault_save(kind="chat")`, or the `save` skill's `outlook_get_mail` then `vault_save(kind="email")`, both with `created_by="soma/0.4.2"`), then one proposal as short bullets grouped by page with the Review items expected, and **one** question: "Apply these? (name a line to drop it)". Nothing else happens in that turn;
 - **step 7** — on a yes, one `vault_wiki_write` per record oldest first, the open items with their owner, the decision rule, and the second pass over each record (the `wiki` skill's ingest step 5, on by default here) as a second smaller ingest in the same turn.
 
 A "no" to the proposal leaves the records written; report the batch with `saved` naming only what was actually saved.

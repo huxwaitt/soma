@@ -30,7 +30,7 @@ admin_block_minutes: 45
 slack_share: 0.2
 collect_folders: []
 document_folders: []
-created_by: soma/0.4.1
+created_by: soma/0.4.2
 ---
 
 # Scheduling preferences

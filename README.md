@@ -55,12 +55,12 @@ Two other ways in. After `/soma:save` exports a mail's attachments, it offers to
 - Windows 10 or 11.
 - **Classic** Outlook (desktop, `outlook.exe`) with a configured mail profile. The new Outlook (`olk.exe`) is not supported; switch back to classic if you are on it. The new Teams client is fine (and the only one whose cache the optional Teams server reads).
 - [uv](https://docs.astral.sh/uv/) on your PATH.
-- A local checkout of `outlook-classic-mcp` 0.4.0 or later (the current checkout with `outlook_get_event_by_key`, `outlook_get_free_busy`, `outlook_find_meeting_times`, `outlook_search_attachments`, `outlook_advanced_search`, `outlook_extract_attachment_text`, `outlook_reply_mail(save_only=true)`, `outlook_awaiting_reply`, `outlook_find`, `outlook_voice_sample`, `fields=` / `preview_chars=` on every list, search and get tool, `trim_quoted` and the `soma-vault` script with its `vault_wiki_*`, `vault_save`, `vault_collect` and `vault_row` tools — 46 Outlook tools plus 20 vault tools; install its `search` extra for PDF and Excel attachment text), with its path in the `OUTLOOK_MCP_DIR` environment variable (see "Set the vault path" below). The plugin starts three servers from that checkout: `outlook` (`uv run --directory $OUTLOOK_MCP_DIR outlook-mcp`, reads Outlook), `vault` (`… soma-vault`, writes the notes) and the optional `local-ms-teams` (`… local-ms-teams`, reads the Teams cache; see "Teams" below). All need `OUTLOOK_MCP_DIR`; `vault` also needs `SOMA_VAULT`.
+- Python 3.10 or later. The three MCP servers ship inside the plugin (`server/`): `outlook` reads classic Outlook, `soma-vault` writes the vault, `local-ms-teams` reads the local Teams cache. On first start `uv` builds their environment in `server/.venv` (one download of the Teams cache reader from GitHub; a minute or so), and nothing else is installed.
 - An Obsidian vault on disk. Notes are plain markdown with frontmatter; no community plugins are needed to read them.
 
 ### Teams (optional)
 
-`/soma:collect-information` can read your Teams chats without any Graph permission or admin consent: the third server, `local-ms-teams` (`uv run --directory $OUTLOOK_MCP_DIR local-ms-teams`), reads a *copy* of the new Teams client's local cache on this machine and never writes to it or talks to the network. It sees what the client has synced — recent chats, group chats, channel and meeting chats you opened, with sender names and times — and nothing else: no meeting transcripts (those still go through `/soma:notes`), no history the client has not loaded, no attachments. The cache format belongs to Microsoft and can change with a Teams update; when it does, `teams_status` says so and the command skips Teams. To turn it on, install the extra in the checkout once — `uv sync --extra teams`, which pins the cache reader to the one commit this was tested against — sign in to the new Teams client on this machine, and restart Claude Code. Without the extra the server still starts and reports the one-line fix; nothing else in the plugin depends on it.
+`/soma:collect-information` can read your Teams chats without any Graph permission or admin consent: the third server, `local-ms-teams`, reads a *copy* of the new Teams client's local cache on this machine and never writes to it or talks to the network. It sees what the client has synced — recent chats, group chats, channel and meeting chats you opened, with sender names and times — and nothing else: no meeting transcripts (those still go through `/soma:notes`), no history the client has not loaded, no attachments. The cache format belongs to Microsoft and can change with a Teams update; when it does, `teams_status` says so and the command skips Teams. To turn it on, install the extra in the checkout once — `uv sync --extra teams`, which pins the cache reader to the one commit this was tested against — sign in to the new Teams client on this machine, and restart Claude Code. Without the extra the server still starts and reports the one-line fix; nothing else in the plugin depends on it.
 
 ## Install
 
@@ -72,7 +72,7 @@ Two other ways in. After `/soma:save` exports a mail's attachments, it offers to
    ```
 
    or register it in your marketplace settings, then restart Claude Code.
-3. Run `/soma:setup`. It reports the Outlook account and timezone, creates the vault folder layout, and ends with a link that opens `Preferences.md` in Obsidian. If it says a server is missing, check `OUTLOOK_MCP_DIR` and restart Claude Code.
+3. Run `/soma:setup`. It reports the Outlook account and timezone, creates the vault folder layout, and ends with a link that opens `Preferences.md` in Obsidian. If it says a server is missing, make sure `uv` is on your PATH, then restart Claude Code (the first start builds `server/.venv`).
 
 ## Set the vault path
 
@@ -86,16 +86,9 @@ $env:SOMA_VAULT = "C:\Users\<you>\Documents\MyVault"
 [Environment]::SetEnvironmentVariable("SOMA_VAULT", "C:\Users\<you>\Documents\MyVault", "User")
 ```
 
-In the same way, tell the plugin where your `outlook-classic-mcp` checkout is:
+The plugin starts three MCP servers from its own `server/` folder: `outlook` (`outlook-mcp`, reads Outlook), `vault` (`soma-vault`, writes the notes) and `local-ms-teams` (reads the local Teams cache). Only `vault` needs a variable, `SOMA_VAULT`.
 
-```powershell
-$env:OUTLOOK_MCP_DIR = "C:\Users\<you>\PycharmProjects\outlook-classic-mcp"
-[Environment]::SetEnvironmentVariable("OUTLOOK_MCP_DIR", "C:\Users\<you>\PycharmProjects\outlook-classic-mcp", "User")
-```
-
-The plugin registers three MCP servers from that directory: `outlook` (`outlook-mcp`, reads Outlook), `vault` (`soma-vault`, writes the notes) and `local-ms-teams` (reads the local Teams cache; optional). All three need `OUTLOOK_MCP_DIR`; `vault` also needs `SOMA_VAULT`. `OUTLOOK_MCP_DIR` is only needed while the servers are run from a local checkout. Once `outlook-classic-mcp` is published, the plugin will start them with `uvx` and this variable goes away.
-
-Restart Claude Code after setting either variable permanently. `/soma:setup` (or the first command you run) creates this layout with `vault_init`:
+Restart Claude Code after setting the variable permanently. `/soma:setup` (or the first command you run) creates this layout with `vault_init`:
 
 ```
 <vault>\Soma\
@@ -321,7 +314,7 @@ The connector talks to Outlook through COM, which only classic desktop Outlook e
 
 ## Notes the plugin writes
 
-Every note has frontmatter with `type` (`email`, `daily`, `person`, `meeting`, `weekly`, `chat`, `document`, `time-block`, `preferences`, `priorities`, or a wiki type `org`, `topic`, `decision`, `howto`, `me`), `source: outlook` (`teams` for chat records, `file` for documents, `soma` for preferences, priorities, weekly and time-block notes), `created_by: soma/0.4.1`, and for emails the Outlook identity (`internet_message_id`, `entry_id`, `conversation_id`), sender SMTP address, recipients, `received` with timezone offset, and a `status` of `todo`, `waiting`, `done`, or `fyi`. Meeting notes carry the event's `global_id` and `occurrence_key` (one note per occurrence of a recurring meeting) and a `status` of `upcoming`, `held`, or `cancelled`. Links use wikilinks (`[[Wiki/People/Jane Doe]]`) so Obsidian's graph and backlinks work out of the box.
+Every note has frontmatter with `type` (`email`, `daily`, `person`, `meeting`, `weekly`, `chat`, `document`, `time-block`, `preferences`, `priorities`, or a wiki type `org`, `topic`, `decision`, `howto`, `me`), `source: outlook` (`teams` for chat records, `file` for documents, `soma` for preferences, priorities, weekly and time-block notes), `created_by: soma/0.4.2`, and for emails the Outlook identity (`internet_message_id`, `entry_id`, `conversation_id`), sender SMTP address, recipients, `received` with timezone offset, and a `status` of `todo`, `waiting`, `done`, or `fyi`. Meeting notes carry the event's `global_id` and `occurrence_key` (one note per occurrence of a recurring meeting) and a `status` of `upcoming`, `held`, or `cancelled`. Links use wikilinks (`[[Wiki/People/Jane Doe]]`) so Obsidian's graph and backlinks work out of the box.
 
 Existing notes are never overwritten. When a mail is saved again, an `## Update <timestamp>` section is appended. Every command that writes a note ends with an `obsidian://open` link to it. The notes are written by the `vault` server, which also enforces the frontmatter and never edits text that is already there.
 
@@ -332,3 +325,5 @@ Notes are plain markdown with frontmatter and wikilinks; nothing beyond core Obs
 ## License
 
 Apache License 2.0 — see `LICENSE`. Copyright 2026 huxwaitt.
+
+The Outlook server under `server/` began as a fork of [anasahmed07/Outlook-Classic-MCP](https://github.com/anasahmed07/Outlook-Classic-MCP) (MIT, Copyright 2026 Anas Ahmed Shaikh); its licence text is kept in `server/LICENSE`. The Teams cache reader follows the schema mapping of msteams-local-mcp (MIT).

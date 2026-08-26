@@ -13,7 +13,7 @@ from soma_vault import history, store, workflows
 from soma_vault.server import build_server
 from soma_vault.store import VaultError
 
-CB = "soma/0.4.1"
+CB = "soma/0.4.2"
 NOW = "2026-08-24T09:00:00+02:00"
 STATE = "Soma/Wiki/_cache/history.json"
 

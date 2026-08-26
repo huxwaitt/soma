@@ -14,7 +14,7 @@ from soma_vault import notes, store, wiki, wiki_migrate, workflows
 from soma_vault.server import build_server
 
 OLD = "soma/0.1.0"
-CB = "soma/0.4.1"
+CB = "soma/0.4.2"
 A = "Soma"
 LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:[#|][^\]]*)?\]\]")
 

@@ -14,7 +14,7 @@ from soma_vault import store, wiki
 from soma_vault import wiki_search as ws
 from soma_vault.server import build_server
 
-CB = "soma/0.4.1"
+CB = "soma/0.4.2"
 W = "Soma/Wiki"
 
 

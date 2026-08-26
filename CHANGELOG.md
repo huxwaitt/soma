@@ -2,6 +2,13 @@
 
 The version here is the one every note carries as `created_by: soma/<version>`.
 
+## 0.4.2
+
+- The three MCP servers ship inside the plugin under `server/` (the `outlook-classic-mcp` fork brought in with its history); `plugin.json` starts them from `${CLAUDE_PLUGIN_ROOT}/server`, so there is no `OUTLOOK_MCP_DIR` any more and nothing to check out separately.
+- The `outlook` skill moved into the plugin.
+- PDF and Excel reading and the Teams cache reader are standard parts of the server environment; `uv` builds it on first start.
+- Licence: Apache 2.0 for the plugin; the Outlook server keeps its MIT notice in `server/LICENSE`.
+
 ## 0.4.1
 
 - **Files can be records.** `/soma:save` takes a file path instead of a mail and reads a pdf, Word file, deck, workbook or plain `.txt` / `.md` / `.csv` into `Soma\Documents\<date> <name>.md`, part by part — a section per page, per slide, per heading, per sheet. A file over forty thousand characters keeps its part headings and the first three hundred characters of each, with the whole text in `Attachments\<name>\text.md`. There is no OCR: a scanned pdf says so.

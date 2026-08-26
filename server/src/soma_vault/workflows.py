@@ -21,7 +21,7 @@ from soma_vault import notes, store, wiki
 from soma_vault.notes import ADMIN_DIR, NoteError
 from soma_vault.store import VaultError, read_text, rel, resolve, write_text
 
-CREATED_BY = "soma/0.4.1"
+CREATED_BY = "soma/0.4.2"
 RULES_PATH = f"{ADMIN_DIR}/Rules.md"
 FOLLOWUPS_PATH = f"{ADMIN_DIR}/Follow-ups.md"
 CACHE_DIR = f"{ADMIN_DIR}/Attachments/_cache"

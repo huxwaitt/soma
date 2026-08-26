@@ -12,7 +12,7 @@ import pytest
 from soma_vault import frontmatter as fmt
 from soma_vault import store, wiki, wiki_reconcile, wiki_search
 
-CB = "soma/0.4.1"
+CB = "soma/0.4.2"
 W = "Soma/Wiki"
 
 

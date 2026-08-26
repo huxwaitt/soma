@@ -14,7 +14,7 @@ from soma_vault import documents, notes, store, wiki, wiki_lint, workflows
 from soma_vault.server import build_server
 from soma_vault.store import VaultError
 
-CB = "soma/0.4.1"
+CB = "soma/0.4.2"
 A = "Soma"
 
 

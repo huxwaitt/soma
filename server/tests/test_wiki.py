@@ -15,7 +15,7 @@ from soma_vault import frontmatter as fmt
 from soma_vault import store, wiki, workflows
 from soma_vault.server import build_server
 
-CB = "soma/0.4.1"
+CB = "soma/0.4.2"
 W = "Soma/Wiki"
 
 
@@ -542,7 +542,7 @@ def test_save_email_person_page_follows_contract(vault):
     fm = fmt.split_note(text)[0]
     assert fm["status"] == "draft" and fm["org"] == "Example GmbH" and fm["email"] == "jane.doe@example.com" and fm["last_contact"] == "2026-08-22T09:14:00+02:00"
     assert all(k in fm for k in ("name", "aliases", "created", "updated", "verified", "sources", "open_items", "flags", "created_by"))
-    assert fm["created_by"] == "soma/0.4.1"
+    assert fm["created_by"] == "soma/0.4.2"
     assert "# Jane Doe\n\nJane Doe (jane.doe@example.com) — Example GmbH.\n\n## Facts\n\n## Topics\n\n## Open\n\n## Records\n\n- 2026-08-22 — [[Emails/2026-08-22 Budget Q3]] — Jane asks for the Q3 numbers by Friday.\n\n## Related\n\n## History\n\n- " in text
     assert fm_of(vault, res["path"])["from_link"] == "[[Wiki/People/Jane Doe]]" and fm_of(vault, res["path"])["wiki"] == ["[[Wiki/People/Jane Doe]]"]
     assert "- [[Wiki/People/Jane Doe]] · Example GmbH · " in text_of(vault, f"{W}/Index.md")

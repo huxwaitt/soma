@@ -12,7 +12,7 @@ from soma_vault import frontmatter as fmt
 from soma_vault import notes, store, wiki, workflows
 from soma_vault.server import build_server
 
-CB = "soma/0.4.1"
+CB = "soma/0.4.2"
 W = "Soma/Wiki"
 
 
@@ -162,4 +162,4 @@ def test_server_save_chat_round_trip(vault):
     text = out[0].text if isinstance(out, list) else out[0][0].text
     res = json.loads(text)
     assert res["action"] == "created" and res["path"] == "Soma/Teams/2026-08-21 Q3 budget.md" and res["unknown_people"] == ["Jane Doe"]
-    assert fm_of(vault, res["path"])["created_by"] == "soma/0.4.1"
+    assert fm_of(vault, res["path"])["created_by"] == "soma/0.4.2"

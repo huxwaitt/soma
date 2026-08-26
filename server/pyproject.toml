@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "outlook-classic-mcp"
-version = "0.4.1"
+version = "0.4.2"
 description = "Local MCP server for classic Outlook desktop on Windows (COM, no Azure app required)."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -25,6 +25,9 @@ classifiers = [
   "Topic :: Office/Business",
 ]
 dependencies = [
+  "openpyxl>=3.1.5",  # Excel text (documents, attachments)
+  "pypdf>=6.16.1",    # PDF text (documents, attachments)
+  "ccl_chromium_reader @ git+https://github.com/cclgroupltd/ccl_chromium_reader@ef840de30221c4d65bc96d2f4d9057e9ef2f526d",  # the Teams cache reader; move the commit on purpose only
   "mcp<=1.29",  # capped to mcp less than 1.29 raised by the issue identified by @DanoPTT thanks for raising this issue. migration to mcp 2.0 is a new pending issue.
   "pydantic>=2.6",
   "pywin32>=306; sys_platform == 'win32'",

@@ -88,7 +88,7 @@ outlook_list_mails(folder="inbox", since="2026-08-21T18:10:00+02:00", limit=50, 
 
 ```
 vault_save(kind="email", mail=<get_mail JSON>, summary="Tom confirms the PO is raised once the signed v3 comes back and repeats the net-30 terms.",
-                 action_items=["Return signed v3 to Jane by 2026-08-29 — owner: me"], self_addresses=["hux@example.com"], created_by="soma/0.4.1")
+                 action_items=["Return signed v3 to Jane by 2026-08-29 — owner: me"], self_addresses=["hux@example.com"], created_by="soma/0.4.2")
 ```
 
    → `{"path": "Soma/Emails/2026-08-22 Q3 supplier contract – signature needed.md", "action": "created", "status": "todo", "person_path": "Soma/Wiki/People/Tom Lee.md", "person_action": "appended", "followup_added": false}`; the second → `Soma/Emails/2026-08-25 Budget close date.md` (`created`, `fyi`). Fifteen mails seen and not saved; three named in the report (`Offsite venue options`, `Invoice 4471`, `Parking permit renewal`).
@@ -118,7 +118,7 @@ vault_collect(action="changed", since="2026-08-21T18:10:00+02:00")
    The two files were listed, not opened. The gate runs on their names: `vault_wiki_search(query="ACME kickoff", pages=true, limit=3)` → `Topics/acme-supplier-contract` (score 0.71), so it is kept; `vault_wiki_search(query="Parking map", pages=true, limit=3)` → nothing and no candidate, so that file is left alone and named in the report. Reading is what saving does:
 
 ```
-vault_save(kind="document", path="C:/Users/<you>/Documents/Contracts/ACME-kickoff.pptx", summary="", action_items=[], created_by="soma/0.4.1")
+vault_save(kind="document", path="C:/Users/<you>/Documents/Contracts/ACME-kickoff.pptx", summary="", action_items=[], created_by="soma/0.4.2")
 ```
 
 ```json
@@ -133,7 +133,7 @@ vault_save(kind="document", path="C:/Users/<you>/Documents/Contracts/ACME-kickof
 6. Records first. Two `vault_save(kind="chat")` calls for the two chats kept in step 3 (none for Priya's):
 
 ```
-vault_save(kind="chat", chat=<the "Q3 budget" entry>, messages=<its 3 messages>, self_names=["Hux Waitt"], created_by="soma/0.4.1")
+vault_save(kind="chat", chat=<the "Q3 budget" entry>, messages=<its 3 messages>, self_names=["Hux Waitt"], created_by="soma/0.4.2")
 ```
 
 ```json
@@ -160,7 +160,7 @@ vault_save(kind="chat", chat=<the "Q3 budget" entry>, messages=<its 3 messages>,
 7. Ingest, oldest first — six calls, the first one:
 
 ```
-vault_wiki_write(record_path="Soma/Emails/2026-08-22 Q3 supplier contract – signature needed.md", created_by="soma/0.4.1", pages=[
+vault_wiki_write(record_path="Soma/Emails/2026-08-22 Q3 supplier contract – signature needed.md", created_by="soma/0.4.2", pages=[
   {"path": "Soma/Wiki/Topics/acme-supplier-contract.md", "ops": [
     {"op": "contest", "id": "n30x", "text": "Payment terms are net 45 (contract v3)"},
     {"op": "open", "text": "Sign and return contract v3", "owner": "me", "due": "2026-08-29"}]},

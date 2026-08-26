@@ -12,7 +12,7 @@ from soma_vault import frontmatter as fmt
 from soma_vault import store, wiki, wiki_lint, wiki_search, workflows
 from soma_vault.server import build_server
 
-CB = "soma/0.4.1"
+CB = "soma/0.4.2"
 W = "Soma/Wiki"
 
 

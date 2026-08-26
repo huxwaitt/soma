@@ -74,7 +74,7 @@ people:
   - "[[Wiki/People/Jane Doe]]"
 wiki: []
 ingested: ""
-created_by: soma/0.4.1
+created_by: soma/0.4.2
 entry_id: "00000000AC1F…"
 internet_message_id: "<PAXPR04MB8765A1B2C3D4E5F6@PAXPR04MB8765.eurprd04.prod.outlook.com>"
 conversation_id: "CAFEBABE1234567890ABCDEF"
@@ -232,7 +232,7 @@ vault_wiki_write(record_path="Soma/Documents/2026-08-24 ACME-kickoff.md",
   pages=[{"path": "Wiki/Topics/acme-supplier-contract",
           "ops": [{"op": "add", "text": "Net 45 payment terms run from 1 September.", "src": "3f9c1ad2b7e40518#s7"},
                   {"op": "confirm", "id": "b2k9", "src": "3f9c1ad2b7e40518#s2"}]}],
-  created_by="soma/0.4.1")
+  created_by="soma/0.4.2")
 ```
 
    The `src` of each op is the record id plus the slide the fact was read on; without one, the bare record id is used. The document is one source however many facts cite it.

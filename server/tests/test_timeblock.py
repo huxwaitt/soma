@@ -15,7 +15,7 @@ from soma_vault import store, timeblock, wiki
 from soma_vault.server import build_server
 from soma_vault.store import VaultError
 
-CB = "soma/0.4.1"
+CB = "soma/0.4.2"
 W = "Soma/Wiki"
 WEEK = "2026-W35"  # Mon 24 Aug - Sun 30 Aug 2026
 TODAY = date(2026, 8, 24)

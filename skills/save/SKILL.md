@@ -7,7 +7,7 @@ description: Turn one Outlook email (or the thread it belongs to), or a file on 
 
 One mail (or the mail plus its thread) goes from Outlook into `<vault>/Soma/Emails/`; a file goes into `<vault>/Soma/Documents/` (step 8). Outlook gives the facts, `vault_save(kind="email")` writes the note, the person page and, for a `waiting` mail, one open item owned by the counterpart; you decide only the summary, the action items and the status. Never send, move, delete, mark or categorise anything in Outlook. Outlook mechanics follow the `outlook` skill and `skills/soma/references/outlook.md`; note layout is `skills/soma/references/vault.md`; worked examples (single mail, thread, re-run) are in `references/examples.md` — load it the first time a save runs in a session.
 
-Once per session: `vault_status` (any folder or file flag false → `vault_init(created_by="soma/0.4.1")`; vault unset or not a directory → stop and tell the user, do not guess a path) and `outlook_whoami(response_format="json")` for `self_addresses` (every `accounts[].smtp_address`).
+Once per session: `vault_status` (any folder or file flag false → `vault_init(created_by="soma/0.4.2")`; vault unset or not a directory → stop and tell the user, do not guess a path) and `outlook_whoami(response_format="json")` for `self_addresses` (every `accounts[].smtp_address`).
 
 ## Steps
 
@@ -44,7 +44,7 @@ outlook_get_mail(entry_id=<id>, trim_quoted=true, response_format="json",
 - `outlook_save_mail_as(entry_id, output_dir="<vault>\\Soma\\Attachments\\<YYYY-MM-DD slug>", fmt="msg", filename="<YYYY-MM-DD slug>")` — never overwrites (adds ` (1)`); keep the returned `path`.
 - `outlook_save_attachments(entry_id, output_dir=<same folder>)`, or with `attachment_index` (1-based) per file. Skip inline images under 20 KB unless asked; they are listed as "(not exported)" by the helper.
 - `vault_status.under_user_profile` false → the tools refuse; say so, mention `OUTLOOK_MCP_ALLOW_ANY_PATH=1` from the outlook skill, and skip the export. Leave files where the tools put them.
-- **Files that were exported can be read in.** After the note is written (step 5), ask once more, nothing else in that turn: "Read `<file>` into the vault too, so its text can go on the pages?" On a yes, one `vault_save(kind="document", path=<the exported file>, summary, action_items, from_email=<the step 5 path>, created_by="soma/0.4.1")` per file, then step 8's wiki run for each. The two records name each other; `linked: true` says it happened. Inline images and files the reader does not know (`.png`, `.zip`, …) are not offered.
+- **Files that were exported can be read in.** After the note is written (step 5), ask once more, nothing else in that turn: "Read `<file>` into the vault too, so its text can go on the pages?" On a yes, one `vault_save(kind="document", path=<the exported file>, summary, action_items, from_email=<the step 5 path>, created_by="soma/0.4.2")` per file, then step 8's wiki run for each. The two records name each other; `linked: true` says it happened. Inline images and files the reader does not know (`.png`, `.zip`, …) are not offered.
 
 ### 5. Decide, then write
 
@@ -58,14 +58,14 @@ You supply, from `body_trimmed` only:
 vault_save(kind="email", mail=<step 2 result>, summary, action_items, attachments_saved=[<file paths>],
                  msg_file=<.msg path>, status=<only when you override>, self_addresses=<whoami>,
                  thread=<the conversation items[], only for a thread>,
-                 company=<step 3, only when found>, created_by="soma/0.4.1")
+                 company=<step 3, only when found>, created_by="soma/0.4.2")
 ```
 
 The helper copies the body, builds the frontmatter (identity, recipients, `has_attachments`, links), names the file, writes or appends the email note, creates or updates the sender's person page in the wiki (`last_contact`, `aliases`, one `## Records` line) and, when the status is `waiting`, adds one open item to the counterpart's page (the first recipient of the user's own mail, else the sender) owned by them, with the mail as its record. Result: `{path, action: created | appended, status, person_path, person_action, followup_added}` — `followup_added` is true when that item was written. It shows up in `Soma/Follow-ups.md`, which is written from the pages. A tool error (bad status, missing identity) is yours to fix: correct the input and call again; never write the file by hand.
 
 ### 6. Wiki ingest (after the record is written)
 
-Skip when the user said "save without wiki" (say so in one line) or when `action` was `appended` and the note already had a `wiki:` key (add `"wiki"` to the `fields` of the step 3 `vault_find`). Otherwise load `skills/wiki/SKILL.md` (and `skills/wiki/references/examples.md` the first time this session) and run its ingest steps: `vault_wiki_search(query=<subject + first 300 chars of body_trimmed>, pages=true, people=[mail.from_address], domains=[<sender domain>])`, `vault_wiki_read(path, sections=["lead","facts"])` on at most 3 hits, then one `vault_wiki_write(record_path=<step 5 path>, pages=[...], created_by="soma/0.4.1")`. The sender's person page is always one of the pages (`vault_save` created it as `draft` when new): give it a `lead` when it has none, and `confirm` / `add` the role facts the mail states. No page matched and no candidate over the threshold → `vault_wiki_write` with `pages=[]` so the record is marked seen, nothing else. A candidate over the threshold → propose the topic page in the report; create it only on a yes.
+Skip when the user said "save without wiki" (say so in one line) or when `action` was `appended` and the note already had a `wiki:` key (add `"wiki"` to the `fields` of the step 3 `vault_find`). Otherwise load `skills/wiki/SKILL.md` (and `skills/wiki/references/examples.md` the first time this session) and run its ingest steps: `vault_wiki_search(query=<subject + first 300 chars of body_trimmed>, pages=true, people=[mail.from_address], domains=[<sender domain>])`, `vault_wiki_read(path, sections=["lead","facts"])` on at most 3 hits, then one `vault_wiki_write(record_path=<step 5 path>, pages=[...], created_by="soma/0.4.2")`. The sender's person page is always one of the pages (`vault_save` created it as `draft` when new): give it a `lead` when it has none, and `confirm` / `add` the role facts the mail states. No page matched and no candidate over the threshold → `vault_wiki_write` with `pages=[]` so the record is marked seen, nothing else. A candidate over the threshold → propose the topic page in the report; create it only on a yes.
 
 **A long mail gets a second pass.** Over 1500 characters in `body_trimmed`: before the report, run the `wiki` skill's ingest step 5 — read the mail once more against the ops you sent and ask which of its facts are not on the pages yet. A non-empty list is a second, smaller `vault_wiki_write` in the same turn, with the same `record_path`. A shorter mail does not need it.
 
@@ -80,14 +80,14 @@ One call reads the file and writes the record; nothing is typed by hand:
 ```
 vault_save(kind="document", path=<the path as the user gave it>, summary=<empty on the first call>,
                  action_items=[], from_email=<the mail record, only for an exported attachment>,
-                 created_by="soma/0.4.1")
+                 created_by="soma/0.4.2")
 ```
 
 Formats: `.pdf` (needs the server's `search` extra; the refusal names it), `.docx`, `.pptx`, `.xlsx`, `.txt`, `.md`, `.csv`. Anything else, or a path that does not exist, is refused by name — say so and stop. The answer is `{path, action, record_id, format, parts, chars, empty, text_file, sections: [{locator, heading, chars}], from_email, linked}`; `action: "unchanged"` means that exact file is already a record (say which), and a second read of a changed file appends an `## Update` with the parts as they are now. `empty: true` is a pdf with no text layer — say "no text could be read (scanned?)" and stop; there is no OCR.
 
 - **Show the parts.** Name the sections in one line ("18 slides: 1 ACME kickoff, 2 Scope, … 7 Pricing"), so the user sees what came in without the text being repeated.
 - **Then the wiki step**, unless the user said "save without wiki": `vault_wiki_search(query=<title + the headings of the parts>, pages=true, limit=8)`, then read **at most 5** of the parts the match points at, largest matched first, one call each: `vault_read(<the record path>, section="s7")` → `{section: {locator, heading, text, chars}, …}`. Never read the whole record back.
-- **Cite the part.** Every op from a part carries `src: "<record_id>#<locator>"` (`#p3` a page, `#s7` a slide, `#Sheet1!A7` a row); a fact from no single part uses the bare record id. However many facts cite it, the document is one source. Then `vault_wiki_write(record_path=<the record path>, pages=[...], created_by="soma/0.4.1")` as in step 6, second pass included when the record is over 1500 characters.
+- **Cite the part.** Every op from a part carries `src: "<record_id>#<locator>"` (`#p3` a page, `#s7` a slide, `#Sheet1!A7` a row); a fact from no single part uses the bare record id. However many facts cite it, the document is one source. Then `vault_wiki_write(record_path=<the record path>, pages=[...], created_by="soma/0.4.2")` as in step 6, second pass included when the record is over 1500 characters.
 - A summary is worth having once the parts are known: a second `vault_save(kind="document", path=<same>, summary=<one line>)` is refused as `unchanged`, so write the summary into the first call when the user described the file, and otherwise leave it empty rather than guessing.
 
 ## Rules that apply to every run

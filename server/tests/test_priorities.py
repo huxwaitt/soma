@@ -15,7 +15,7 @@ from soma_vault import priorities, store, timeblock, wiki
 from soma_vault.server import build_server
 from soma_vault.store import VaultError
 
-CB = "soma/0.4.1"
+CB = "soma/0.4.2"
 PATH = "Soma/Priorities.md"
 TODAY = "2026-08-24"
 STAMP_RE = re.compile(r"<!-- suggested by soma, confirmed \d{4}-\d{2}-\d{2} -->")

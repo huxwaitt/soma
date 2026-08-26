@@ -110,7 +110,7 @@ verified: 2026-08-22
 sources: 3
 open_items: 1
 flags: []
-created_by: soma/0.4.1
+created_by: soma/0.4.2
 ---
 
 # Q3 budget

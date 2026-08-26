@@ -6,7 +6,7 @@ description: Two look-back workflows over Outlook and the vault. `followups` ask
 # review — followups and weekly
 Both workflows look back instead of at the inbox of the moment. The tools do the collecting, comparing and counting; you decide and write the few lines only a person can write. Outlook is read through `outlook_*` tools, the vault is read and written only through `vault_*` tools (`skills/soma/references/vault.md`), and nothing in Outlook changes except, in `followups`, a draft the user said yes to. Outlook mechanics follow the `outlook` skill and `skills/soma/references/outlook.md`. Worked examples with real call sequences: `references/examples.md` (load it the first time a workflow runs in a session).
 
-Before either workflow: `vault_status` once per session (run `vault_init(created_by="soma/0.4.1")` if a folder or file flag is false) and `outlook_whoami(response_format="json")` once per session. "Self" = any `accounts[].smtp_address`, compared case-insensitively. "Today" and "now" come from `whoami.local_time`, never from a guess.
+Before either workflow: `vault_status` once per session (run `vault_init(created_by="soma/0.4.2")` if a folder or file flag is false) and `outlook_whoami(response_format="json")` once per session. "Self" = any `accounts[].smtp_address`, compared case-insensitively. "Today" and "now" come from `whoami.local_time`, never from a guess.
 
 Cost rules for both: pass `fields=[...]` on every list, search, get and conversation call and `preview_chars=0` unless a preview is needed; never repeat text a tool result already holds (paste `last_line`, `subject`, `who` as they came); never read a note with `vault_read` when a helper already returned the facts.
 
@@ -32,7 +32,7 @@ Cost rules for both: pass `fields=[...]` on every list, search, get and conversa
 
 `vault_wiki_search(query="", open_items=true, owner="others")` — one call, no `vault_read`: `[{page, stem, type, title, owner_name, id, text, owner, due, since, src, record, done}]`, oldest `since` first. These are the lines `Soma/Follow-ups.md` is written from; the file itself takes no rows (`vault_row` refuses it). Load `skills/wiki/SKILL.md` before the first write here.
 
-**Open.** Per item: key = `internet_message_id`, `entry_id` when empty. Skip the thread as "already listed" when an open item's `src` holds that key, or an item on that person's page has the same text. Otherwise `vault_find("person", <to[0]>, fields=["name"])` → the person page; not found → `vault_write("person", {type: person, name: <to_names[0], else the local part of the address>, email: <to[0]>, last_contact: "", aliases: [], created_by: "soma/0.4.1"}, "", mode="create")` writes the draft page first. Then
+**Open.** Per item: key = `internet_message_id`, `entry_id` when empty. Skip the thread as "already listed" when an open item's `src` holds that key, or an item on that person's page has the same text. Otherwise `vault_find("person", <to[0]>, fields=["name"])` → the person page; not found → `vault_write("person", {type: person, name: <to_names[0], else the local part of the address>, email: <to[0]>, last_contact: "", aliases: [], created_by: "soma/0.4.2"}, "", mode="create")` writes the draft page first. Then
 
 ```
 vault_wiki_write(pages=[{"path": "Wiki/People/<name>", "ops": [{"op": "open", "text": <subject, ten words or fewer>,
@@ -82,7 +82,7 @@ Three to five lines: `threads_checked` from `sent_scanned` mails, waiting count,
 
 ### 2. Wiki (load `skills/wiki/SKILL.md` first)
 
-`vault_wiki_keep(action="lint", fix=true, items=true, created_by="soma/0.4.1")` once (`items=true` because the proposals and duplicates below are read out one by one; without it the answer carries counts only) (the safe fixes: index, code-owned keys, section order, ticked open items, stale topics to `dormant`, roll-overs); then `vault_wiki_keep(action="review")`. From the two results: the open Review items (`open[].text`: page, question, record links), the topic proposals (`checks["12"].items`: "create `<slug>` from N records?"), the possible duplicates (`checks["10"].items`, pairs `{a, b, shared}`), the un-ingested records (`checks["11"].count` and `records[]` with paths), the per-check numbers in `counts`. Ask one question per proposal and act only on a yes (a `new:` spec through `vault_wiki_write`, or `vault_wiki_keep(action="merge")`). Un-ingested records: offer "ingest the N records saved before the wiki, ten at a time?"; on a yes run the `wiki` skill's ingest steps on the first 10 (`vault_read` each once, oldest first), report, offer the next 10. Skip this whole step on "without wiki".
+`vault_wiki_keep(action="lint", fix=true, items=true, created_by="soma/0.4.2")` once (`items=true` because the proposals and duplicates below are read out one by one; without it the answer carries counts only) (the safe fixes: index, code-owned keys, section order, ticked open items, stale topics to `dormant`, roll-overs); then `vault_wiki_keep(action="review")`. From the two results: the open Review items (`open[].text`: page, question, record links), the topic proposals (`checks["12"].items`: "create `<slug>` from N records?"), the possible duplicates (`checks["10"].items`, pairs `{a, b, shared}`), the un-ingested records (`checks["11"].count` and `records[]` with paths), the per-check numbers in `counts`. Ask one question per proposal and act only on a yes (a `new:` spec through `vault_wiki_write`, or `vault_wiki_keep(action="merge")`). Un-ingested records: offer "ingest the N records saved before the wiki, ten at a time?"; on a yes run the `wiki` skill's ingest steps on the first 10 (`vault_read` each once, oldest first), report, offer the next 10. Skip this whole step on "without wiki".
 
 ### 3. Write the note
 
@@ -100,7 +100,7 @@ Identity = `week`. Render the sections from the results, line for line, without 
 ```
 vault_write("weekly",
     {"type": "weekly", "source": "soma", "week": "2026-W34", "start": "2026-08-17", "end": "2026-08-23",
-     "generated": "<ISO now with offset>", "created_by": "soma/0.4.1"},
+     "generated": "<ISO now with offset>", "created_by": "soma/0.4.2"},
     <body: "# Week 2026-W34 (2026-08-17 – 2026-08-23)" + the sections>, mode="upsert")
 ```
 

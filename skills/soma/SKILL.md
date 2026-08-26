@@ -63,11 +63,11 @@ You read Outlook, decide, write a note in the vault, and only then - with a yes 
   Preferences.md / Priorities.md / Rules.md   preferences; ranked priorities; sender rules read before labelling - from vault_init
 ```
 
-Everywhere: `type`, `source` and `created_by: soma/0.4.1` on every write; people linked as `"[[Wiki/People/Jane Doe]]"`; vanilla Obsidian only (no Dataview or Templater); filenames, slugs and duplicates are the server's job; every record carries the same core keys and body order (`references/vault.md`); one that fed a wiki page carries a `wiki:` list.
+Everywhere: `type`, `source` and `created_by: soma/0.4.2` on every write; people linked as `"[[Wiki/People/Jane Doe]]"`; vanilla Obsidian only (no Dataview or Templater); filenames, slugs and duplicates are the server's job; every record carries the same core keys and body order (`references/vault.md`); one that fed a wiki page carries a `wiki:` list.
 
 ### Finding the vault
 
-`vault_status` on first use. `vault` empty: stop and say exactly - "SOMA_VAULT is not set. Set it to the absolute path of your Obsidian vault (for example `C:\Users\<you>\Documents\Vault`) and restart Claude Code." - never guessing or searching the disk. Not a directory: "SOMA_VAULT points to `<value>`, which is not a directory." Never create the vault itself. Any folder or file flag false (`Rules.md` included): `vault_init(created_by="soma/0.4.1")` - `setup` asks work hours first, elsewhere defaults; never make these files by hand. No `vault_*` tools: the server is down - send the user to `/soma:setup` and write nothing.
+`vault_status` on first use. `vault` empty: stop and say exactly - "SOMA_VAULT is not set. Set it to the absolute path of your Obsidian vault (for example `C:\Users\<you>\Documents\Vault`) and restart Claude Code." - never guessing or searching the disk. Not a directory: "SOMA_VAULT points to `<value>`, which is not a directory." Never create the vault itself. Any folder or file flag false (`Rules.md` included): `vault_init(created_by="soma/0.4.2")` - `setup` asks work hours first, elsewhere defaults; never make these files by hand. No `vault_*` tools: the server is down - send the user to `/soma:setup` and write nothing.
 
 `vault_row` serves only the Time-blocks `## Held` table, `Rules.md` and daily `## Calendar` rows (`dedupe_key`, `key_label="occurrence_key"` for the last two), never `Follow-ups.md`, written from the wiki pages, which refuses rows. Paths are vault-relative under `Soma/`; the export tools take absolute paths and write only under the user's profile - on `under_user_profile: false`, say so and skip the export.
 
