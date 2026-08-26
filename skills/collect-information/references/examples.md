@@ -63,12 +63,12 @@ vault_wiki_match(text="Jane Doe: Morning — moved to the 29th, two teams are la
    → `pages: [Topics/q3-budget (score 3, word overlap: budget, close), People/Jane Doe (2, alias)]`, `candidates: []`.
 
 ```
-vault_wiki_read(path="Administrator/Wiki/Topics/q3-budget.md", sections=["lead","facts"], max_chars=800)
+vault_wiki_search(query="Jane Doe: Morning — moved to the 29th, two teams are late. ok? Hux Waitt: Fine by me. Jane Doe: Great, then we close on 2 Sep as planned.", brief=true, max_chars=1200)
 ```
 
-   → facts `7k2q` "Deadline for the user's numbers is 2026-08-27" (since 2026-08-20), `c3mm` "Numbers go into the shared sheet …". Read against the page, "moved to the 29th" is the numbers deadline: 27 → 29 Aug, a `supersede` on `7k2q` with `since` = the message time, 2026-08-24. On its own the fragment would not have been a fact. The chat is kept.
+   → `facts: [{page: "Wiki/Topics/q3-budget", id: "7k2q", text: "Deadline for the user's numbers is 2026-08-27", since: "2026-08-20"}, {…, id: "c3mm", text: "Numbers go into the shared sheet …"}]`. Read against the page, "moved to the 29th" is the numbers deadline: 27 → 29 Aug, a `supersede` on `7k2q` with `since` = the message time, 2026-08-24. On its own the fragment would not have been a fact. The chat is kept.
 
-   The Tom Lee chat → `pages: [Topics/acme-supplier-contract (4, alias), People/Tom Lee (3, alias)]`; `vault_wiki_read("Administrator/Wiki/Topics/acme-supplier-contract.md", sections=["lead","facts"], max_chars=800)` → fact `n30x` "Payment terms are net 30" (since 2026-08-12). "PO goes out once the signed contract is back" is a commitment on the matched topic: kept.
+   The Tom Lee chat → `pages: [Topics/acme-supplier-contract (4, alias), People/Tom Lee (3, alias)]`; `vault_wiki_search(query=<the joined messages>, brief=true, max_chars=1200)` → fact `n30x` "Payment terms are net 30" (since 2026-08-12). "PO goes out once the signed contract is back" is a commitment on the matched topic: kept.
 
    The Priya Nair chat → `pages: [People/Priya Nair (2, alias)]`, `candidates: []`. The person page hit says only that Priya has a page; the messages are a lunch plan and an empty sticker line — no decision, date, amount, ask, commitment or role. Skipped: no record, no ingest, named in the report; `teams_search("lunch")` still finds it later.
 
@@ -88,7 +88,7 @@ outlook_list_mails(folder="inbox", since="2026-08-21T18:10:00+02:00", limit=50, 
 
 ```
 vault_save_email(mail=<get_mail JSON>, summary="Tom confirms the PO is raised once the signed v3 comes back and repeats the net-30 terms.",
-                 action_items=["Return signed v3 to Jane by 2026-08-29 — owner: me"], self_addresses=["hux@example.com"], created_by="administrator/0.3.0")
+                 action_items=["Return signed v3 to Jane by 2026-08-29 — owner: me"], self_addresses=["hux@example.com"], created_by="administrator/0.4.0")
 ```
 
    → `{"path": "Administrator/Emails/2026-08-22 Q3 supplier contract – signature needed.md", "action": "created", "status": "todo", "person_path": "Administrator/Wiki/People/Tom Lee.md", "person_action": "appended", "followup_added": false}`; the second → `Administrator/Emails/2026-08-25 Budget close date.md` (`created`, `fyi`). Sixteen mails seen and not saved; three named in the report (`Offsite venue options`, `Invoice 4471`, `Parking permit renewal`).
@@ -114,7 +114,7 @@ vault_changed_notes(since="2026-08-21T18:10:00+02:00")
 6. Records first. Two `vault_save_chat` calls for the two chats kept in step 3 (none for Priya's):
 
 ```
-vault_save_chat(chat=<the "Q3 budget" entry>, messages=<its 3 messages>, self_names=["Hux Waitt"], created_by="administrator/0.3.0")
+vault_save_chat(chat=<the "Q3 budget" entry>, messages=<its 3 messages>, self_names=["Hux Waitt"], created_by="administrator/0.4.0")
 ```
 
 ```json
@@ -124,7 +124,7 @@ vault_save_chat(chat=<the "Q3 budget" entry>, messages=<its 3 messages>, self_na
 
    The Tom Lee chat → one record `Administrator/Teams/2026-08-22 Tom Lee.md` (`created`, `people: [{"name": "Tom Lee", "page": "…/People/Tom Lee.md"}]`).
 
-   Per record the `wiki` skill's steps. The two chat records reuse the match and the page reads of step 3 (no second `vault_wiki_match`, no second read of `Topics/q3-budget`); `Topics/acme-supplier-contract`, read there for the Tom chat, serves the meeting note and Tom's mail too: fact `n30x` "Payment terms are net 30" (since 2026-08-12).
+   Per record the `wiki` skill's steps. The two chat records reuse the match and the brief of step 3 (no second `vault_wiki_match`, no second search); `Topics/acme-supplier-contract`, read there for the Tom chat, serves the meeting note and Tom's mail too: fact `n30x` "Payment terms are net 30" (since 2026-08-12).
 
    Order by time: Tom's mail (Sat 22 09:05), Tom's chat (Sat 22 11:02), the supplier sync (Sat 22 13:00), the Q3 chat of Mon 24, Jane's mail (Tue 25 08:50), the Q3 chat of Tue 25. Tom's mail repeats net 30 on the 22nd; the meeting note the same day says net 45 — same day, so `contest`, not `supersede`.
 
@@ -141,7 +141,7 @@ vault_save_chat(chat=<the "Q3 budget" entry>, messages=<its 3 messages>, self_na
 7. Ingest, oldest first — six calls, the first one:
 
 ```
-vault_wiki_ingest(record_path="Administrator/Emails/2026-08-22 Q3 supplier contract – signature needed.md", created_by="administrator/0.3.0", pages=[
+vault_wiki_ingest(record_path="Administrator/Emails/2026-08-22 Q3 supplier contract – signature needed.md", created_by="administrator/0.4.0", pages=[
   {"path": "Administrator/Wiki/Topics/acme-supplier-contract.md", "ops": [
     {"op": "contest", "id": "n30x", "text": "Payment terms are net 45 (contract v3)"},
     {"op": "open", "text": "Sign and return contract v3 by 2026-08-29"}]},

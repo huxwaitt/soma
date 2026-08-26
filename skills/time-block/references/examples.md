@@ -126,7 +126,7 @@ outlook_create_event(subject="[Focus] ACME supplier contract", start="2026-08-24
 6. The note — all 13 blocks, the 12 new ones with their `entry_id` and `occurrence_key` merged in:
 
 ```
-vault_time_block_write(week="2026-W35", blocks=[...13 blocks...], created_by="administrator/0.3.0")
+vault_time_block_write(week="2026-W35", blocks=[...13 blocks...], created_by="administrator/0.4.0")
 ```
 
    → `{"path": "Administrator/Time-blocks/2026-W35.md", "action": "created", "week": "2026-W35", "blocks": 13, "planned": 13}`. The note (the model never types it):
@@ -139,7 +139,7 @@ week: 2026-W35
 start: "2026-08-24"
 end: "2026-08-30"
 planned: 13
-created_by: administrator/0.3.0
+created_by: administrator/0.4.0
 ---
 
 # Time blocks — 2026-W35
@@ -214,7 +214,7 @@ Book these 1 blocks? They are appointments without attendees — nothing is sent
 
    User: "yes" → one `outlook_create_event(subject="[Focus] ACME supplier contract", start="2026-08-26T12:15:00", end="2026-08-26T13:45:00", show_as="busy", categories="Administrator", reminder_minutes=0, body="Planned by administrator on 2026-08-25 for ACME supplier contract")` → `occurrence_key: "0400E01…|2026-08-26T12:15:00+02:00"`.
 
-4. `vault_time_block_write(week="2026-W35", blocks=[<the one new block with its keys>], created_by="administrator/0.3.0")` → `{"path": "Administrator/Time-blocks/2026-W35.md", "action": "appended", "week": "2026-W35", "blocks": 1, "planned": 14}`. The note gains:
+4. `vault_time_block_write(week="2026-W35", blocks=[<the one new block with its keys>], created_by="administrator/0.4.0")` → `{"path": "Administrator/Time-blocks/2026-W35.md", "action": "appended", "week": "2026-W35", "blocks": 1, "planned": 14}`. The note gains:
 
 ```markdown
 ## Update 2026-08-25T08:11:02+02:00
@@ -287,7 +287,7 @@ Use these as your priorities? (reorder, drop or add lines, or say yes)
    The parking permits topic stays out (no due date, nothing open). User: "yes, and add 'Hiring: backend role' as 4".
 
 ```
-vault_priorities_write(action="write", lines=["[[Wiki/Topics/acme-supplier-contract]]", "[[Wiki/Topics/q3-budget]]", "[[Wiki/Topics/offsite-2026]]", "Hiring: backend role"], created_by="administrator/0.3.0")
+vault_priorities_write(action="write", lines=["[[Wiki/Topics/acme-supplier-contract]]", "[[Wiki/Topics/q3-budget]]", "[[Wiki/Topics/offsite-2026]]", "Hiring: backend role"], created_by="administrator/0.4.0")
 ```
 
    → `{"path": "Administrator/Priorities.md", "action": "written", "lines": ["[[Wiki/Topics/acme-supplier-contract]]", "[[Wiki/Topics/q3-budget]]", "[[Wiki/Topics/offsite-2026]]", "Hiring: backend role"], "previous": []}`. Under `## Priorities` the file now holds the four numbered lines and `<!-- suggested by administrator, confirmed 2026-08-24 -->`; the text above the heading is untouched. The run goes on in the same turn.

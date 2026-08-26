@@ -22,7 +22,12 @@ Administrator/Wiki/
   Topics/<slug>.md
   Howto/<slug>.md
   _history/         rolled-over History sections and old log files
-  _cache/           topic candidates and lint reports (not notes)
+  _cache/           working files, never notes:
+      search.json.gz    what the search engine read out of each page last time
+      state.json        the pages as code last wrote them, so your edits are visible
+      prev/<page>.md.prev  each page's text before the last write, one copy per page (not a note, so Obsidian does not list it)
+      queries.log       every question asked of the wiki, newest last
+      (topic candidates and the last lint report live here too)
 ```
 
 One folder level, no deeper. Filenames never change after creation, because a rename outside Obsidian breaks every link; a page that needs a better name gets the new name as `title` and the old one as an alias. Slugs are lowercase ASCII with `-`, at most 40 characters, no dates. People keep `<Display Name>.md`, as the email notes have always linked them.
@@ -50,6 +55,7 @@ Shown for a topic; the other types drop sections they do not need (below).
 ```markdown
 ---
 type: topic
+id: 01K3F7Q2N8Z4RVHB6MCE0TXWJ9
 title: Q3 budget
 aliases:
   - Budget Q3
@@ -64,7 +70,7 @@ verified: 2026-08-22
 sources: 3
 open_items: 1
 flags: []
-created_by: administrator/0.3.0
+created_by: administrator/0.4.0
 ---
 
 # Q3 budget
@@ -110,6 +116,7 @@ Jane Doe (finance) is collecting final Q3 numbers from each team lead by 2026-08
 | Key | Set by | Meaning |
 | --- | --- | --- |
 | `type` | code | `person`, `org`, `topic`, `howto`, `me` |
+| `id` | code | 26 characters, given once and never changed. It is what makes a page you rename or move in Obsidian still the same page. |
 | `title` | model at creation; `title` op later (the file name stays) | a noun phrase, at most 6 words, no dates |
 | `aliases` | merged by code, never removed by code | other names, spellings, addresses; what matching searches; Obsidian resolves `[[alias]]` links with them |
 | `summary` | model (`summary` op), at most 160 characters | the one line in `Index.md`; the only thing read before deciding to open the page |
@@ -123,7 +130,7 @@ Jane Doe (finance) is collecting final Q3 numbers from each team lead by 2026-08
 | `flags` | code / lint | `contradiction`, `possible-duplicate`, `stale`, `oversized`, `orphan`; empty means clean |
 | `created_by` | caller | |
 
-`created`, `updated`, `verified`, `sources`, `open_items` and `flags` are code-owned: a create that tries to set them fails with an error naming them as code-owned. Per type: `person` adds `name` (same as the title), `email`, `org` (plain text, not a link), `last_contact`; `org` adds `domains` (matched on sender domains); `topic` adds `owner`, `org`, `due` (lint reports a `due` in the past on an active page); `howto` adds `last_done`.
+`id`, `created`, `updated`, `verified`, `sources`, `open_items` and `flags` are code-owned: a create that tries to set them fails with an error naming them as code-owned. Per type: `person` adds `name` (same as the title), `email`, `org` (plain text, not a link), `last_contact`; `org` adds `domains` (matched on sender domains); `topic` adds `owner`, `org`, `due` (lint reports a `due` in the past on an active page); `howto` adds `last_done`.
 
 ### Sections — fixed order, fixed meaning
 
@@ -169,6 +176,10 @@ Page-level ops: `lead` (text), `summary` (text), `status` (value), `title` (text
 
 Two rules from this: **later wins, only if later** — a freshly saved *older* mail can never overwrite a newer fact; and **nothing is deleted** — every superseded or retired line is in History and in the log with both texts, the date and the record. Reverting is a new supersede the other way.
 
+### Every write is read back
+
+After a page is written the file is read again and compared with what was meant: the facts with their ids, dates and sources in order, the lead, the title, every line of every section, the code-owned keys, the size caps and the index line. If anything differs, the text the page had before the write (kept in `_cache/prev/`) goes straight back, a Review line and a `restore` line in the log say what differed, and the tool answers `written: false` with every op refused as `verify-failed`. A half-written page is never left behind.
+
 ### Your pins
 
 Anything under `## Notes`, and any fact with `src:user` (you said it in chat and the model wrote it through `vault_wiki_apply`), outranks what the model learns from records: a `supersede`, `update` or `retire` on a `src:user` fact from a record is refused (`user-pin`) and goes to Review instead.
@@ -183,19 +194,63 @@ Code cannot see that two sentences cannot both be true; the model can, but it do
 
 (the current fact's sources in quotes, then the contesting record's link). A refused `supersede` writes a similar line with `(since <date>) vs older "<text>" (since <date>)`; a refused change to a user fact writes `user fact "<text>" vs "<text>"`. Say "resolve review" in chat; the fix is an ordinary op from your answer. Resolved lines move to `## Done` with the date (ticking the box in Obsidian alone changes nothing).
 
+## Editing pages by hand
+
+Obsidian writes the same files the code writes, so you may edit a page yourself. At the start of every wiki tool call the code reads back what changed since it last wrote (it remembers each page in `_cache/state.json`) and takes your edit over. Nothing you typed is thrown away.
+
+Taken over without asking:
+
+| What you did | What happens |
+| --- | --- |
+| Typed a new bullet under `## Facts` | It becomes a fact of yours: a new id, `since` = the day you saved the file, `src: user` — so a record may not overwrite it (see Your pins). |
+| Reworded a fact | Your wording stays, `src` gains `user`, History keeps the old text (`updated f:<id> "…" → "…" — edited by hand`). |
+| Deleted a fact | Retired: gone from Facts, its text in History (`retired "…" — removed by hand`). |
+| Ticked a box under `## Open` | The item is done and moves to History. |
+| Changed the `# Title` line | The new title is used; the old one is kept as an alias. |
+| Rewrote the lead | Kept as you wrote it. |
+| Renamed the file, or moved it into another type's folder | The page keeps its `id`, so it is still the same page: every link to it on the other pages, in the records' `wiki:` keys, in Follow-ups and in Review is rewritten, the index is regenerated, and the folder decides the new type. |
+| Made a new `.md` file in a wiki folder | It becomes a page: the folder gives the type, the `# Title` line (or the filename) the title, your bullets become facts of yours, and the frontmatter the contract asks for is filled in. |
+| Changed a code-owned key | Recomputed; `id` and `created` are put back as they were. |
+
+Put back, with a line in Review:
+
+- Text under a heading the contract does not know moves under `## Notes` behind a `### <Heading> (moved <date>)` marker.
+- A `## History` section you shortened comes back (the lines the code last wrote are kept in `_cache/state.json`, older ones in the copy under `_cache/prev/`). Say "drop it" if you meant to shorten it. A line no copy holds is reported in Review instead of put back.
+
+Asked about, never done on its own:
+
+- A page you deleted: one Review line naming how many links still point at it, asked once. The copy under `_cache/prev/` is what puts it back.
+- A file that is a sync copy of a page (`… (1).md`, or `conflict` in the name, same `id`): not read, one Review line.
+- A page you wrote by hand whose name a page already has: one Review line ("merge them or rename one?"), your file untouched.
+
+Every change taken over is one `adopt` line in `Wiki/Log.md`. The tool that ran the pass answers with `adopted: [{page, changes}]`, so the model tells you in one line what it read back; `vault_wiki_lint` reports the same under `checks["0"]`. A file that is being written at that moment is left for the next call.
+
+The first run of this version reads every page once: each gets an `id`, bullets you had typed become facts of yours, and one `migrate` line in the log says how many.
+
+## Finding things
+
+`vault_wiki_search(query, kinds, limit, since, include_superseded, brief, max_chars, open_items, owner, due_before, page)` reads the pages themselves and ranks the facts on them, so a fact is found by what it says and not only by the name of the page it sits on. Ids, dates, amounts, `"quoted phrases"` and `/regex/` are looked up as written; a misspelled name still finds the person; the pages a good hit links to are pulled in with it. Each hit is `{page, kind, title, fact_id, text, since, src, score, why[], superseded, streams, confirmed}`, best first, at most three facts per page. Old wordings kept in History come back only with `include_superseded=true`, always below the current fact. `## Notes` is never read.
+
+`brief=true` answers with one stitched text instead of a list — the best three pages with their lead, their facts (with ids), their open items, then the dated decisions on the pages they link to, under `max_chars` — as `{text, pages[], facts[], chars}`. `open_items=true` answers with the unticked `## Open` lines as `[{page, title, text, record, line}]`. Every question is appended to `_cache/queries.log`.
+
+`vault_wiki_match` is unchanged — the index lines that match a subject, sender or domain — and runs on the same engine.
+
 ## Index, log, review
 
-**`Wiki/Index.md`** is generated from frontmatter after every write, so it cannot drift from the files. One line per page: link with title, status (or organisation for people), the `verified` date, the summary. Grouped by type; `active` before `draft` before `dormant` before `closed` (closed pages beyond 20 collapse to a count); newest `verified` first, so the top of each group is what matters now. It is the home page in Obsidian. The model never reads it whole; `vault_wiki_match` returns the few lines that match a subject, sender or domain.
+**`Wiki/Index.md`** is generated from frontmatter after every write, so it cannot drift from the files. One line per page: link with title, status (or organisation for people), the `verified` date, the summary. Grouped by type; `active` before `draft` before `dormant` before `closed` (closed pages beyond 20 collapse to a count); newest `verified` first, so the top of each group is what matters now. Topics with a `due` date are the **Projects** group, soonest first, above the other topics, and their line reads owner, due date and status instead of the `verified` date. Before it is rewritten the lines it had are compared with the lines it should have: a line that differs for a page nobody just wrote means the file was changed by hand, and that goes to the log as `index-repaired`. It is the home page in Obsidian. The model never reads it whole; `vault_wiki_match` returns the few lines that match a subject, sender or domain.
 
 ```markdown
+## Projects (3)
+- [[Wiki/Topics/q3-budget|Q3 budget]] · Jane Doe · 2026-08-29 · active — Final Q3 numbers due to Jane by 2026-08-29; forecast closes 2026-09-02.
+
 ## Topics (12)
-- [[Wiki/Topics/q3-budget|Q3 budget]] · active · 2026-08-22 — Final Q3 numbers due to Jane by 2026-08-29; forecast closes 2026-09-02.
+- [[Wiki/Topics/expense-policy|Expense policy]] · active · 2026-08-22 — Receipts within 30 days; anything over 200 EUR needs Jane's yes.
 
 ## People (18)
 - [[Wiki/People/Jane Doe]] · Example GmbH · 2026-08-22 — Finance lead; owns the quarterly forecast; prefers short mails.
 ```
 
-**`Wiki/Log.md`** is append-only: `- [2026-08-22T09:40:00+02:00] ingest | Wiki/Topics/q3-budget | [[Emails/2026-08-22 Budget Q3]] | add 2, supersede 1`. One line per page per ingest (`ingest`), per chat change (`apply`), per page created (`create`), per person page touched by a saved mail (`record`), per resolved review item (`review`), one per lint run (`lint`), merge (`merge`) and migration (`migrate`). At 500 lines it rolls over to `Wiki/_history/Log-YYYY.md`.
+**`Wiki/Log.md`** is append-only: `- [2026-08-22T09:40:00+02:00] ingest | Wiki/Topics/q3-budget | [[Emails/2026-08-22 Budget Q3]] | add 2, supersede 1`. One line per page per ingest (`ingest`), per chat change (`apply`), per page created (`create`), per person page touched by a saved mail (`record`), per resolved review item (`review`), per page read back after you edited it in Obsidian (`adopt`), one per lint run (`lint`), merge (`merge`), migration (`migrate`), write that did not come back as written (`restore`) and index put right (`index-repaired`). At 500 lines it rolls over to `Wiki/_history/Log-YYYY.md`.
 
 **`Wiki/Review.md`** is the checklist of what code could not decide, under `## Open` (resolved lines move to `## Done`): contradictions, pages that may be duplicates ("merge A into B?"), stale pages, refused supersedes and refused changes to your facts. Topic proposals from candidates are not written here; `vault_wiki_match`, ingest and lint check 12 report them. Every line links the page. `/administrator:weekly` lists the open count; `/administrator:lint` adds to it.
 
@@ -207,6 +262,7 @@ Code cannot see that two sentences cannot both be true; the model can, but it do
 
 | # | Check | With `fix` |
 | --- | --- | --- |
+| 0 | The pages you changed in Obsidian since the last write | read back and taken over (see "Editing pages by hand"); reported as `checks["0"]` |
 | 1 | Index and files agree | regenerated |
 | 2 | Dangling `[[links]]` under `Wiki/` | link becomes plain text, only in code-owned sections |
 | 3 | Orphans: no inbound link from any page or record | flagged `orphan`, reported |

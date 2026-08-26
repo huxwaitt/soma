@@ -128,7 +128,7 @@ week: 2026-W34
 start: 2026-08-17
 end: 2026-08-23
 generated: 2026-08-22T10:20:00+02:00
-created_by: administrator/0.3.0
+created_by: administrator/0.4.0
 ---
 
 # Week 2026-W34 (2026-08-17 – 2026-08-23)

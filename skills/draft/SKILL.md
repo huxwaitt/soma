@@ -7,7 +7,7 @@ description: Writes a reply to an email thread in the user's own voice and saves
 
 `/administrator:draft <thread words or entry_id> [what to say]`. Reads Outlook through the `outlook_*` tools, reads the vault only through `vault_*` tools, and changes Outlook only by saving one draft the user said yes to. The plugin never sends: `outlook_reply_mail` is called with `save_only=true` and nothing else. Outlook mechanics (folders, `entry_id`, dates, `response_format`, `fields`) follow the `outlook` skill and `skills/administrator/references/outlook.md`.
 
-Before starting: `vault_status` once per session (run `vault_init(created_by="administrator/0.3.0")` if a folder or file flag is false) and `outlook_whoami(response_format="json")` once per session. "Self" means any `accounts[].smtp_address`, compared case-insensitively. Load `references/voice.md` the first time a draft, nudge or minutes email is written in a session; its end holds a worked example.
+Before starting: `vault_status` once per session (run `vault_init(created_by="administrator/0.4.0")` if a folder or file flag is false) and `outlook_whoami(response_format="json")` once per session. "Self" means any `accounts[].smtp_address`, compared case-insensitively. Load `references/voice.md` the first time a draft, nudge or minutes email is written in a session; its end holds a worked example.
 
 ## 1. Find the thread
 
@@ -30,7 +30,7 @@ From the last mail, list the **open questions**: every sentence ending in `?`, e
 
 ## 3. Read what the vault knows
 
-- `vault_wiki_match(text=<subject + first 300 chars of the last mail>, people=[<from_address of the last mail>], limit=4)` → `vault_wiki_read(path, sections=["lead","facts","open","notes"], max_chars=800)` on the sender's person page and at most one matched topic page. The person page's Facts say how they work with the user (language, formality, responsibilities); its `## Notes` holds anything the user wrote, including a `Voice with this person:` block; the topic page's lead, facts and open items are the facts the reply may state. No page → nothing; `draft` creates no pages and sends no wiki ops.
+- One call: `vault_wiki_search(query=<the sender's name + the subject>, brief=true, max_chars=1000)` → `{text, pages: [{page, title, kind, status, verified}], facts: [{page, id, text, since}], chars}`. It holds how the sender works with the user (language, formality, responsibilities) and the topic's lead, facts and open items — the facts the reply may state. Then one `vault_wiki_read(path=<the sender's own page in `pages[]`>, sections=["notes"], max_chars=600)` for a `Voice with this person:` block or anything else the user wrote there: `## Notes` is the one part search never reads. Nothing found → nothing; `draft` creates no pages and sends no wiki ops.
 - `vault_read("Administrator/Follow-ups.md")` → `## Open` rows whose `Who` is this person or whose `What` matches the subject. Mention one only when the last mail touches it.
 - `vault_find("email", {"internet_message_id": <last mail's>, "entry_id": <last mail's>}, fields=["status"])` → when found, `vault_read` the note for its `## Action items` (what the user already committed to). Not found → skip; do not save the mail.
 - `vault_read("Administrator/Preferences.md")` → the `## Voice` section if there is one (hard rules, `references/voice.md`).

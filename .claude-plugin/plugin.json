@@ -1,6 +1,6 @@
 {
   "name": "administrator",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "An assistant that runs your classic Outlook mailbox and keeps the paper trail in an Obsidian vault. Checks its own setup, goes through the inbox and writes a daily note, saves any email as a linked note with a person stub, builds a daily page from inbox plus calendar, prepares you for meetings and files your notes afterwards, finds free times and books meetings, chases threads nobody answered, drafts replies in your own voice that land in Drafts, finds the one email you half-remember and quotes the line that matters, writes a weekly review, and collects what happened since the last run — Teams chats from the local client cache, new mail, changed notes — into the wiki after showing you the changes. Reads freely; never moves, marks, books, or sends anything without an explicit yes; never sends plain mail. Bundles the outlook-classic-mcp server, its vault writer and the optional read-only local-ms-teams server.",
   "author": {
     "name": "huxwaitt"

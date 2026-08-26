@@ -6,7 +6,7 @@ description: Two look-back workflows over Outlook and the vault. `followups` ask
 # review — followups and weekly
 Both workflows look back instead of at the inbox of the moment. The tools do the collecting, comparing and counting; you decide and write the few lines only a person can write. Outlook is read through `outlook_*` tools, the vault is read and written only through `vault_*` tools (`skills/administrator/references/vault.md`), and nothing in Outlook changes except, in `followups`, a draft the user said yes to. Outlook mechanics follow the `outlook` skill and `skills/administrator/references/outlook.md`. Worked examples with real call sequences: `references/examples.md` (load it the first time a workflow runs in a session).
 
-Before either workflow: `vault_status` once per session (run `vault_init(created_by="administrator/0.3.0")` if a folder or file flag is false) and `outlook_whoami(response_format="json")` once per session. "Self" = any `accounts[].smtp_address`, compared case-insensitively. "Today" and "now" come from `whoami.local_time`, never from a guess.
+Before either workflow: `vault_status` once per session (run `vault_init(created_by="administrator/0.4.0")` if a folder or file flag is false) and `outlook_whoami(response_format="json")` once per session. "Self" = any `accounts[].smtp_address`, compared case-insensitively. "Today" and "now" come from `whoami.local_time`, never from a guess.
 
 Cost rules for both: pass `fields=[...]` on every list, search, get and conversation call and `preview_chars=0` unless a preview is needed; never repeat text a tool result already holds (paste `last_line`, `subject`, `who` as they came); never read a note with `vault_read` when a helper already returned the facts.
 
@@ -83,7 +83,7 @@ Three to five lines: `threads_checked` from `sent_scanned` mails, waiting count,
 
 ### 2. Wiki (load `skills/wiki/SKILL.md` first)
 
-`vault_wiki_lint(fix=true, created_by="administrator/0.3.0")` once (the safe fixes: index, code-owned keys, section order, ticked open items, stale topics to `dormant`, roll-overs); then `vault_wiki_review(action="list")`. From the two results: the open Review items (`open[].text`: page, question, record links), the topic proposals (`checks["12"].items`: "create `<slug>` from N records?"), the possible duplicates (`checks["10"].items`, pairs `{a, b, shared}`), the un-ingested records (`checks["11"].count` and `records[]` with paths), the per-check numbers in `counts`. Ask one question per proposal and act only on a yes (`vault_wiki_create` / `vault_wiki_merge`). Un-ingested records: offer "ingest the N records saved before the wiki, ten at a time?"; on a yes run the `wiki` skill's ingest steps on the first 10 (`vault_read` each once, oldest first), report, offer the next 10. Skip this whole step on "without wiki".
+`vault_wiki_lint(fix=true, created_by="administrator/0.4.0")` once (the safe fixes: index, code-owned keys, section order, ticked open items, stale topics to `dormant`, roll-overs); then `vault_wiki_review(action="list")`. From the two results: the open Review items (`open[].text`: page, question, record links), the topic proposals (`checks["12"].items`: "create `<slug>` from N records?"), the possible duplicates (`checks["10"].items`, pairs `{a, b, shared}`), the un-ingested records (`checks["11"].count` and `records[]` with paths), the per-check numbers in `counts`. Ask one question per proposal and act only on a yes (`vault_wiki_create` / `vault_wiki_merge`). Un-ingested records: offer "ingest the N records saved before the wiki, ten at a time?"; on a yes run the `wiki` skill's ingest steps on the first 10 (`vault_read` each once, oldest first), report, offer the next 10. Skip this whole step on "without wiki".
 
 ### 3. Write the note
 
@@ -101,7 +101,7 @@ Identity = `week`. Render the sections from the results, line for line, without 
 ```
 vault_write("weekly",
     {"type": "weekly", "source": "administrator", "week": "2026-W34", "start": "2026-08-17", "end": "2026-08-23",
-     "generated": "<ISO now with offset>", "created_by": "administrator/0.3.0"},
+     "generated": "<ISO now with offset>", "created_by": "administrator/0.4.0"},
     <body: "# Week 2026-W34 (2026-08-17 – 2026-08-23)" + the sections>, mode="upsert")
 ```
 

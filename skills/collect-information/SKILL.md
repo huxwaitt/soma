@@ -7,7 +7,7 @@ description: Gathers what happened since the last run — Teams chats from the l
 
 Teams, Outlook and the vault's own notes are read in that order; records are written first, then every wiki change is shown and applied only after a yes. The `wiki` skill decides *where* a fact goes; this skill decides *what comes in* and *in which order*. Worked runs (a full one, and one where Teams is not available): `references/examples.md` — load it the first time this runs in a session. Load `skills/wiki/SKILL.md` before step 6.
 
-Once per session: `vault_status` (any folder or file flag false → `vault_init(created_by="administrator/0.3.0")`; vault unset or not a directory → stop and tell the user) and `outlook_whoami(response_format="json")` — `local_time` is "now", `accounts[].smtp_address` are `self_addresses`, `current_user` and `accounts[].display_name` are `self_names`.
+Once per session: `vault_status` (any folder or file flag false → `vault_init(created_by="administrator/0.4.0")`; vault unset or not a directory → stop and tell the user) and `outlook_whoami(response_format="json")` — `local_time` is "now", `accounts[].smtp_address` are `self_addresses`, `current_user` and `accounts[].display_name` are `self_names`.
 
 ## Caps (fixed, say when one is hit)
 
@@ -31,7 +31,7 @@ teams_list_chats(since=<since>, include_messages=true, per_chat=20, max_chars=30
 
 ### 3. Which chats matter
 
-For each chat with messages, one `vault_wiki_match(text=<the messages joined, sender names included>, people=[], domains=[], limit=5)` → `{pages: [{path, line, score, why}], candidates: [{subject, records, days}]}`. Read the lead and facts of the hit pages *before* judging the chat: at most 3, `vault_wiki_read(path=<page>, sections=["lead","facts"], max_chars=800)` — these are the chat's page reads; step 6 does not read again. Keep a chat when it touches a matched page or candidate, or carries work content on its own (a decision, a date, an amount, an ask, a commitment, a fact about a person's role). Skip banter, jokes, thanks / ok chains and GIF or sticker exchanges (their text is already empty); they stay in Teams, `teams_search` reaches them later, and the report names them in one line: "4 chats skipped: no work content — Lunch?, Friday drinks, …". Choppy messages are read against the page: "moved to the 29th" in a chat with Jane resolves to the deadline fact on the matched topic page and becomes a `supersede` with the message time as `since`; a fragment that cannot be pinned to a page or a candidate is not a fact and stays in the record only.
+For each chat with messages, one `vault_wiki_match(text=<the messages joined, sender names included>, people=[], domains=[], limit=5)` → `{pages: [{path, line, score, why}], candidates: [{subject, records, days}]}`. Then, *before* judging the chat, one `vault_wiki_search(query=<the same joined messages>, brief=true, max_chars=1200)` → `{text, pages, facts: [{page, id, text, since}], chars}`: leads, the facts with their `f:<id>` and dates, open items. That is the chat's page context — step 6 does not read again, and those ids are the ids its ops name. Keep a chat when it touches a matched page or candidate, or carries work content on its own (a decision, a date, an amount, an ask, a commitment, a fact about a person's role). Skip banter, jokes, thanks / ok chains and GIF or sticker exchanges (their text is already empty); they stay in Teams, `teams_search` reaches them later, and the report names them in one line: "4 chats skipped: no work content — Lunch?, Friday drinks, …". Choppy messages are read against the page: "moved to the 29th" in a chat with Jane resolves to the deadline fact on the matched topic page and becomes a `supersede` with the message time as `since`; a fragment that cannot be pinned to a page or a candidate is not a fact and stays in the record only.
 
 ### 4. Outlook
 
@@ -40,7 +40,7 @@ outlook_list_mails(folder="inbox", since=<since>, limit=50, preview_chars=80, re
                    fields=["entry_id","internet_message_id","subject","from","from_address","to","received","preview"])
 ```
 
-and the same with `folder="sent"`. For each mail that is not plainly automated (no-reply senders, newsletters, meeting responses, out-of-office — skip those without a call): `vault_wiki_match(text=<subject + preview>, people=[<from_address>], domains=[<its domain>], limit=3)`. Keep the mails with a `pages` hit or a `candidates` entry, highest score first, newest first within a score, and open at most 8 of them with the `save` skill's `outlook_get_mail(..., trim_quoted=true, fields=[...])` call. For each: one `vault_save_email(mail, summary, action_items, self_addresses, created_by="administrator/0.3.0")` (an existing note gets an `## Update`, `action: appended`). Mails without a match are counted, not saved; name up to 3 of them the user may want to `/administrator:save` by hand.
+and the same with `folder="sent"`. For each mail that is not plainly automated (no-reply senders, newsletters, meeting responses, out-of-office — skip those without a call): `vault_wiki_match(text=<subject + preview>, people=[<from_address>], domains=[<its domain>], limit=3)`. Keep the mails with a `pages` hit or a `candidates` entry, highest score first, newest first within a score, and open at most 8 of them with the `save` skill's `outlook_get_mail(..., trim_quoted=true, fields=[...])` call. For each: one `vault_save_email(mail, summary, action_items, self_addresses, created_by="administrator/0.4.0")` (an existing note gets an `## Update`, `action: appended`). Mails without a match are counted, not saved; name up to 3 of them the user may want to `/administrator:save` by hand.
 
 ### 5. Notes
 
@@ -48,7 +48,7 @@ and the same with `folder="sent"`. For each mail that is not plainly automated (
 
 ### 6. Records first, then the proposal
 
-For every chat kept in step 3: `vault_save_chat(chat=<the chat entry>, messages=<its messages>, self_names=<self_names>, created_by="administrator/0.3.0")` → `{path, action (created / appended / unchanged), date, record_id, added, skipped_duplicates, messages, people: [{name, page}], unknown_people}` (a list, one per day, when the messages span days). `unknown_people` get no page; name them in the report. Then, per record, the `wiki` skill's match and read steps (`people[]` from the chat result are the person pages; a chat reuses the match and the page reads of step 3; for the others `vault_wiki_match(text=<title + first 300 chars>)` finds the topics and at most 3 `vault_wiki_read` follow), and draft the ops. Order the records by time: chat `date` + `last`, email `received`, meeting `start`, then apply the chronology rule below.
+For every chat kept in step 3: `vault_save_chat(chat=<the chat entry>, messages=<its messages>, self_names=<self_names>, created_by="administrator/0.4.0")` → `{path, action (created / appended / unchanged), date, record_id, added, skipped_duplicates, messages, people: [{name, page}], unknown_people}` (a list, one per day, when the messages span days). `unknown_people` get no page; name them in the report. Then, per record, the `wiki` skill's match and read steps (`people[]` from the chat result are the person pages; a chat reuses the match and the brief of step 3; for the others `vault_wiki_match(text=<title + first 300 chars>)` finds the topics and one `vault_wiki_search(query=<title + first 300 chars>, brief=true, max_chars=1200)` gives their leads, facts and ids), and draft the ops. Order the records by time: chat `date` + `last`, email `received`, meeting `start`, then apply the chronology rule below.
 
 Show the proposal as short bullets grouped by page, plus the Review items expected, and wait:
 
@@ -58,7 +58,7 @@ Nothing else happens in that turn. On a yes, drop the struck lines and go on; "n
 
 ### 7. Ingest, oldest first
 
-One `vault_wiki_ingest(record_path=<path>, pages=[...], created_by="administrator/0.3.0")` per record, oldest record first, exactly the ops that were agreed (`src` and `since` default to the record's id and date: `internet_message_id`, `occurrence_key`, or the chat's `record_id`). Refusals are answers (`older-than-current`, `user-pin` → Review; `cap` → resend smaller). A topic candidate over the threshold: ask in the report, create only on a yes.
+One `vault_wiki_ingest(record_path=<path>, pages=[...], created_by="administrator/0.4.0")` per record, oldest record first, exactly the ops that were agreed (`src` and `since` default to the record's id and date: `internet_message_id`, `occurrence_key`, or the chat's `record_id`). Refusals are answers (`older-than-current`, `user-pin` → Review; `cap` → resend smaller). A topic candidate over the threshold: ask in the report, create only on a yes.
 
 ### 8. Advance the stamps
 

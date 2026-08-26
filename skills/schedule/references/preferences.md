@@ -29,7 +29,7 @@ admin_blocks_per_day: 2
 admin_block_minutes: 45
 slack_share: 0.2
 collect_folders: []
-created_by: administrator/0.3.0
+created_by: administrator/0.4.0
 ---
 
 # Scheduling preferences
