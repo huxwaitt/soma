@@ -613,10 +613,10 @@ def test_server_tools():
         "vault_wiki_match", "vault_wiki_search", "vault_wiki_read", "vault_wiki_ingest", "vault_wiki_create",
         "vault_wiki_apply", "vault_wiki_log", "vault_wiki_review",
         "vault_wiki_lint", "vault_wiki_merge", "vault_wiki_migrate",
-        "vault_save_chat", "vault_collect_sources", "vault_changed_notes",
+        "vault_save_chat", "vault_collect_sources", "vault_changed_notes", "vault_load_history",
         "vault_time_block_plan", "vault_time_block_write", "vault_time_audit", "vault_priorities_write",
     }
-    assert len(tools) == 33
+    assert len(tools) == 34
 
 
 def test_server_call_round_trip(vault):

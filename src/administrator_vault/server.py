@@ -9,7 +9,7 @@ from typing import Annotated, Any, Callable, Optional
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
-from administrator_vault import priorities, store, timeblock, wiki, wiki_lint, wiki_migrate, wiki_search, workflows
+from administrator_vault import history, priorities, store, timeblock, wiki, wiki_lint, wiki_migrate, wiki_search, workflows
 from administrator_vault.frontmatter import FrontmatterError
 from administrator_vault.notes import NoteError, SCHEMAS
 
@@ -46,6 +46,10 @@ Collecting: vault_collect_sources keeps the "last collected" stamp per
 source (teams, outlook, notes), vault_save_chat writes a Teams chat as a day
 record under Teams/, vault_changed_notes lists the notes modified since a
 time (records and the user's collect_folders, read only).
+vault_load_history reads the months before that into the wiki: it hands out
+one window of days at a time (Outlook inbox, then sent items, then Teams)
+with the exact call to list it, remembers where it got to, and never moves a
+collect stamp.
 
 Priorities: vault_priorities_write gathers the material for a ranked
 suggestion (action candidates, read only) and, after the user confirmed,
@@ -563,6 +567,22 @@ def register(mcp: FastMCP) -> None:
     ) -> str:
         """Markdown notes modified after since, oldest first: {since, count, total, capped, folders, skipped, missing, notes: [{path, type, modified, ingested (a wiki key is present), excerpt (the last '## Update' section when there is one, else the body), from_update, truncated}]}. Wiki/, Attachments/, _views/, _backup/ and dot-folders are never read; folders outside Administrator/ are only read, never written; paths outside the vault are refused."""
         return _json(workflows.changed_notes(since, folders, max_chars, limit))
+
+    @mcp.tool(
+        name="vault_load_history",
+        annotations={"title": "Read the past into the wiki", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+    )
+    @_guard
+    def vault_load_history(
+        action: Annotated[str, Field(description="'status' reports where the pass stands, 'plan' starts one, 'next' hands out the window to list, 'done' reports a listed window.")] = "status",
+        since: Annotated[Optional[str], Field(description="plan: the date to start from (ISO); defaults to 90 days before today, 00:00.")] = None,
+        batch: Annotated[int, Field(ge=1, le=100, description="plan: how many records one batch works on.")] = 25,
+        payload: Annotated[Optional[dict[str, Any]], Field(description="done: {saved: [{id, path, received}], skipped_ids: [ids left out], reached: the received time of the last record worked (ISO), exhausted: true when nothing in the window was left over, pages: [wiki pages touched], calls: how many tool calls the batch took, listed: how many records the window listed before the cut (drives the window size and the listed-vs-saved gap; defaults to saved + skipped)}.")] = None,
+        reset: Annotated[bool, Field(description="plan: drop the running pass and start over.")] = False,
+        now: Annotated[Optional[str], Field(description="Only for tests: the time the pass is measured against.")] = None,
+    ) -> str:
+        """Read the months before the 'last collected' stamps into the wiki, one window of days at a time, in the order Outlook inbox, Outlook sent items, Teams chats. status: the state ({started: false} before the first plan) with the collect stamps, the days left per source and how many records each source listed against how many were saved, so a gap shows. plan: fixes the start date, the batch size and, per source, the day the pass stops at (that source's collect stamp, else now) — refused while a pass is running unless reset=true; returns {planned, since, until_max, days, left_days, batches_estimate, note}. next: the window to list — {batch_no, source, since, until, expected, skip_ids (ids of that window already seen), list_with (the exact outlook_list_mails / teams_list_chats call), reissued}; turn the list oldest first, drop skip_ids and automated mail, work on the first 'expected' records; while a batch is open the same window is handed out again instead of a second one. done: takes payload and answers {batch, saved, skipped, listed, place, window_days, source_done, all_done, totals, next_hint, note} — the ids are recorded as seen, the place moves (to until when the window was exhausted, else to reached), the window is halved or doubled to fit the batch size (1 to 30 days), and when every source is finished the answer holds a summary that ends with 'Run /administrator:lint.'. The state is Wiki/_cache/history.json and is written after plan and after every done, so a crash costs at most one window. The collect stamps are only read, never moved."""
+        return _json(history.load_history(action, since, batch, payload, reset, now))
 
     # ---------------------------------------------------------------- time blocks (0.3.0)
 
