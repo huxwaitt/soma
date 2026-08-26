@@ -15,7 +15,7 @@ from administrator_vault import priorities, store, timeblock, wiki
 from administrator_vault.server import build_server
 from administrator_vault.store import VaultError
 
-CB = "administrator/0.4.0"
+CB = "administrator/0.4.1"
 PATH = "Administrator/Priorities.md"
 TODAY = "2026-08-24"
 STAMP_RE = re.compile(r"<!-- suggested by administrator, confirmed \d{4}-\d{2}-\d{2} -->")

@@ -13,28 +13,37 @@ from typing import Any
 ADMIN_DIR = "Administrator"
 
 FOLDERS = (
-    "Daily", "Emails", "Meetings", "Attachments", "Weekly", "Teams", "Time-blocks", "_views",
+    "Daily", "Emails", "Meetings", "Attachments", "Weekly", "Teams", "Time-blocks", "Documents", "_views",
     "Wiki", "Wiki/People", "Wiki/Orgs", "Wiki/Topics", "Wiki/Decisions", "Wiki/Howto",
 )
 FILES = ("Follow-ups.md", "Preferences.md", "Rules.md", "Priorities.md", "Wiki/Questions.md")
+
+# The record kinds and the keys every one of them carries, in this order after
+# "type". Code fills them from the kind's own keys, so a writer only has to
+# pass what is its own. See the record contract in wiki_schema.md.
+RECORD_TYPES = ("email", "meeting", "chat", "document", "daily", "weekly")
+CORE_KEYS = ("source", "record_id", "title", "date", "people", "wiki", "ingested", "created_by")
+DEFAULT_SOURCE = {
+    "email": "outlook", "meeting": "outlook", "daily": "outlook",
+    "chat": "teams", "document": "file", "weekly": "administrator",
+}
 
 # type -> (folder under Administrator/, required frontmatter keys, date key)
 SCHEMAS: dict[str, dict[str, Any]] = {
     "email": {
         "folder": "Emails",
-        "required": (
-            "type", "source", "internet_message_id", "entry_id", "conversation_id",
-            "subject", "from", "from_name", "from_link", "to", "cc", "received",
-            "status", "created_by",
+        "required": ("type",) + CORE_KEYS + (
+            "internet_message_id", "entry_id", "conversation_id",
+            "subject", "from", "from_name", "from_link", "to", "cc", "received", "status",
         ),
         "date_key": "received",
     },
     "meeting": {
         "folder": "Meetings",
-        "required": (
-            "type", "source", "global_id", "occurrence_key", "subject", "start", "end",
+        "required": ("type",) + CORE_KEYS + (
+            "global_id", "occurrence_key", "subject", "start", "end",
             "location", "organizer", "organizer_link", "attendees", "attendee_links",
-            "is_recurring", "status", "created_by",
+            "is_recurring", "status",
         ),
         "date_key": "start",
     },
@@ -45,22 +54,27 @@ SCHEMAS: dict[str, dict[str, Any]] = {
     },
     "daily": {
         "folder": "Daily",
-        "required": (
-            "type", "date", "folder", "since", "inbox_checked", "mails_seen",
-            "status", "created_by",
+        "required": ("type",) + CORE_KEYS + (
+            "folder", "since", "inbox_checked", "mails_seen", "status",
         ),
         "date_key": "date",
     },
     "weekly": {
         "folder": "Weekly",
-        "required": ("type", "week", "start", "end", "created_by"),
+        "required": ("type",) + CORE_KEYS + ("week", "start", "end"),
         "date_key": "start",
     },
     "chat": {  # one Teams chat on one day; record_id = "<chat_id>|<date>"
         "folder": "Teams",
-        "required": (
-            "type", "source", "chat_id", "chat_title", "date", "account", "members",
-            "record_id", "messages", "first", "last", "created_by",
+        "required": ("type",) + CORE_KEYS + (
+            "chat_id", "chat_title", "account", "members", "messages", "first", "last",
+        ),
+        "date_key": "date",
+    },
+    "document": {  # one file read into the vault; record_id = 16 hex of its sha256
+        "folder": "Documents",
+        "required": ("type",) + CORE_KEYS + (
+            "path", "hash", "format", "parts", "chars", "from_email", "text_file",
         ),
         "date_key": "date",
     },
@@ -72,7 +86,10 @@ SCHEMAS: dict[str, dict[str, Any]] = {
 }
 
 # Keys vault_write may replace on an existing note (everything else is frozen).
-REPLACEABLE_KEYS = ("status", "last_contact", "inbox_checked", "mails_seen", "wiki", "messages", "last", "planned")
+REPLACEABLE_KEYS = (
+    "status", "last_contact", "inbox_checked", "mails_seen", "wiki", "ingested",
+    "messages", "last", "planned", "hash", "parts", "chars", "text_file", "from_email",
+)
 
 FOLLOWUPS_OPEN_HEADER = ["Since", "Who", "What", "Email", "Last checked"]
 FOLLOWUPS_DONE_HEADER = ["Since", "Who", "What", "Email", "Closed"]
@@ -121,10 +138,109 @@ def identity_of(note_type: str, fm: dict[str, Any]) -> dict[str, Any]:
         return {"week": str(fm.get("week") or "")}
     if note_type == "chat":
         return {"chat_id": str(fm.get("chat_id") or ""), "date": str(fm.get("date") or "")[:10]}
+    if note_type == "document":
+        return {"hash": str(fm.get("hash") or "")}
     if note_type == "time-block":
         return {"week": str(fm.get("week") or "")}
     schema(note_type)
     return {}
+
+
+# ------------------------------------------------------------- record contract
+
+
+_CORE_DATE_KEY = {
+    "email": "received", "meeting": "start", "chat": "date",
+    "document": "date", "daily": "date", "weekly": "start",
+}
+
+
+def record_id_of(note_type: str, fm: dict[str, Any]) -> str:
+    """The record's stable id, taken from the kind's own identity keys."""
+    def g(key: str) -> str:
+        return str(fm.get(key) or "").strip()
+
+    if note_type == "email":
+        return g("internet_message_id") or g("entry_id")
+    if note_type == "meeting":
+        return g("occurrence_key") or g("global_id")
+    if note_type == "chat":
+        chat_id, day = g("chat_id"), g("date")[:10]
+        return f"{chat_id}|{day}" if chat_id and day else ""
+    if note_type == "document":
+        return g("hash")
+    if note_type == "daily":
+        return g("date")[:10]
+    if note_type == "weekly":
+        return g("week")
+    return ""
+
+
+def record_title(note_type: str, fm: dict[str, Any]) -> str:
+    given = str(fm.get("title") or "").strip()
+    if given:
+        return given
+    if note_type in ("email", "meeting"):
+        return str(fm.get("subject") or "").strip()
+    if note_type == "chat":
+        return str(fm.get("chat_title") or fm.get("chat_id") or "").strip()
+    if note_type == "daily":
+        return str(fm.get("date") or "")[:10]
+    if note_type == "weekly":
+        return str(fm.get("week") or "").strip()
+    return ""
+
+
+def record_date(note_type: str, fm: dict[str, Any]) -> str:
+    key = _CORE_DATE_KEY.get(note_type, "date")
+    return str(fm.get(key) or "").strip()[:10]
+
+
+def _links_of(value: Any) -> list[str]:
+    if isinstance(value, str):
+        value = [value] if value.strip() else []
+    return [str(v).strip() for v in (value or []) if str(v).strip().startswith("[[")]
+
+
+def record_people(note_type: str, fm: dict[str, Any]) -> list[str]:
+    """The person-page links this record is about, deduped, in reading order."""
+    if "people" in fm:
+        return _links_of(fm.get("people"))
+    out: list[str] = []
+    if note_type == "email":
+        out = _links_of(fm.get("from_link"))
+    elif note_type == "meeting":
+        out = _links_of(fm.get("organizer_link")) + _links_of(fm.get("attendee_links"))
+    return list(dict.fromkeys(out))
+
+
+def with_core_keys(note_type: str, frontmatter: dict[str, Any]) -> dict[str, Any]:
+    """The frontmatter of a record with the core keys filled in and in order:
+    type, then source, record_id, title, date, people, wiki, ingested,
+    created_by, then the kind's own keys as they came in.
+
+    Nothing already set is overwritten, and a kind that is not a record
+    (person, time-block) is handed back unchanged."""
+    fm = dict(frontmatter or {})
+    if note_type not in RECORD_TYPES:
+        return fm
+    core: dict[str, Any] = {
+        "source": str(fm.get("source") or "").strip() or DEFAULT_SOURCE.get(note_type, "administrator"),
+        "record_id": str(fm.get("record_id") or "").strip() or record_id_of(note_type, fm),
+        "title": record_title(note_type, fm),
+        "date": record_date(note_type, fm),
+        "people": record_people(note_type, fm),
+        "wiki": fm.get("wiki") if fm.get("wiki") else [],
+        "ingested": str(fm.get("ingested") or "").strip()[:10],
+    }
+    out: dict[str, Any] = {"type": note_type}
+    out.update(core)
+    if "created_by" in fm:
+        out["created_by"] = fm["created_by"]
+    for key, value in fm.items():
+        if key not in out:
+            out[key] = value
+    return out
 
 
 def normalize_identity(note_type: str, identity: Any) -> dict[str, Any]:
@@ -149,6 +265,8 @@ def normalize_identity(note_type: str, identity: Any) -> dict[str, Any]:
             if not chat_id or not re.match(r"^\d{4}-\d{2}-\d{2}$", day):
                 raise NoteError(f"identity for a chat note must be 'chat_id|YYYY-MM-DD', got {s!r}.")
             ident = {"chat_id": chat_id, "date": day}
+        elif note_type == "document":
+            ident = {"hash": s}
         elif note_type == "time-block":
             ident = {"week": s}
         else:
@@ -167,7 +285,8 @@ def matches(note_type: str, fm: dict[str, Any], identity: dict[str, Any]) -> boo
     email: internet_message_id when the identity has one, else entry_id.
     meeting: occurrence_key when the identity has one, else global_id.
     person: email, case-insensitive, also against ``aliases``.
-    daily: date. weekly: week. chat: chat_id and date. time-block: week.
+    daily: date. weekly: week. chat: chat_id and date. document: hash.
+    time-block: week.
     """
     if fm.get("type") not in (None, note_type):
         return False
@@ -207,6 +326,9 @@ def matches(note_type: str, fm: dict[str, Any], identity: dict[str, Any]) -> boo
     if note_type == "chat":
         chat_id, day = identity.get("chat_id") or "", (identity.get("date") or "")[:10]
         return bool(chat_id and day) and str(fm.get("chat_id") or "") == chat_id and str(fm.get("date") or "")[:10] == day
+    if note_type == "document":
+        h = identity.get("hash") or ""
+        return bool(h) and str(fm.get("hash") or "") == h
     if note_type == "time-block":
         return bool(identity.get("week")) and str(fm.get("week") or "") == identity["week"]
     return False
@@ -288,6 +410,9 @@ def base_filename(note_type: str, fm: dict[str, Any]) -> str:
         return f"{week}.md"
     if note_type == "chat":
         title = str(fm.get("chat_title") or "").strip() or str(fm.get("chat_id") or "")
+        return f"{_date_part(fm.get('date'), 'date')} {slug(title)}.md"
+    if note_type == "document":
+        title = str(fm.get("title") or "").strip() or str(fm.get("path") or "")
         return f"{_date_part(fm.get('date'), 'date')} {slug(title)}.md"
     schema(note_type)
     raise NoteError(f"No filename rule for {note_type}.")

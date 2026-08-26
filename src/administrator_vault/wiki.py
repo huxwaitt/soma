@@ -27,7 +27,7 @@ from administrator_vault import notes, store
 from administrator_vault.notes import ADMIN_DIR
 from administrator_vault.store import VaultError, read_text, rel, resolve
 
-CREATED_BY = "administrator/0.4.0"
+CREATED_BY = "administrator/0.4.1"
 WIKI_DIR = f"{ADMIN_DIR}/Wiki"
 INDEX_PATH = f"{WIKI_DIR}/Index.md"
 LOG_PATH = f"{WIKI_DIR}/Log.md"
@@ -339,6 +339,17 @@ def _parse_src(raw: str) -> list[str]:
 
 def _format_src(srcs: list[str]) -> str:
     return ",".join(_quote(s) for s in srcs)
+
+
+def src_record(src: Any) -> str:
+    """The record a source names, without its locator: '<id>#p3' -> '<id>'.
+
+    A src is written whole ('<id>#s4') and kept whole; everything that
+    compares or counts sources uses this, so one document cited from three
+    pages, and from three places on one page, is one source. A record id
+    itself never holds a '#'."""
+    s = _s(src)
+    return s.split("#", 1)[0] or s
 
 
 def _atomic_write(p: Path, text: str) -> None:
@@ -1020,17 +1031,22 @@ def _record_info(root: Path, record_path: str) -> dict[str, Any]:
         raise VaultError(f"No such record: {record_path!r}.")
     fm, _block, body = fmt.split_note(read_text(p))
     kind = _s(fm.get("type"))
+    # record_id is what every record carries; the older per-kind keys are the fallback
+    src = _s(fm.get("record_id")).strip()
     if kind == "email":
-        day = _s(fm.get("received"))[:10]
-        src = _s(fm.get("internet_message_id")) or _s(fm.get("entry_id"))
+        day = _s(fm.get("date") or fm.get("received"))[:10]
+        src = src or _s(fm.get("internet_message_id")) or _s(fm.get("entry_id"))
     elif kind == "meeting":
-        day = _s(fm.get("start"))[:10]
-        src = _s(fm.get("occurrence_key")) or _s(fm.get("global_id"))
+        day = _s(fm.get("date") or fm.get("start"))[:10]
+        src = src or _s(fm.get("occurrence_key")) or _s(fm.get("global_id"))
     elif kind == "chat":
         day = _s(fm.get("date"))[:10]
-        src = _s(fm.get("record_id")) or f"{_s(fm.get('chat_id'))}|{day}"
+        src = src or f"{_s(fm.get('chat_id'))}|{day}"
+    elif kind == "document":
+        day = _s(fm.get("date"))[:10]
+        src = src or _s(fm.get("hash"))
     else:
-        raise VaultError(f"{record_path!r} is not an email, meeting or chat note (type {kind!r}).")
+        raise VaultError(f"{record_path!r} is not an email, meeting, chat or document note (type {kind!r}).")
     if not _DATE_RE.match(day):
         raise VaultError(f"{record_path!r} has no usable date in its frontmatter.")
     summary = ""
@@ -1047,7 +1063,7 @@ def _record_info(root: Path, record_path: str) -> dict[str, Any]:
             if re.match(r"^#{2,3} Summary\s*$", line):
                 summary = next((l.strip() for l in lines[i + 1 :] if l.strip() and not l.startswith("#")), "")
                 break
-    subject = _s(fm.get("subject") or fm.get("chat_title"))
+    subject = _s(fm.get("subject") or fm.get("chat_title") or fm.get("title"))
     path = rel(root, p)
     return {
         "path": path,
@@ -1076,6 +1092,19 @@ def _link_record(root: Path, record_path: str, page_stem: str) -> bool:
     lines = text.split("\n")
     close = next(i for i in range(1, len(lines)) if lines[i].rstrip("\r") == "---")
     _atomic_write(p, "\n".join(["---", new_block, "---"] + lines[close + 1 :]))
+    return True
+
+
+def _mark_ingested(root: Path, record_path: str, day: str) -> bool:
+    """Write today's date on the record's ``ingested`` key."""
+    p = resolve(root, record_path)
+    text = read_text(p)
+    fm, block, _body = fmt.split_note(text)
+    if not block or _s(fm.get("ingested")) == day:
+        return False
+    lines = text.split("\n")
+    close = next(i for i in range(1, len(lines)) if lines[i].rstrip("\r") == "---")
+    _atomic_write(p, "\n".join(["---", fmt.replace_keys(block, {"ingested": day}), "---"] + lines[close + 1 :]))
     return True
 
 
@@ -1193,8 +1222,10 @@ def _pin_check(page: Page, f: Fact, src: str, new_text: str, ctx: _Ctx) -> None:
 
 
 def _extend_src(f: Any, src: str) -> None:  # a Fact or an OpenItem: both keep a src list
-    if src in f.src:
-        f.src.remove(src)
+    # the same record again, whatever part of it, replaces the src it already has:
+    # a second page of one document is the same source, not a second one
+    record = src_record(src)
+    f.src[:] = [s for s in f.src if src_record(s) != record]
     f.src.insert(0, src)
     del f.src[SRC_MAX:]
 
@@ -1373,8 +1404,9 @@ def _apply_one(page: Page, op: str, raw: dict[str, Any], ctx: _Ctx) -> dict[str,
         due = _check_date(raw.get("due"), "due") if _s(raw.get("due")).strip() else ""
         since = _since_of(raw, ctx)
         # the same wording, or the same record twice ("user" is not a record: it may say many things)
-        same_src = src if src and src != "user" else ""
-        if any(_norm(o.text) == _norm(text) or (same_src and same_src in o.src) for o in page.opens if not o.raw):
+        same_src = src_record(src) if src and src != "user" else ""
+        if any(_norm(o.text) == _norm(text) or (same_src and any(src_record(s) == same_src for s in o.src))
+               for o in page.opens if not o.raw):
             raise WikiRefusal("duplicate", detail="This open item is already on the page.")
         item = OpenItem(
             id=_new_id(page.ids()), text=text, owner=owner, due=due, since=since, src=[src],
@@ -1554,18 +1586,19 @@ def _record_src_id(root: Path, stem: str, cache: dict[str, str]) -> str:
                 rfm, _block, _body = fmt.split_note(read_text(p))
                 ident = (
                     _s(rfm.get("record_id")) or _s(rfm.get("internet_message_id")) or _s(rfm.get("occurrence_key"))
-                    or _s(rfm.get("entry_id")) or _s(rfm.get("global_id")) or stem
+                    or _s(rfm.get("entry_id")) or _s(rfm.get("global_id")) or _s(rfm.get("hash")) or stem
                 )
             except Exception:  # noqa: BLE001 - an unreadable record still counts once
                 ident = stem
-        cache[stem] = ident
+        cache[stem] = src_record(ident)
     return cache[stem]
 
 
 def count_sources(root: Path, page: Page, cache: Optional[dict[str, str]] = None) -> int:
-    """Distinct records behind a page: fact sources plus the Records list, deduped by record id."""
+    """Distinct records behind a page: fact sources plus the Records list, deduped
+    by record id. A locator ('#p3') does not make a second source."""
     cache = cache if cache is not None else {}
-    ids = {s for f in page.facts for s in f.src if s != "user"}
+    ids = {src_record(s) for f in page.facts for s in f.src if s != "user"}
     for line in page.lines("Records"):
         m = _RECORD_RE.match(line)
         if m:
@@ -2054,8 +2087,10 @@ def ingest(record_path: str, pages: Optional[list[dict[str, Any]]] = None, creat
             path = page_path(_s(spec.get("path")))
             results.append(_write_ops(root, path, ops, ctx, "ingest"))
         cand = _candidate_note(root, rec["path"], rec["subject"], rec["date"], rec["summary"])
+        ingested = _today()
+        _mark_ingested(root, rec["path"], ingested)
         _write_index(root, touched)
-    out = {"record": rec["link"], "pages": results, "candidate": cand}
+    out = {"record": rec["link"], "ingested": ingested, "pages": results, "candidate": cand}
     if adopted:
         out["adopted"] = adopted
     if confirmed:

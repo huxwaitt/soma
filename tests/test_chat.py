@@ -12,7 +12,7 @@ from administrator_vault import frontmatter as fmt
 from administrator_vault import notes, store, wiki, workflows
 from administrator_vault.server import build_server
 
-CB = "administrator/0.4.0"
+CB = "administrator/0.4.1"
 W = "Administrator/Wiki"
 
 
@@ -76,7 +76,9 @@ def test_save_chat_writes_the_day_record_and_dedupes_on_rerun(vault):
     ) in text
     # nobody has a page and nobody gets one
     assert res["people"] == [] and res["unknown_people"] == ["Jane Doe"] and people_files(vault) == []
-    assert "wiki" not in fm
+    # the record contract: the core keys come first and stay empty until an ingest fills them
+    assert list(fm)[:9] == ["type"] + list(notes.CORE_KEYS)
+    assert fm["title"] == "Q3 budget" and fm["people"] == [] and fm["wiki"] == [] and fm["ingested"] == ""
 
     # the same messages again plus one new: only the new one is appended
     res2 = workflows.save_chat(chat(), [msg(2, "2026-08-21T10:05:00+02:00"), msg(3, "2026-08-21T11:00:00+02:00", text="Yes, tomorrow.")], ["Hux"], created_by=CB)
@@ -160,4 +162,4 @@ def test_server_save_chat_round_trip(vault):
     text = out[0].text if isinstance(out, list) else out[0][0].text
     res = json.loads(text)
     assert res["action"] == "created" and res["path"] == "Administrator/Teams/2026-08-21 Q3 budget.md" and res["unknown_people"] == ["Jane Doe"]
-    assert fm_of(vault, res["path"])["created_by"] == "administrator/0.4.0"
+    assert fm_of(vault, res["path"])["created_by"] == "administrator/0.4.1"

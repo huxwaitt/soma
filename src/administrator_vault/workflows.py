@@ -9,6 +9,7 @@ imports Outlook code; the vault server runs without Outlook.
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import json
 import re
 from datetime import date, datetime, timedelta
@@ -20,7 +21,7 @@ from administrator_vault import notes, store, wiki
 from administrator_vault.notes import ADMIN_DIR, NoteError
 from administrator_vault.store import VaultError, read_text, rel, resolve, write_text
 
-CREATED_BY = "administrator/0.4.0"
+CREATED_BY = "administrator/0.4.1"
 RULES_PATH = f"{ADMIN_DIR}/Rules.md"
 FOLLOWUPS_PATH = f"{ADMIN_DIR}/Follow-ups.md"
 CACHE_DIR = f"{ADMIN_DIR}/Attachments/_cache"
@@ -37,6 +38,8 @@ LABELS = ("act", "reply", "waiting", "fyi", "noise")
 DAILY_HEADER = ["#", "Label", "From", "Subject", "Received", "Why", "Note"]
 CALENDAR_HEADER = ["Start", "End", "Subject", "Location", "Organizer"]
 TRANSCRIPT_MAX_LINES = 400
+DOCUMENT_CHARS = 40000  # more text than this goes to Attachments/<slug>/text.md
+DOCUMENT_SECTION_CHARS = 300  # what the record keeps of each part when it does
 
 _COMMENT_RE = re.compile(r"<!--\s*([A-Za-z_]+):\s*(.*?)\s*-->")
 _ENTRY_RE = re.compile(r"<!--\s*entry_id:\s*(.*?)\s*-->")
@@ -729,6 +732,39 @@ def _vault_link(root: Path, path_or_rel: str) -> Optional[str]:
     return f"[[{target}|{name}]]"
 
 
+def _thread_content(thread: Optional[list[dict[str, Any]]], body_text: str) -> str:
+    """The '## Content' text of an email record.
+
+    One mail keeps its body as it is. A thread becomes one
+    '### m<n> — <date> <from>' section per mail, oldest first: from the
+    ``thread`` items when they were given, else from the '###' headings the
+    caller already wrote into the body."""
+    mails = [m for m in (thread or []) if isinstance(m, dict)]
+    if mails:
+        out: list[str] = []
+        for n, m in enumerate(sorted(mails, key=lambda m: _s(m.get("received") or m.get("date"))), 1):
+            when = _s(m.get("received") or m.get("date"))
+            day = f"{_date_of(when)} {_hhmm(when)}".strip() if when else ""
+            who = _s(m.get("from") or m.get("from_address")).strip()
+            text = _s(m.get("body_trimmed") if m.get("body_trimmed") else m.get("body")).replace("\r\n", "\n").strip("\n")
+            out += [f"### m{n} — {' '.join(x for x in (day, who) if x)}".rstrip(" —"), "", text, ""]
+        return "\n".join(out).strip("\n")
+    lines = body_text.split("\n")
+    # two or more '###' headings are a thread the caller wrote out; one is just text
+    if sum(1 for l in lines if (m := _HEADING_RE.match(l)) and len(m.group(1)) == 3) < 2:
+        return body_text
+    out, n = [], 0
+    for line in lines:
+        m = _HEADING_RE.match(line)
+        if m and len(m.group(1)) == 3:
+            n += 1
+            rest = re.sub(r"^m\d+\s+—\s+", "", m.group(2).strip())
+            out.append(f"### m{n} — {rest.replace(' — ', ' ')}")
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
 def _kb(size: Any) -> str:
     try:
         n = int(size)
@@ -746,6 +782,7 @@ def save_email(
     status: Optional[str] = None,
     self_addresses: Optional[list[str]] = None,
     company: Optional[str] = None,
+    thread: Optional[list[dict[str, Any]]] = None,
     created_by: str = CREATED_BY,
 ) -> dict[str, Any]:
     if not isinstance(mail, dict) or not (_s(mail.get("entry_id")) or _s(mail.get("internet_message_id"))):
@@ -812,9 +849,9 @@ def save_email(
     lines.append("")
     if not existing["found"]:
         body_text = _s(mail.get("body_trimmed") if mail.get("body_trimmed") else mail.get("body")).replace("\r\n", "\n").strip("\n")
-        lines += ["## Body", "", body_text, ""]
+        lines += ["## Content", "", _thread_content(thread, body_text), ""]
     if atts or msg_link:
-        lines += ["## Attachments" if not existing["found"] else "### Attachments", ""]
+        lines += ["## Files" if not existing["found"] else "### Files", ""]
         if msg_link:
             lines.append(f"- {msg_link} (original message)")
         for a in atts:
@@ -867,6 +904,199 @@ def save_email(
         src = fm["internet_message_id"] or fm["entry_id"]
         followup_added = _open_commitment(root, _people(root), _date_of(received), who_name, who_addr, fm["subject"], path, src)
     return {"path": path, "action": res["action"], "status": status, "person_path": person_path, "person_action": person_action, "followup_added": followup_added}
+
+
+# --------------------------------------------------------------- save document
+
+
+def _document_file(root: Path, path: Any) -> Path:
+    """The file to read, from an absolute path or a vault-relative one."""
+    raw = _s(path).strip().strip('"')
+    if not raw:
+        raise VaultError("save needs the path of a file to read.")
+    p = Path(raw.replace("\\", "/"))
+    if not p.is_absolute():
+        p = root / raw.replace("\\", "/").lstrip("/")
+    if not p.is_file():
+        raise VaultError(f"No such file: {raw}")
+    return p
+
+
+def _document_hash(p: Path) -> str:
+    h = hashlib.sha256()
+    with p.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()[:16]
+
+
+def _document_by_path(root: Path, path_value: str) -> Optional[tuple[str, dict[str, Any]]]:
+    """The document record made from this file before, whatever its hash is now."""
+    wanted = _s(path_value).strip().replace("\\", "/").lower()
+    for p, fm in store._iter_notes(root, "document"):
+        if _s(fm.get("path")).strip().replace("\\", "/").lower() == wanted:
+            return rel(root, p), fm
+    return None
+
+
+def _record_path(root: Path, record: Any) -> str:
+    """A record named as a vault-relative path or a wikilink, as a path."""
+    s = _s(record).strip()
+    if not s:
+        return ""
+    if s.startswith("[["):
+        s = f"{ADMIN_DIR}/{wiki._link_target(s)}.md"
+    p = resolve(root, s)
+    if not p.is_file():
+        raise VaultError(f"No such record: {_s(record)!r}.")
+    return rel(root, p)
+
+
+def _document_sections(sections: list[dict[str, Any]], text_link: str) -> list[str]:
+    """The '## Content' lines: whole sections, or their first characters plus a
+    link to the text file when the document went over the cap."""
+    out: list[str] = []
+    for s in sections:
+        out += [f"### {s['locator']} — {s['heading']}", ""]
+        if text_link:
+            head = s["text"][:DOCUMENT_SECTION_CHARS].rstrip()
+            out += [head + (f"… (full text: {text_link})" if len(s["text"]) > len(head) else ""), ""]
+        else:
+            out += [s["text"], ""]
+    return out
+
+
+def save_document(
+    path: str,
+    summary: str = "",
+    action_items: Optional[list[str]] = None,
+    from_email: Optional[str] = None,
+    created_by: str = CREATED_BY,
+) -> dict[str, Any]:
+    """Read a file into ``Administrator/Documents/<date> <slug>.md``.
+
+    The same file again (same hash) is left alone; the same path with new
+    content gets an '## Update' with the parts that are there now. With
+    ``from_email`` the two records link to each other."""
+    from administrator_vault import documents
+
+    root = store.vault_root()
+    p = _document_file(root, path)
+    given = _s(path).strip().replace("\\", "/")
+    digest = _document_hash(p)
+    action_items = [a for a in (action_items or []) if _s(a).strip()]
+
+    email_path = _record_path(root, from_email) if from_email else ""
+    email_link = _link(email_path) if email_path else ""
+
+    same = store.find("document", {"hash": digest})
+    if same["found"]:
+        fm = same["frontmatter"]
+        # the file is the one already on file; a mail it came with is still worth linking
+        linked = _link_mail(root, same["path"], email_path, p.name) if email_path else False
+        return {
+            "path": same["path"], "action": "unchanged", "record_id": _s(fm.get("record_id")) or digest,
+            "format": _s(fm.get("format")), "parts": fm.get("parts"), "chars": fm.get("chars"),
+            "empty": not fm.get("chars"), "text_file": _s(fm.get("text_file")) or None, "sections": [],
+            "from_email": _link(email_path) if email_path else _s(fm.get("from_email")), "linked": linked,
+        }
+
+    ex = documents.extract(p)
+    day = ""
+    if email_path:
+        hit = store.read(email_path)
+        day = _date_of(hit["frontmatter"].get("received") or hit["frontmatter"].get("date"))
+    if not day:
+        day = datetime.fromtimestamp(p.stat().st_mtime).date().isoformat()
+
+    title = notes.sanitize(p.stem) or p.name
+    slug_name = notes.slug(p.stem)
+    text_file, text_link = "", ""
+    if ex["chars"] > DOCUMENT_CHARS:
+        text_file = f"{ADMIN_DIR}/Attachments/{slug_name}/text.md"
+        write_text(resolve(root, text_file), documents.full_text(ex) + "\n")
+        text_link = _link(text_file)
+
+    fm: dict[str, Any] = {
+        "type": "document",
+        "source": "file",
+        "record_id": digest,
+        "title": title,
+        "date": day,
+        "path": given,
+        "hash": digest,
+        "format": ex["format"],
+        "parts": ex["parts"],
+        "chars": ex["chars"],
+        "from_email": email_link,
+        "text_file": text_link,
+        "created_by": created_by,
+    }
+
+    old = _document_by_path(root, given)
+    lines: list[str] = []
+    if old:
+        lines += ["The file changed; the parts below replace the ones above.", ""]
+    else:
+        lines += [f"# {title}", "", f"**File:** `{given}`",
+                  f"**Read:** {ex['format']}, {ex['parts']} part{'' if ex['parts'] == 1 else 's'}, {ex['chars']} characters"]
+        if email_link:
+            lines.append(f"**From mail:** {email_link}")
+        lines.append("")
+    head = "###" if old else "##"
+    lines += [f"{head} Summary", "", _s(summary).strip() or "(no summary)", ""]
+    lines += [f"{head} Action items", ""]
+    lines += [a if a.lstrip().startswith("- ") else f"- [ ] {a.strip()}" for a in action_items] or ["- none"]
+    lines += ["", f"{head} Content", ""]
+    if ex["empty"]:
+        lines += ["No text could be read (scanned?).", ""]
+    else:
+        lines += _document_sections(ex["sections"], text_link)
+    if not old:
+        lines += ["## Files", "", f"- `{given}` — the file this was read from"]
+        if email_link:
+            lines.append(f"- {email_link} — arrived as an attachment of this mail")
+        lines.append("")
+    body = "\n".join(lines).rstrip("\n")
+
+    if old:
+        # the record keeps the id it was born with, so facts already citing it still count as one source
+        fm["record_id"] = _s(old[1].get("record_id")) or digest
+        res = store._append(root, old[0], notes.with_core_keys("document", fm), body, {"hash": digest})
+    else:
+        res = store.write("document", fm, body, "create")
+    doc_path = res["path"]
+
+    linked = _link_mail(root, doc_path, email_path, p.name) if email_path else False
+
+    return {
+        "path": doc_path,
+        "action": res["action"],
+        "record_id": _s(fm["record_id"]),
+        "format": ex["format"],
+        "parts": ex["parts"],
+        "chars": ex["chars"],
+        "empty": ex["empty"],
+        "text_file": text_file or None,
+        "sections": [{"locator": s["locator"], "heading": s["heading"], "chars": s["chars"]} for s in ex["sections"]],
+        "from_email": email_link,
+        "linked": linked,
+    }
+
+
+def _link_mail(root: Path, doc_path: str, email_path: str, filename: str) -> bool:
+    """Put each of the two records on the other's '## Files' list, through an Update."""
+    doc_link, mail_link = _link(doc_path), _link(email_path)
+    done = False
+    if mail_link not in read_text(resolve(root, doc_path)):
+        store._append(root, doc_path, {"from_email": mail_link},
+                      f"### Files\n\n- {mail_link} — arrived as an attachment of this mail", {})
+        done = True
+    if doc_link not in read_text(resolve(root, email_path)):
+        store._append(root, email_path, {},
+                      f"### Files\n\n- {doc_link} — {filename}, read into the vault", {})
+        done = True
+    return done
 
 
 # ------------------------------------------------------------------ prep context
@@ -1438,6 +1668,71 @@ def _never_read(root: Path, p: Path) -> bool:
     return len(parts) >= 2 and parts[0] == ADMIN_DIR and parts[1] in COLLECT_NEVER_READ
 
 
+def _document_folder(root: Path, raw: Any) -> Path:
+    """A watched document folder: vault-relative, or a full path on the machine."""
+    s = _s(raw).strip().replace("\\", "/")
+    if not s:
+        raise VaultError("A document folder is empty.")
+    p = Path(s)
+    if not p.is_absolute():
+        parts = [part for part in s.split("/") if part not in ("", ".")]
+        if any(part == ".." for part in parts):
+            raise VaultError(f"Document folders may not contain '..': {raw!r}.")
+        p = root.joinpath(*parts) if parts else root
+    return p
+
+
+def _shown_path(root: Path, file: Path) -> str:
+    """A watched file's path: vault-relative when it is in the vault, else as it is."""
+    try:
+        return file.resolve().relative_to(root.resolve()).as_posix()
+    except (ValueError, OSError):
+        return file.as_posix()
+
+
+def changed_documents(root: Path, since_dt: datetime, folders: list[str], limit: int) -> dict[str, Any]:
+    """The files in the watched folders modified after ``since``, oldest first.
+
+    Nothing is read out of them here: a file becomes a record only when
+    vault_save(kind="document") is called on it."""
+    from administrator_vault import documents
+
+    found: list[tuple[datetime, dict[str, Any]]] = []
+    checked: list[str] = []
+    missing: list[str] = []
+    seen: set[Path] = set()
+    for raw in folders:
+        p = _document_folder(root, raw)
+        shown = _shown_path(root, p)
+        if not p.is_dir():
+            missing.append(shown)
+            continue
+        checked.append(shown)
+        for file in sorted(p.rglob("*")):
+            if file in seen or file.suffix.lower() not in documents.FORMATS or not file.is_file():
+                continue
+            if any(part.startswith((".", "~$")) for part in file.parts):
+                continue
+            seen.add(file)
+            try:
+                stat = file.stat()
+                modified = datetime.fromtimestamp(stat.st_mtime).astimezone()
+            except OSError:
+                continue
+            if modified <= since_dt:
+                continue
+            found.append((modified, {
+                "path": _shown_path(root, file),
+                "kind": "document",
+                "modified": modified.isoformat(timespec="seconds"),
+                "size": stat.st_size,
+                "format": documents.FORMATS[file.suffix.lower()],
+            }))
+    found.sort(key=lambda f: (f[0], f[1]["path"]))
+    return {"documents": [item for _m, item in found[:limit]], "document_folders": checked,
+            "documents_total": len(found), "missing": missing}
+
+
 def _last_update(body: str) -> tuple[str, bool]:
     """(the last '## Update …' section's text, True) or (the whole body, False)."""
     lines = body.split("\n")
@@ -1454,17 +1749,21 @@ def changed_notes(since: str, folders: Optional[list[str]] = None, max_chars: in
     """Markdown notes modified after ``since``, oldest first, from
     Administrator/Meetings, Emails, Daily, Weekly and the ``collect_folders``
     of Preferences.md (or the given ``folders``). Wiki/, Attachments/,
-    _views/, _backup/ and dot-folders are never read."""
+    _views/, _backup/ and dot-folders are never read.
+
+    The files in the ``document_folders`` of Preferences.md that changed in
+    the same window come back under ``documents``, listed and not read."""
     root = store.vault_root()
     since_dt = _parse_dt(since)
     if since_dt is None:
         raise VaultError(f"'since' must be an ISO date or datetime, got {since!r}.")
     since_dt = _local(since_dt)
+    prefs = store.read_preferences()["preferences"]
     if folders is None:
-        prefs = store.read_preferences()["preferences"]
         raw = [f"{ADMIN_DIR}/{f}" for f in COLLECT_DEFAULT_FOLDERS] + [_s(f) for f in (prefs.get("collect_folders") or [])]
     else:
         raw = [_s(f) for f in folders]
+    docs = changed_documents(root, since_dt, [_s(f) for f in (prefs.get("document_folders") or [])], limit)
     checked: list[str] = []
     skipped: list[dict[str, str]] = []
     missing: list[str] = []
@@ -1523,6 +1822,9 @@ def changed_notes(since: str, folders: Optional[list[str]] = None, max_chars: in
         "capped": len(items) > limit,
         "folders": checked,
         "skipped": skipped,
-        "missing": missing,
+        "missing": missing + docs["missing"],
         "notes": out,
+        "documents": docs["documents"],
+        "documents_total": docs["documents_total"],
+        "document_folders": docs["document_folders"],
     }

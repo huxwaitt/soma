@@ -34,8 +34,10 @@ from administrator_vault import frontmatter as fmt
 from administrator_vault import store, wiki
 from administrator_vault.wiki import (
     CACHE_DIR, TYPE_FOLDER, TYPES, WIKI_DIR, _LINK_RE, _RECORD_RE, _STOP, _aliases, _link_sections,
-    _link_target, _norm_name, _record_src_id, _s, _stem, _unquote,
+    _link_target, _norm_name, _record_src_id, _s, _stem, _unquote, src_record,
 )
+
+_HASH_RE = re.compile(r"^[0-9a-f]{16}$")  # a document record id
 
 SCHEMA_VERSION = 2  # 2: open items carry an owner, a due date and an id
 SEARCH_CACHE = f"{CACHE_DIR}/search.json.gz"
@@ -256,12 +258,14 @@ def _jaro_winkler(a: str, b: str) -> float:
 
 
 def _stream_of(src: str) -> str:
-    """Which kind of source a fact's src string names."""
-    s = _s(src).strip()
+    """Which kind of source a fact's src string names; the locator is left out."""
+    s = src_record(_s(src).strip()).strip()
     if not s or s.lower() == "user":
         return "user"
     if s.startswith("<") and "@" in s:
         return "mail"
+    if _HASH_RE.match(s):
+        return "file"
     if "|" in s:
         left = s.split("|", 1)[0]
         if "@thread" in left or "@unq" in left or left.startswith("19:"):
@@ -464,7 +468,7 @@ class Index:
             docs.append(_doc(
                 key=f"f:{stem}#{f.id}", pos=i + 1, text=f.text, since=f.since, src=list(f.src),
                 streams=len({_stream_of(s) for s in f.src}),
-                conf=max([f.since] + [rec_days[s] for s in f.src if s in rec_days]),
+                conf=max([f.since] + [rec_days[r] for s in f.src if (r := src_record(s)) in rec_days]),
                 superseded=False, fact_id=f.id, fields={"fact": f.text, "ctx": ctx_text},
                 raw=" ".join([f"f:{f.id}", f.text, f.since] + list(f.src) + [title] + aliases + [stem]),
             ))

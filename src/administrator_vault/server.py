@@ -23,8 +23,24 @@ write to the same note appends a "## Update <timestamp>" section.
 
 Note types and identity: email (internet_message_id, else entry_id),
 meeting (occurrence_key, else global_id), person (email, also aliases),
-daily (date), weekly (week), chat (chat_id and date), time-block (week).
-Every tool returns a JSON string.
+daily (date), weekly (week), chat (chat_id and date), document (the file's
+hash), time-block (week). Every tool returns a JSON string.
+
+Every record — email, meeting, chat, document, daily, weekly — carries the
+same keys after type, written by code: source (outlook | teams | file |
+administrator), record_id (the identity above as one string; a chat's is
+"<chat_id>|<date>", a document's the first 16 hex of its sha256), title,
+date (YYYY-MM-DD), people (person page links), wiki (the pages it was read
+into), ingested (the date of the last ingest) and created_by, then the
+kind's own keys. The body runs "# <title>", the kind's header lines,
+"## Summary", "## Action items", "## Content" (parts as
+"### <locator> — <heading>" when there is more than one), "## Files" and
+the "## Update <timestamp>" blocks later writes append.
+A fact may name the part it came from: src "<record_id>#<locator>", with
+locators p<n> (page), s<n> (slide), <sheet> or <sheet>!<cell>, m<n> (the
+n-th mail of a thread). The locator is written and kept whole; everything
+that counts sources reads it as the record, so one document cited from
+three pages is one source.
 
 The wiki (Administrator/Wiki/) holds pages the model keeps: person, org,
 topic, decision, howto, me. A topic with an owner and a due date is a
@@ -48,8 +64,10 @@ skills/wiki/references/wiki.md); read it before writing ops.
 
 Collecting: vault_collect keeps the "last collected" stamp per source
 (teams, outlook, notes) and lists the notes modified since a time
-(action=changed: records and the user's collect_folders, read only);
-vault_save(kind="chat") writes a Teams chat as a day record under Teams/.
+(action=changed: records and the user's collect_folders, read only, plus
+the changed files of the document_folders);
+vault_save(kind="chat") writes a Teams chat as a day record under Teams/,
+kind="document" a pdf, deck, sheet or text file under Documents/.
 vault_load_history reads the months before that into the wiki: it hands out
 one window of days at a time (Outlook inbox, then sent items, then Teams)
 with the exact call to list it, remembers where it got to, and never moves a
@@ -84,7 +102,8 @@ message_class).
 peak_hours: the hours the user works best, as ranges HH:MM-HH:MM (for
 example ["09:00-12:00"]); focus blocks are placed there first.
 week: an ISO week, e.g. 2026-W34. date: a local date YYYY-MM-DD.
-type (note): email, meeting, person, daily, weekly, chat or time-block.
+type (note): email, meeting, person, daily, weekly, chat, document or
+time-block.
 
 # What each tool returns
 
@@ -111,7 +130,7 @@ read back (_cache/ and _backup/ are left out), else null.
 identity is a string, or an object with the identity keys: email
 internet_message_id / entry_id; meeting occurrence_key / global_id; person
 email; daily date; weekly week; chat chat_id + date, or 'chat_id|date';
-time-block week. Without identity the notes of the type are listed instead,
+document hash; time-block week. Without identity the notes of the type are listed instead,
 newest first by its date key: email received, meeting start, person
 last_contact, daily date, weekly start; since is a lower bound on that key,
 limit caps how many come back.
@@ -119,8 +138,9 @@ limit caps how many come back.
 ## vault_write
 mode 'create' names the file by the type's filename rule (' (2)' suffix on a
 filename clash); 'append' adds '## Update <timestamp>' + body. On append
-only status / last_contact / inbox_checked / mails_seen may change in the
-frontmatter, and aliases are merged. frontmatter holds the keys and values
+only the keys a later write owns may change (status, last_contact,
+inbox_checked, mails_seen, wiki, ingested, messages, last, planned, hash,
+parts, chars, text_file), never back to empty, and aliases are merged. frontmatter holds the keys and values
 of the note; the required keys per type are validated. body is markdown
 without frontmatter.
 
@@ -140,7 +160,12 @@ set_last_cell replaces the last cell's text and keeps the hidden comment,
 e.g. the Closed date.
 
 ## vault_read
-{path, frontmatter, body, sections (heading texts)}.
+{path, frontmatter, body, sections (heading texts)}. section names one part
+of the body by its locator ("s4", "p12", "Sheet1"), by its heading, or by
+the whole heading line, and answers {path, frontmatter, section: {locator,
+heading, text, chars}, sections} with the body left out — that is how a long
+document record is read part by part. The newest part with that locator
+wins, so an updated document answers with its current text.
 
 ## vault_rules
 The rules of Administrator/Rules.md (created when missing) plus the built-in
@@ -212,6 +237,26 @@ action (created / appended / unchanged), date, record_id, added,
 skipped_duplicates, messages, people: [{name, page}], unknown_people}; when
 the messages span several days, a list with one such result per day.
 
+kind=document. path is the file to read: a full path on the machine or a
+vault-relative one. Formats: pdf (needs the 'search' extra for pypdf), docx,
+pptx, xlsx, txt, md, csv; anything else is refused. summary and
+action_items are yours, as for a mail. from_email names the mail record the
+file arrived with (a path or a wikilink): the record's date is then the
+mail's, and the two records link to each other — the mail's '## Files'
+gains the document link through an Update. The record is
+Documents/<date> <name>.md with the parts under '## Content' as
+'### <locator> — <heading>'; over 40,000 characters the full text goes to
+Attachments/<name>/text.md and each part keeps its first 300 characters
+with a link to it. The same file again (same hash) answers action
+'unchanged' and writes nothing (a mail it arrived with is still linked, and
+linked says so); the same path with new content appends an '## Update' with
+the parts as they are now and keeps the record_id it was born with, so facts
+that already cite it still point at it. Returns {path, action, record_id,
+format, parts, chars, empty (a scanned pdf with no text layer), text_file,
+from_email, linked, sections: [{locator, heading, chars}]} — read the parts
+you need with vault_read(path, section=<locator>) and cite them as
+"<record_id>#<locator>".
+
 kind=transcript. transcript_path is vault-relative, under
 Administrator/Attachments/, and meeting_path names the meeting note. The
 Copilot scaffolding is dropped, turns and speakers are counted, and
@@ -275,12 +320,13 @@ history, steps, notes; the default is lead + facts.
 ## vault_wiki_write
 pages is one entry per page: {path, ops} for an existing page, or {new:
 {type, title, aliases, lead, summary}, ops} for a new one; an empty ops list
-still adds the Records line. record_path is the email, meeting or chat note
-the ops come from: with it src and since default to the record's id and
-date, without it to src ('user' unless another is given) and today. Per page
+still adds the Records line. record_path is the email, meeting, chat or document
+note the ops come from: with it src and since default to the record's id and
+date (append '#<locator>' to src on an op that came from one named part),
+without it to src ('user' unless another is given) and today. Per page
 the answer holds the applied / refused ops with reasons, new ids and sizes;
 with a record the tool also writes Records, History, the record's wiki:
-link, Log.md and Index.md, and reports the topic candidate for the record's
+link and ingested: date, Log.md and Index.md, and reports the topic candidate for the record's
 subject (candidate.suggest_due says a record named a day, so propose an
 owner and a due date). The answer is {record (null without one), pages,
 candidate} and carries confirmed_decisions: [page stems] when the user
@@ -400,6 +446,11 @@ excerpt (the last '## Update' section when there is one, else the body),
 from_update, truncated}]}, oldest first. Wiki/, Attachments/, _views/,
 _backup/ and dot-folders are never read; folders outside Administrator/ are
 only read, never written; paths outside the vault are refused.
+The answer also carries documents: [{path, kind: 'document', modified, size,
+format}] — the files in the document_folders of Preferences.md (vault-
+relative or a full path) that changed in the same window, with
+documents_total and document_folders. They are listed, never opened: run
+vault_save(kind='document') on the ones worth keeping.
 
 ## vault_load_history
 since (plan): the date to start from, defaults to 90 days before today,
@@ -512,6 +563,7 @@ Frontmatter = Annotated[dict[str, Any], Field(description="Frontmatter keys and 
 Body = Annotated[str, Field(description="Markdown body, no frontmatter.")]
 WriteMode = Annotated[str, Field(description="create, append or upsert.")]
 Section = Annotated[str, Field(min_length=1, description="Heading text, no '## '.")]
+SectionRef = Annotated[Optional[str], Field(description="One part: its locator or heading.")]
 Row = Annotated[list[str], Field(min_length=1, description="One cell per column.")]
 DedupeKey = Annotated[Optional[str], Field(description="Key of the row's hidden comment.")]
 Header = Annotated[Optional[list[str]], Field(description="Column names for a new table.")]
@@ -549,7 +601,7 @@ WikiOps = Annotated[
 ]
 WikiSrc = Annotated[str, Field(description="'user', else a record id.")]
 RowAction = Annotated[str, Field(description="append or move.")]
-SaveKind = Annotated[str, Field(description="email, chat or transcript.")]
+SaveKind = Annotated[str, Field(description="email, chat, transcript or document.")]
 KeepAction = Annotated[str, Field(description="log, review, lint, merge or migrate.")]
 CollectAction = Annotated[str, Field(description="read, advance, tokens or changed.")]
 BlockAction = Annotated[str, Field(description="plan, write or audit.")]
@@ -749,9 +801,9 @@ def register(mcp: FastMCP) -> None:
         annotations={"title": "Read a note", "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
     )
     @_guard
-    def vault_read(path: VaultPath) -> str:
-        """Read one note under Administrator/: {path, frontmatter, body, sections (heading texts)}."""
-        return _json(store.read(path))
+    def vault_read(path: VaultPath, section: SectionRef = None) -> str:
+        """Read one note under Administrator/: {path, frontmatter, body, sections (heading texts)}. With section, the body is left out and one part comes back instead: {path, frontmatter, section: {locator, heading, text, chars}, sections} — that is how a long document record is read part by part."""
+        return _json(store.read(path, section))
 
     # ---------------------------------------------------------------- v0.5 helpers
 
@@ -802,7 +854,7 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(
         name="vault_save",
-        annotations={"title": "Save an email, chat or transcript", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+        annotations={"title": "Save an email, chat, transcript or document", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
     )
     @_guard
     def vault_save(
@@ -820,13 +872,16 @@ def register(mcp: FastMCP) -> None:
         self_names: Annotated[Optional[list[str]], Field(description="Chat: the user's own display names.")] = None,
         meeting_path: Annotated[Optional[str], Field(description="Transcript: the meeting note.")] = None,
         transcript_path: Annotated[Optional[str], Field(description="Transcript: its vault-relative path.")] = None,
+        thread: Annotated[Optional[list[dict[str, Any]]], Field(description="Email: the thread's mails, oldest first.")] = None,
+        path: Annotated[Optional[str], Field(description="Document: the file to read.")] = None,
+        from_email: Annotated[Optional[str], Field(description="Document: the mail it came with.")] = None,
         created_by: CreatedBy = workflows.CREATED_BY,
     ) -> str:
-        """Write one record. email: build the note from outlook_get_mail JSON, upsert it, then create the sender's person page under Wiki/People or add a Records line to it; returns {path, action, status, person_path, person_action, followup_added}. chat: write or extend Teams/<date> <chat>.md, one record per chat per day, appending only the messages not in the file yet. transcript: drop the Copilot scaffolding and append a '### Transcript' section under '## Update' on the meeting note."""
+        """Write one record. email: build the note from outlook_get_mail JSON, upsert it, then create the sender's person page under Wiki/People or add a Records line to it; returns {path, action, status, person_path, person_action, followup_added}. chat: write or extend Teams/<date> <chat>.md, one record per chat per day, appending only the messages not in the file yet. transcript: drop the Copilot scaffolding and append a '### Transcript' section under '## Update' on the meeting note. document: read a pdf, docx, pptx, xlsx, txt, md or csv file into Documents/<date> <name>.md, part by part, and answer with the part list to read from."""
         if kind == "email":
             if not mail:
                 raise RuntimeError("kind 'email' needs mail.")
-            return _json(workflows.save_email(mail, summary, action_items, attachments_saved, msg_file, status, self_addresses, company, created_by))
+            return _json(workflows.save_email(mail, summary, action_items, attachments_saved, msg_file, status, self_addresses, company, thread, created_by))
         if kind == "chat":
             if not chat:
                 raise RuntimeError("kind 'chat' needs chat.")
@@ -835,7 +890,11 @@ def register(mcp: FastMCP) -> None:
             if not meeting_path or not transcript_path:
                 raise RuntimeError("kind 'transcript' needs meeting_path and transcript_path.")
             return _json(workflows.attach_transcript(meeting_path, transcript_path, created_by))
-        raise RuntimeError("kind must be 'email', 'chat' or 'transcript'.")
+        if kind == "document":
+            if not path:
+                raise RuntimeError("kind 'document' needs path.")
+            return _json(workflows.save_document(path, summary, action_items, from_email, created_by))
+        raise RuntimeError("kind must be 'email', 'chat', 'transcript' or 'document'.")
 
     @mcp.tool(
         name="vault_prep_context",
@@ -916,7 +975,7 @@ def register(mcp: FastMCP) -> None:
         src: WikiSrc = "user",
         created_by: CreatedBy = wiki.CREATED_BY,
     ) -> str:
-        """Apply op lists to wiki pages. With record_path the record is the source (src and since default to its id and date) and Records, History, the record's wiki: link, Log.md and Index.md are written; without it the ops are the user's own (src 'user', since today). Each entry of pages is {path, ops} for a page that exists or {new: {...}, ops} for one to create; a new: spec with no ops just creates the page. Answers {record (null without one), pages, candidate}: per page the applied and refused ops, their reasons, the new ids and the sizes. Every page is read back after the write: one that does not come back as written keeps its previous text and answers written: false."""
+        """Apply op lists to wiki pages. With record_path the record is the source (src and since default to its id and date) and Records, History, the record's wiki: link and ingested: date, Log.md and Index.md are written; without it the ops are the user's own (src 'user', since today). Each entry of pages is {path, ops} for a page that exists or {new: {...}, ops} for one to create; a new: spec with no ops just creates the page. Answers {record (null without one), pages, candidate}: per page the applied and refused ops, their reasons, the new ids and the sizes. Every page is read back after the write: one that does not come back as written keeps its previous text and answers written: false."""
         if record_path:
             return _json(wiki.ingest(record_path, pages, created_by))
         return _json(_wiki_write_pages(pages, src, created_by))
@@ -976,7 +1035,7 @@ def register(mcp: FastMCP) -> None:
         max_chars: Annotated[int, Field(ge=0, le=20000)] = 1200,
         limit: Annotated[int, Field(ge=1, le=200)] = 20,
     ) -> str:
-        """read: the 'last collected' stamp per source, with its age and the token ratios. advance: move the stamps, never back. tokens: file what a run predicted against what it cost, and answer with that command's ratios. changed: the markdown notes modified after since, oldest first, with an excerpt each; Wiki/, Attachments/, _views/, _backup/ and dot-folders are never read."""
+        """read: the 'last collected' stamp per source, with its age and the token ratios. advance: move the stamps, never back. tokens: file what a run predicted against what it cost, for that command's ratios. changed: the notes modified after since, oldest first, with an excerpt each, plus the changed files of the document_folders, listed and not read; Wiki/, Attachments/ and _views/ are never read."""
         if action == "changed":
             if not since:
                 raise RuntimeError("changed needs since.")

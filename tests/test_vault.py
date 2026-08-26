@@ -195,7 +195,7 @@ def test_chat_and_time_block_note_rules():
     assert notes.base_filename("time-block", tb) == "2026-W35.md" and notes.identity_of("time-block", tb) == {"week": "2026-W35"}
     assert notes.matches("time-block", tb, notes.normalize_identity("time-block", "2026-W35"))
     assert {"messages", "last", "planned"} <= set(notes.REPLACEABLE_KEYS)
-    assert "Teams" in notes.FOLDERS and "Time-blocks" in notes.FOLDERS and "Priorities.md" in notes.FILES
+    assert "Teams" in notes.FOLDERS and "Time-blocks" in notes.FOLDERS and "Documents" in notes.FOLDERS and "Priorities.md" in notes.FILES
 
 
 def test_init_peak_hours(vault):

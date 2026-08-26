@@ -154,15 +154,15 @@ def _last_ingest(root: Path) -> str:
 
 def _record_day(fm: dict[str, Any]) -> str:
     kind = fm.get("type")
-    key = "received" if kind == "email" else "date" if kind == "chat" else "start"
-    return _s(fm.get(key))[:10]
+    key = "received" if kind == "email" else "date" if kind in ("chat", "document") else "start"
+    return _s(fm.get("date") or fm.get(key))[:10]
 
 
 def uningested_records(root: Path) -> tuple[int, list[str]]:
-    """Email / meeting / chat notes without a ``wiki:`` key that are newer than the last ingest (check 11)."""
+    """Record notes without a ``wiki:`` key that are newer than the last ingest (check 11)."""
     since = _last_ingest(root)[:10]
     out = []
-    for kind in ("email", "meeting", "chat"):
+    for kind in ("email", "meeting", "chat", "document"):
         for p, fm in store._iter_notes(root, kind):
             if fm.get("wiki"):
                 continue
@@ -554,7 +554,7 @@ def lint(fix: bool = False, items: bool = False, created_by: str = wiki.CREATED_
                 continue
             for f in page.facts:
                 age = _days_ago(f.since, today)
-                if age is not None and age > UNCONFIRMED_DAYS and len(f.src) == 1:
+                if age is not None and age > UNCONFIRMED_DAYS and len({wiki.src_record(s) for s in f.src}) == 1:
                     n_unc += 1
                     if n_unc <= UNCONFIRMED_MAX:
                         unconfirmed.setdefault(page.stem, []).append({"id": f.id, "text": f.text, "since": f.since})

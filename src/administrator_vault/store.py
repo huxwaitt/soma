@@ -167,6 +167,7 @@ def preferences_template(work_start: str, work_end: str, buffer_minutes: int, cr
             "admin_block_minutes": PREFERENCE_DEFAULTS["admin_block_minutes"],
             "slack_share": PREFERENCE_DEFAULTS["slack_share"],
             "collect_folders": [],
+            "document_folders": [],
             "created_by": created_by,
         }
     )
@@ -194,7 +195,12 @@ def preferences_template(work_start: str, work_end: str, buffer_minutes: int, cr
         "Days where meetings already eat past this share get no blocks.\n"
         "- `collect_folders` — extra folders /administrator:collect-information reads for changed notes, "
         "as paths relative to the vault root (`\"Projects\"`, `\"Journal/2026\"`). They are only read, never written. "
-        "An empty list `[]` means only the Administrator/ notes.\n\n"
+        "An empty list `[]` means only the Administrator/ notes.\n"
+        "- `document_folders` — folders whose files (pdf, docx, pptx, xlsx, txt, md, csv) "
+        "/administrator:collect-information offers to read into the vault as document records. "
+        "Relative to the vault root, or a full path anywhere on the machine "
+        "(`\"C:/Users/you/Documents/Contracts\"`). They are only read, never written. "
+        "An empty list `[]` means no folder is watched.\n\n"
         "## Notes\n\n"
         "Anything you write below this line is yours; the plugin never touches it.\n"
     )
@@ -253,6 +259,7 @@ PREFERENCE_DEFAULTS: dict[str, Any] = {
     "admin_block_minutes": 45,
     "slack_share": 0.2,
     "collect_folders": [],
+    "document_folders": [],
 }
 PREFERENCES_PATH = f"{ADMIN_DIR}/Preferences.md"
 
@@ -491,13 +498,59 @@ def list_notes(
 # ---------------------------------------------------------------- read/write
 
 
-def read(path: str) -> dict[str, Any]:
+def _split_heading(text: str) -> tuple[str, str]:
+    """A body heading as (locator, heading): "p3 — Pricing" -> ("p3", "Pricing");
+    a heading without a locator comes back as ("", the whole text).
+
+    A locator is one word ("p3", "s4", "m2") or, for a sheet, the name that
+    is also the heading ("Sales EU — Sales EU"), so a sheet whose name holds
+    a space can still be asked for by that name."""
+    whole = text.strip()
+    half = (len(whole) - 3) // 2
+    if len(whole) >= 7 and whole[half:half + 3] == " — " and whole[:half] == whole[half + 3:]:
+        return whole[:half], whole[:half]  # a sheet name that holds " — " itself, written twice
+    left, sep, right = text.partition(" — ")
+    left, right = left.strip(), right.strip()
+    if sep and left and (" " not in left or left == right):
+        return left, right
+    return "", whole
+
+
+def _one_section(body: str, wanted: str) -> dict[str, Any]:
+    """The named part of a body: its locator, its heading and its text.
+
+    ``wanted`` is a locator ("p3", "s2", "Sheet1"), the heading text, or the
+    whole heading line without the leading hashes. The last part with that
+    name wins, so a record whose '## Update' replaced a part answers with the
+    text that is true now."""
+    lines = body.split("\n")
+    heads: list[tuple[int, int, str]] = []  # (line index, heading level, text)
+    for i, line in enumerate(lines):
+        m = _HEADING_RE.match(line)
+        if m:
+            heads.append((i, len(m.group(1)), m.group(2).strip()))
+    key = wanted.strip().lower()
+    for n, (i, level, text) in reversed(list(enumerate(heads))):
+        locator, heading = _split_heading(text)
+        if key not in (text.strip().lower(), locator.lower(), heading.lower()):
+            continue
+        end = next((j for j, lv, _t in heads[n + 1:] if lv <= level), len(lines))
+        part = "\n".join(lines[i + 1:end]).strip("\n")
+        return {"locator": locator, "heading": heading or text.strip(), "text": part, "chars": len(part)}
+    have = ", ".join(t for _i, _lv, t in heads) or "none"
+    raise VaultError(f"No section {wanted!r} in that note. It has: {have}.")
+
+
+def read(path: str, section: Optional[str] = None) -> dict[str, Any]:
     root = vault_root()
     p = resolve(root, path)
     if not p.is_file():
         raise VaultError(f"No such note: {path!r}.")
     fm, _block, body = fmt.split_note(read_text(p))
     sections = [m.group(2) for line in body.split("\n") if (m := _HEADING_RE.match(line))]
+    if section:
+        return {"path": rel(root, p), "frontmatter": fm,
+                "section": _one_section(body, section), "sections": sections}
     return {"path": rel(root, p), "frontmatter": fm, "body": body, "sections": sections}
 
 
@@ -517,6 +570,7 @@ def write(note_type: str, frontmatter: dict[str, Any], body: str, mode: str = "c
     root = vault_root()
     fm = dict(frontmatter or {})
     fm.setdefault("type", note_type)
+    fm = notes.with_core_keys(note_type, fm)
     notes.validate(note_type, fm)
     ident = notes.identity_of(note_type, fm)
     if not any(ident.values()):
@@ -545,11 +599,19 @@ def _create(root: Path, note_type: str, fm: dict[str, Any], body: str, ident: di
     return {"path": rel(root, p), "action": "created", "identity": ident}
 
 
+def _blank(value: Any) -> bool:
+    return value is None or value == "" or value == []
+
+
 def _append(root: Path, path: str, fm: dict[str, Any], body: str, ident: dict[str, Any]) -> dict[str, Any]:
     p = resolve(root, path)
     text = read_text(p)
     old_fm, block, old_body = fmt.split_note(text)
-    updates = {k: fm[k] for k in notes.REPLACEABLE_KEYS if k in fm and fm[k] != old_fm.get(k)}
+    updates = {
+        k: fm[k] for k in notes.REPLACEABLE_KEYS
+        # an append may change a key, never blank one that already holds something
+        if k in fm and fm[k] != old_fm.get(k) and not (_blank(fm[k]) and not _blank(old_fm.get(k)))
+    }
     changed_keys = list(updates)
     new_block = fmt.replace_keys(block, updates) if updates else block
     if "aliases" in fm and isinstance(fm["aliases"], list):

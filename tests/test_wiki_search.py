@@ -14,7 +14,7 @@ from administrator_vault import store, wiki
 from administrator_vault import wiki_search as ws
 from administrator_vault.server import build_server
 
-CB = "administrator/0.4.0"
+CB = "administrator/0.4.1"
 W = "Administrator/Wiki"
 
 

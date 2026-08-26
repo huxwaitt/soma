@@ -298,10 +298,11 @@ def test_save_email_creates_note_and_person(vault):
     assert "**Received:** 2026-08-22 09:14" in text
     assert "## Summary\n\nJane asks for the Q3 numbers by Friday.\n" in text
     assert "- [ ] Send Q3 numbers to Jane by 2026-08-29 — owner: me" in text
-    assert "## Body\n\nHi,\n\ncould you send the numbers?\n\nThanks\nJane\n" in text and "older quoted" not in text
+    assert "## Content\n\nHi,\n\ncould you send the numbers?\n\nThanks\nJane\n" in text and "older quoted" not in text
     assert "- [[Administrator/Attachments/2026-08-22 Budget Q3/Budget Q3.msg|Budget Q3.msg]] (original message)" in text
     assert "- [[Administrator/Attachments/2026-08-22 Budget Q3/Budget_Q3.xlsx|Budget_Q3.xlsx]] (180 KB)" in text
     assert "- image001.png (4 KB, not exported)" in text
+    assert "## Files" in text and "## Attachments" not in text
     ptext = (vault / res["person_path"]).read_text(encoding="utf-8")
     pfm = fmt.split_note(ptext)[0]
     assert pfm["last_contact"] == "2026-08-22T09:14:00+02:00" and pfm["aliases"] == []
@@ -314,7 +315,7 @@ def test_save_email_creates_note_and_person(vault):
     res2 = workflows.save_email(mail_json(from_="x"), "Again.", [])
     assert res2["action"] == "appended" and res2["person_action"] == "appended"
     text = (vault / res["path"]).read_text(encoding="utf-8")
-    assert text.count("## Body") == 1 and "### Summary\n\nAgain." in text
+    assert text.count("## Content") == 1 and "### Summary\n\nAgain." in text
     assert len(list((vault / "Administrator" / "Emails").glob("*.md"))) == 1
     assert len(list((vault / "Administrator" / "Wiki" / "People").glob("*.md"))) == 1
     ptext = (vault / res["person_path"]).read_text(encoding="utf-8")

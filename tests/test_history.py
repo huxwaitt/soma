@@ -13,7 +13,7 @@ from administrator_vault import history, store, workflows
 from administrator_vault.server import build_server
 from administrator_vault.store import VaultError
 
-CB = "administrator/0.4.0"
+CB = "administrator/0.4.1"
 NOW = "2026-08-24T09:00:00+02:00"
 STATE = "Administrator/Wiki/_cache/history.json"
 

@@ -12,7 +12,7 @@ import pytest
 from administrator_vault import frontmatter as fmt
 from administrator_vault import store, wiki, wiki_reconcile, wiki_search
 
-CB = "administrator/0.4.0"
+CB = "administrator/0.4.1"
 W = "Administrator/Wiki"
 
 

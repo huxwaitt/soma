@@ -14,7 +14,7 @@ from administrator_vault import notes, store, wiki, wiki_migrate, workflows
 from administrator_vault.server import build_server
 
 OLD = "administrator/0.1.0"
-CB = "administrator/0.4.0"
+CB = "administrator/0.4.1"
 A = "Administrator"
 LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:[#|][^\]]*)?\]\]")
 
@@ -112,7 +112,7 @@ def test_dry_run_reports_the_plan_and_writes_nothing(old_vault):
     jane = plan["people"][2]
     assert jane["to"] == f"{A}/Wiki/People/Jane Doe.md" and jane["records"] == 4 and jane["voice"] is True and jane["exists"] is False and jane["newest_record"] == "2026-08-21"
     assert plan["people"][0]["voice"] is False and plan["people"][0]["notes_lines"] == 1
-    assert plan["links"]["files"] == 10 and plan["links"]["count"] == len(old_links(root)) == 27
+    assert plan["links"]["files"] == 10 and plan["links"]["count"] == len(old_links(root)) == 35
     assert {v["path"] for v in plan["views"]} == {f"{A}/_views/People.base", f"{A}/_views/Wiki.base"}
     assert plan["left"] == [] and "_backup/<stamp>/People/" in plan["backup"]
     assert plan["parts"] == {"people": True, "followups": True, "views": True}
@@ -174,7 +174,7 @@ def test_migrate_moves_people_and_rewrites_every_link(old_vault):
     (root / A / "People" / "notes.txt").write_text("mine", encoding="utf-8")  # a stray file: reported, left, folder kept
     n_old = len(old_links(root))
     res = wiki_migrate.migrate(dry_run=False, created_by=CB)
-    assert res["dry_run"] is False and len(res["moved"]) == 3 and res["skipped"] == [] and res["links_rewritten"] == n_old == 27
+    assert res["dry_run"] is False and len(res["moved"]) == 3 and res["skipped"] == [] and res["links_rewritten"] == n_old == 35
     assert res["left"] == [f"{A}/People/notes.txt"] and res["old_folder_removed"] is False and res["old_folder_left"] == [f"{A}/People/notes.txt"]
     # every link resolves, none points at the old folder
     assert old_links(root) == []
@@ -227,7 +227,7 @@ def test_migrate_moves_people_and_rewrites_every_link(old_vault):
     assert 'file.inFolder("Administrator/Wiki/People")' in pb and "note.company" not in pb and pb == (store.VIEWS_DIR / "People.base").read_text(encoding="utf-8")
     assert (root / A / "_views" / "Wiki.base").read_text(encoding="utf-8") == (store.VIEWS_DIR / "Wiki.base").read_text(encoding="utf-8")
     log = wiki.log()["lines"]
-    assert log[0].endswith("migrate | Wiki/People | - | 3 people, 27 links")
+    assert log[0].endswith("migrate | Wiki/People | - | 3 people, 35 links")
     assert any(l.endswith("migrate | Follow-ups | - | 1 open, 1 done") for l in log)
     # second run: nothing left to move except the stray file
     again = wiki_migrate.migrate(dry_run=False)
