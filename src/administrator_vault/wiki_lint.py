@@ -39,7 +39,7 @@ UNCONFIRMED_DAYS = 180
 UNCONFIRMED_MAX = 20
 UNINGESTED_MAX = 50
 LINT_FLAGS = ("orphan", "stale", "oversized", "possible-duplicate")
-REQUIRED_KEYS = ("type", "title", "aliases", "summary", "status", "created", "updated", "verified", "sources", "open_items", "flags", "created_by")
+REQUIRED_KEYS = ("type", "id", "title", "aliases", "summary", "status", "created", "updated", "verified", "sources", "open_items", "flags", "created_by")
 TYPE_KEYS = {
     "person": ("name", "email", "last_contact"),
 }
@@ -101,8 +101,11 @@ class _Resolver:
 
     def __init__(self, root: Path) -> None:
         self.root = root
-        self.names = {p.stem.lower() for p in (root / ADMIN_DIR).rglob("*.md")}
-        self.names |= {p.name.lower() for p in (root / ADMIN_DIR).rglob("*") if p.is_file()}
+        # _cache/ holds working files, not notes: the copy of a page under
+        # _cache/prev/ must not keep the name of a deleted page alive.
+        files = [p for p in (root / ADMIN_DIR).rglob("*") if p.is_file() and not rel(root, p).startswith(CACHE_DIR + "/")]
+        self.names = {p.stem.lower() for p in files if p.suffix.lower() == ".md"}
+        self.names |= {p.name.lower() for p in files}
 
     def ok(self, target: str) -> bool:
         t = target.replace("\\", "/").strip("/")
@@ -197,8 +200,11 @@ def lint(fix: bool = False, created_by: str = wiki.CREATED_BY) -> dict[str, Any]
     root = store.vault_root()
     today = date.today()
     today_s = today.isoformat()
+    from administrator_vault import wiki_reconcile  # imported here: that module reads this one
+
     with _wiki_lock(root):
         started = store.now_iso()
+        edits = wiki_reconcile.reconcile(root, lock_held=True)  # 0 what the user changed by hand
         previous = _last_lint(root)
         last_done = _s((previous or {}).get("finished"))
         listing = _all_pages(root)
@@ -208,7 +214,10 @@ def lint(fix: bool = False, created_by: str = wiki.CREATED_BY) -> dict[str, Any]
             raw[path] = read_text(root / path)
             pages[path] = wiki.parse_page(raw[path], path)
         resolver = _Resolver(root)
-        checks: dict[str, Any] = {}
+        checks: dict[str, Any] = {"0": {
+            "name": "hand-edits", "adopted": edits["adopted"], "review": edits["review"],
+            "first_run": edits["first_run"], "scanned": edits["scanned"],
+        }}
         flags: dict[str, list[str]] = {p: [] for p in pages}
         id_cache: dict[str, str] = {}
         to_write: set[str] = set()
@@ -486,6 +495,7 @@ def lint(fix: bool = False, created_by: str = wiki.CREATED_BY) -> dict[str, Any]
             "oversized": checks["6"]["count"], "stale": checks["7"]["count"], "due_past": checks["8"]["count"], "open_done": checks["9"]["count"],
             "duplicates": checks["10"]["count"], "uningested": checks["11"]["count"], "candidates": checks["12"]["count"],
             "history_over": len(long_hist), "ask_model": len(touched), "unconfirmed": n_unc,
+            "hand_edits": len(edits["adopted"]),
         }
         _log(root, "lint", "Wiki", "-", ("fix, " if fix else "") + f"{len(pages)} pages, {len(flagged)} flagged, {len(added)} review lines, {len(written)} written")
         finished = store.now_iso()
@@ -494,6 +504,8 @@ def lint(fix: bool = False, created_by: str = wiki.CREATED_BY) -> dict[str, Any]
             "counts": summary, "checks": checks, "flagged": flagged, "review_added": added, "written": written,
             "digests": {page.stem: _digest(raw[path]) for path, page in pages.items()},
         }
+        if edits["adopted"]:
+            report["adopted"] = edits["adopted"]
         cache = root / CACHE_DIR / f"lint-{today_s}.json"  # one file per day; a later run the same day replaces it
         _atomic_write(cache, json.dumps(report, ensure_ascii=False, indent=1))
         report["cache"] = rel(root, cache)
@@ -538,7 +550,10 @@ def merge(keep: str, drop: str, created_by: str = wiki.CREATED_BY) -> dict[str, 
     keep_path, drop_path = page_path(keep), page_path(drop)
     if keep_path == drop_path:
         raise VaultError("keep and drop are the same page.")
+    from administrator_vault import wiki_reconcile  # imported here: that module reads this one
+
     with _wiki_lock(root):
+        adopted = wiki_reconcile.reconcile(root, lock_held=True)["adopted"]
         kp, dp = _load(root, keep_path), _load(root, drop_path)
         for pg in (kp, dp):
             if pg.type not in TYPES:
@@ -629,11 +644,14 @@ def merge(keep: str, drop: str, created_by: str = wiki.CREATED_BY) -> dict[str, 
             done_lines += [l.replace("- [ ] ", "- [x] ", 1) + f" — merged {_today()}" for l in moved]
             wiki._write_review(root, open_lines, done_lines)
         _log(root, "merge", kp.stem, f"[[{dp.stem}]]", f"facts added {len(added)}, confirmed {len(confirmed)}, refused {len(refused)}, relinked {len(relinked)}")
-        _write_index(root)
-    return {
+        _write_index(root, [kp.stem, dp.stem] + relinked)
+    out = {
         "keep": kp.path, "drop": dp.path, "redirect": f"[[{kp.stem}]]", "facts_added": added, "facts_confirmed": confirmed, "facts_refused": refused,
         "relinked": relinked, "review_closed": len(moved), "sizes": {k: v for k, v in sizes.items() if k != "over"},
     }
+    if adopted:
+        out["adopted"] = adopted
+    return out
 
 
 __all__ = ["lint", "merge", "summary", "uningested_records", "STALE_DAYS"]

@@ -9,6 +9,7 @@ generated Index.md / Log.md / Review.md, one write lock, atomic writes.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -26,7 +27,7 @@ from administrator_vault import notes, store
 from administrator_vault.notes import ADMIN_DIR
 from administrator_vault.store import VaultError, read_text, rel, resolve
 
-CREATED_BY = "administrator/0.3.0"
+CREATED_BY = "administrator/0.4.0"
 WIKI_DIR = f"{ADMIN_DIR}/Wiki"
 INDEX_PATH = f"{WIKI_DIR}/Index.md"
 LOG_PATH = f"{WIKI_DIR}/Log.md"
@@ -36,6 +37,7 @@ LOCK_PATH = f"{WIKI_DIR}/.lock"
 HISTORY_DIR = f"{WIKI_DIR}/_history"
 CACHE_DIR = f"{WIKI_DIR}/_cache"
 CANDIDATES_PATH = f"{CACHE_DIR}/candidates.json"
+PREV_DIR = f"{CACHE_DIR}/prev"  # the text of each page as it was before the last write
 
 TYPES = ("person", "org", "topic", "howto", "me")
 TYPE_FOLDER = {"person": "People", "org": "Orgs", "topic": "Topics", "howto": "Howto", "me": ""}
@@ -55,9 +57,9 @@ LINK_SECTION = {
     ("org", "person"): "Contacts",
     ("org", "topic"): "Topics",
 }
-CODE_OWNED = ("created", "updated", "verified", "sources", "open_items", "flags")
+CODE_OWNED = ("created", "updated", "verified", "sources", "open_items", "flags", "id")
 KEY_ORDER = (
-    "type", "title", "name", "email", "aliases", "domains", "summary", "status", "owner", "org", "due",
+    "type", "id", "title", "name", "email", "aliases", "domains", "summary", "status", "owner", "org", "due",
     "last_contact", "last_done", "created", "updated", "verified", "sources", "open_items", "flags", "created_by",
 )
 STATUSES = ("active", "dormant", "closed", "draft")
@@ -98,6 +100,9 @@ _LOG_RE = re.compile(r"^- \[([^\]]+)\] (\S+) \| (\S+) \| (.*)$")
 _CHAT_LINE_RE = re.compile(r"^- \d{2}:\d{2} \*\*(.+?)\*\*: (.*?)\s*(?:<!--.*?-->)?\s*$")
 _STOP = {"re", "fw", "aw", "wg", "of", "a", "an", "in", "on", "to", "the", "and", "for", "with", "from", "about", "into", "your", "our", "this", "that", "are", "was", "is"}
 _ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz234567"
+_PAGE_ID_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"  # Crockford base32: no I, L, O, U
+PAGE_ID_LEN = 26
+PAGE_ID_CLOCK = 10  # of those 26, the first ten hold the millisecond the id was made
 
 _LOCK = threading.Lock()
 
@@ -176,6 +181,39 @@ def slugify(title: str) -> str:
     s = unicodedata.normalize("NFKD", _s(title)).encode("ascii", "ignore").decode()
     s = re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
     return s[:40].rstrip("-") or "page"
+
+
+def new_page_id() -> str:
+    """A page id: 26 Crockford base32 chars, 10 of the clock (ms) then 16 random.
+
+    Ids sort by the time they were made, never change, and are what tells the
+    code a renamed or moved file is still the same page."""
+    ms = int(time.time() * 1000)
+    head = "".join(_PAGE_ID_ALPHABET[(ms >> (5 * i)) & 31] for i in range(PAGE_ID_CLOCK - 1, -1, -1))
+    return head + "".join(secrets.choice(_PAGE_ID_ALPHABET) for _ in range(PAGE_ID_LEN - PAGE_ID_CLOCK))
+
+
+def _reconcile() -> Any:
+    """The two-way editing module, imported late: it reads this one."""
+    from administrator_vault import wiki_reconcile
+
+    return wiki_reconcile
+
+
+def _hand_edits(root: Path, lock_held: bool = False) -> list[dict[str, str]]:
+    """Take over what the user changed by hand before the tool does its work.
+    The answer is the pages that changed, for the tool to pass on."""
+    return _reconcile().reconcile(root, lock_held)["adopted"]
+
+
+def _file_sig(p: Path) -> tuple[int, int]:
+    """(size, mtime_ns) of a file — the cheap check for "did this change?"."""
+    st = p.stat()
+    return st.st_size, st.st_mtime_ns
+
+
+def _blake(data: bytes) -> str:
+    return hashlib.blake2b(data, digest_size=16).hexdigest()
 
 
 def _new_id(taken: set[str]) -> str:
@@ -336,7 +374,9 @@ def _parse_fact(line: str, taken: set[str], today: str) -> Optional[Fact]:
     return Fact(fid, text, today, ["user"])  # a hand-written bullet is a user fact
 
 
-def parse_page(text: str, path: str = "") -> Page:
+def parse_page(text: str, path: str = "", today: Optional[str] = None) -> Page:
+    """Read a page. ``today`` dates the bullets someone wrote by hand (the
+    file's own date when the caller knows it); it defaults to the wall clock."""
     fm, _block, body = fmt.split_note(text)
     lines = body.split("\n")
     first_h2 = next((k for k, l in enumerate(lines) if _H2_RE.match(l)), len(lines))
@@ -359,9 +399,9 @@ def parse_page(text: str, path: str = "") -> Page:
         page.sections.setdefault(name, []).extend(content)
         k = end
     taken: set[str] = set()
-    today = _today()
+    day = _s(today)[:10] or _today()
     for line in page.sections.pop("Facts", []):
-        f = _parse_fact(line, taken, today)
+        f = _parse_fact(line, taken, day)
         if f:
             page.facts.append(f)
     return page
@@ -465,9 +505,17 @@ def _index_line(path: str, fm: dict[str, Any]) -> str:
     if fm.get("type") == "person":
         org = _link_target(_s(fm.get("org"))).rsplit("/", 1)[-1] or "—"
         head = f"- [[{stem}]] · {org} · {verified}"
+    elif _is_project(fm):
+        owner = _link_target(_s(fm.get("owner"))).rsplit("/", 1)[-1] or "—"
+        head = f"- [[{stem}|{title}]] · {owner} · {_s(fm.get('due'))[:10]} · {_s(fm.get('status')) or 'draft'}"
     else:
         head = f"- [[{stem}|{title}]] · {_s(fm.get('status')) or 'draft'} · {verified}"
     return head + (f" — {summary}" if summary else "")
+
+
+def _is_project(fm: dict[str, Any]) -> bool:
+    """A topic with a due date is a project; the index lists those first."""
+    return _s(fm.get("type")) == "topic" and bool(_s(fm.get("due")).strip())
 
 
 def _status_rank(fm: dict[str, Any]) -> int:
@@ -489,38 +537,80 @@ def _index_text(body_lines: list[str], n_pages: int) -> str:
     return fm + "\n# Wiki index\n\n" + "\n".join(body_lines).rstrip("\n") + "\n"
 
 
-def _write_index(root: Path) -> dict[str, Any]:
+def _index_groups(page_type: str, items: list[tuple[str, dict[str, Any]]], lines: list[str]) -> list[tuple[str, list[tuple[tuple[str, dict[str, Any]], str]]]]:
+    """The groups one page type shows in the index: topics with a due date are
+    listed as Projects, soonest first, above the other topics."""
+    pairs = list(zip(items, lines))
+    if page_type == "topic":
+        projects = [x for x in pairs if _is_project(x[0][1])]
+        if projects:
+            projects.sort(key=lambda x: (_s(x[0][1].get("due"))[:10], _stem(x[0][0])))
+            return [("Projects", projects), (TYPE_HEADING[page_type], [x for x in pairs if not _is_project(x[0][1])])]
+    return [(TYPE_HEADING[page_type], pairs)]
+
+
+def _index_map(root: Path) -> dict[str, str]:
+    """{page stem: the line the index has for it} as the files read right now."""
+    out: dict[str, str] = {}
+    files = [root / INDEX_PATH] + [root / WIKI_DIR / f / "Index.md" for f in TYPE_FOLDER.values() if f]
+    for p in files:
+        if not p.is_file():
+            continue
+        for line in read_text(p).split("\n"):
+            if not line.startswith("- [["):
+                continue
+            m = _LINK_RE.search(line)
+            target = _link_target(m.group(1)) if m else ""
+            if target.startswith("Wiki/") and not target.endswith("/Index"):
+                out[target] = line
+    return out
+
+
+def _write_index(root: Path, touched: Any = ()) -> dict[str, Any]:
+    """Regenerate Index.md (and the per-type indexes when the list is long).
+
+    ``touched`` are the stems the caller just wrote. A line that differs for any
+    other page means the index was changed by hand: it is put right and one
+    ``index-repaired`` line goes to the log."""
     pages = _all_pages(root)
     by = _index_lines_by_type(pages)
     full: dict[str, list[str]] = {t: [_index_line(p, fm) for p, fm in items] for t, items in by.items()}
     total = sum(len(v) for v in full.values())
     split = total + 2 * len([t for t in INDEX_ORDER if full[t]]) > INDEX_MAX_LINES or sum(len(l) + 1 for v in full.values() for l in v) > INDEX_MAX_CHARS
+    before = _index_map(root)
+    had_index = (root / INDEX_PATH).is_file()
+    now: dict[str, str] = {}
+    hidden_stems: set[str] = set()
     body: list[str] = []
     written = []
     for t in INDEX_ORDER:
         items = by[t]
         if not items:
             continue
-        heading = f"## {TYPE_HEADING[t]} ({len(items)})"
         folder = TYPE_FOLDER[t]
+        group_lines: list[str] = []
+        for name, pairs in _index_groups(t, items, full[t]):
+            lines = []
+            closed_seen = 0
+            for (p, fm), line in pairs:
+                if _s(fm.get("status")) == "closed":
+                    closed_seen += 1
+                    if closed_seen > CLOSED_SHOWN:
+                        hidden_stems.add(_stem(p))
+                        continue
+                now[_stem(p)] = line
+                lines.append(line)
+            hidden = max(0, closed_seen - CLOSED_SHOWN)
+            if hidden:
+                lines.append(f"- … {hidden} more closed pages (vault_list / find)")
+            group_lines += [f"## {name} ({len(pairs)})", ""] + lines + [""]
         if split and folder:
             sub = root / WIKI_DIR / folder / "Index.md"
-            _atomic_write(sub, _index_text([heading, ""] + full[t], len(items)))
+            _atomic_write(sub, _index_text(group_lines, len(items)))
             written.append(rel(root, sub))
             body += [f"- [[Wiki/{folder}/Index|{TYPE_HEADING[t]}]] — {len(items)} pages"]
             continue
-        lines = []
-        closed_seen = 0
-        for (p, fm), line in zip(items, full[t]):
-            if _s(fm.get("status")) == "closed":
-                closed_seen += 1
-                if closed_seen > CLOSED_SHOWN:
-                    continue
-            lines.append(line)
-        hidden = max(0, closed_seen - CLOSED_SHOWN)
-        if hidden:
-            lines.append(f"- … {hidden} more closed pages (vault_list / find)")
-        body += [heading] + lines + [""]
+        body += group_lines
     if not split:
         for t, folder in TYPE_FOLDER.items():
             sub = root / WIKI_DIR / folder / "Index.md" if folder else None
@@ -528,7 +618,11 @@ def _write_index(root: Path) -> dict[str, Any]:
                 sub.unlink()
     idx = root / INDEX_PATH
     _atomic_write(idx, _index_text(body or ["(no pages yet)"], total))
-    return {"path": rel(root, idx), "pages": total, "split": split, "per_type": written}
+    fresh = {_s(s) for s in (touched or ())} | hidden_stems
+    drift = sorted(s for s in set(before) | set(now) if s not in fresh and before.get(s) != now.get(s))
+    if had_index and drift:
+        _log(root, "index-repaired", "Wiki/Index", "-", f"{len(drift)} lines: " + ", ".join(drift[:3]))
+    return {"path": rel(root, idx), "pages": total, "split": split, "per_type": written, "repaired": drift}
 
 
 def _log(root: Path, op: str, page: str, source: str, detail: str) -> None:
@@ -743,6 +837,8 @@ class _Ctx:
     deferred: list[tuple[str, str, str, str]] = field(default_factory=list)  # (target path, section, stem, role)
     review: list[str] = field(default_factory=list)
     ids: dict[str, str] = field(default_factory=dict)  # record stem -> source id, per write
+    touched: set[str] = field(default_factory=set)  # stems written through _commit, for the index check
+    strict: bool = False  # a page over its cap is a write check problem (ingest, apply, create)
 
     @property
     def where(self) -> str:
@@ -841,7 +937,7 @@ def _apply_one(page: Page, op: str, raw: dict[str, Any], ctx: _Ctx) -> dict[str,
         f = Fact(_new_id(page.ids()), text, since, [src])
         page.facts.append(f)
         ctx.verified.append(since)
-        out.update(id=f.id)
+        out.update(id=f.id, text=f.text)
     elif op == "update":
         f = _need_fact(page, raw)
         text = _fact_text(raw.get("text"))
@@ -1071,6 +1167,7 @@ def _finalize(page: Page, ctx: _Ctx) -> None:
     fm["flags"] = [str(f) for f in (fm.get("flags") or [])]
     fm["summary"] = fm.get("summary") or ""
     fm.setdefault("created", ctx.today)
+    fm.setdefault("id", new_page_id())
     if not fm.get("status"):
         fm["status"] = "active" if page.lead else "draft"
     # verified = newest source date, never the write date; a page created from a
@@ -1113,10 +1210,88 @@ def _finalize(page: Page, ctx: _Ctx) -> None:
     fm["updated"] = store.now_iso()
 
 
+def _fm_values(fm: dict[str, Any]) -> dict[str, Any]:
+    """Frontmatter as plain strings, so a number written and read back as a
+    number, or a date read back as text, still compares equal."""
+    return {k: [_s(x) for x in v] if isinstance(v, (list, tuple)) else _s(v) for k, v in fm.items()}
+
+
+def _page_diff(page: Page, back: Page) -> list[str]:
+    """What the file says against what the code meant to write. Empty is good."""
+    out: list[str] = []
+    if _s(back.title).strip() != _s(page.title).strip():
+        out.append("title")
+    if back.lead.strip() != page.lead.strip():
+        out.append("lead")
+    want = [(f.id, f.text, f.since, list(f.src)) for f in page.facts]
+    got = [(f.id, f.text, f.since, list(f.src)) for f in back.facts]
+    if got != want:
+        out.append(f"facts ({len(got)} of {len(want)})")
+    for name in dict.fromkeys(list(page.sections) + list(back.sections)):
+        if name == "Facts":
+            continue
+        if _trim(list(page.sections.get(name) or [])) != _trim(list(back.sections.get(name) or [])):
+            out.append(f"section {name}")
+    if back.notes.strip() != page.notes.strip():
+        out.append("notes")
+    missing = [k for k in CODE_OWNED + ("type", "title") if k not in back.fm]
+    if missing:
+        out.append("keys " + ", ".join(missing))
+    elif _fm_values(_ordered_fm(page.fm)) != _fm_values(back.fm):
+        out.append("frontmatter")
+    return out
+
+
+def _commit(root: Path, page: Page, text: str, ctx: _Ctx, op_name: str) -> dict[str, Any]:
+    """Write a page, read it back and compare it with what was meant.
+
+    The text the file had is kept under ``_cache/prev/`` first. If the page that
+    comes back is not the page that went in, the previous text goes back, a
+    Review line and a log line say so, and the caller answers written false."""
+    target = root / page.path
+    had_text = read_text(target) if target.is_file() else None
+    if had_text is not None:
+        _atomic_write(root / PREV_DIR / (page.stem[len("Wiki/"):] + ".md.prev"), had_text)
+    _atomic_write(target, text)
+    try:
+        back_text = read_text(target)
+        back = parse_page(back_text, page.path)
+    except (fmt.FrontmatterError, UnicodeDecodeError, ValueError) as exc:
+        problems = [f"unreadable ({exc})"]
+    else:
+        problems = _page_diff(page, back)
+        if f"# {page.title}" not in back_text.split("\n") and "title" not in problems:
+            problems.append("title")
+        if ctx.strict and measure(page.type, text)["over"]:
+            problems.append("over-cap")
+        if _index_line(page.path, back.fm) != _index_line(page.path, page.fm):
+            problems.append("index-line")
+    if problems:
+        if had_text is not None:
+            _atomic_write(target, had_text)
+        else:
+            target.unlink(missing_ok=True)
+        detail = ", ".join(problems[:3])
+        tail = "previous text restored" if had_text is not None else "the new page was not kept"
+        _review_add(root, f"- [ ] [[{page.stem}]] — write check failed ({detail}); {tail} ({op_name}, {ctx.where})")
+        _log(root, "restore", page.stem, ctx.where, f"write check failed: {detail}")
+        _reconcile().forget(root, page.stem)  # the file is not what the code meant: read it fresh next time
+        return {"verified": False, "problems": problems}
+    ctx.touched.add(page.stem)
+    _reconcile().note_write(root, page, text)  # so the next pass knows this text came from the code
+    return {"verified": True, "problems": []}
+
+
 def _write_page(page: Page, ctx: _Ctx) -> dict[str, Any]:
+    """A write next to the op path (links, flags, records): checked like any
+    other, but a page that is already over its cap is not refused here."""
     text = format_page(page)
     sizes = measure(page.type, text)
-    _atomic_write(ctx.root / page.path, text)
+    strict, ctx.strict = ctx.strict, False
+    try:
+        _commit(ctx.root, page, text, ctx, "write")
+    finally:
+        ctx.strict = strict
     return sizes
 
 
@@ -1128,7 +1303,7 @@ def _link_sections(page: Page) -> set[str]:
     return out
 
 
-def _add_link_to(root: Path, target_path: str, section: str, stem: str, role: str) -> None:
+def _add_link_to(root: Path, target_path: str, section: str, stem: str, role: str, touched: Optional[set[str]] = None) -> None:
     """Write the reverse side of a related / role op on the other page."""
     if not (root / target_path).is_file():
         return
@@ -1136,12 +1311,13 @@ def _add_link_to(root: Path, target_path: str, section: str, stem: str, role: st
     if stem in _link_sections(other) and not role:
         return
     if _put_link(other.lines(section), stem, role, section != "Related"):
-        ctx = _Ctx(root=root, src="user", since=_today(), record=None)
+        ctx = _Ctx(root=root, src="user", since=_today(), record=None, touched=touched if touched is not None else set())
         _finalize(other, ctx)
         _write_page(other, ctx)
 
 
 def _write_ops(root: Path, path: str, ops: list[Any], ctx: _Ctx, op_name: str) -> dict[str, Any]:
+    ctx.strict = True
     page = _load(root, path)
     before = len(page.lines("History"))
     applied, refused = _apply_ops(page, ops, ctx)
@@ -1171,9 +1347,17 @@ def _write_ops(root: Path, path: str, ops: list[Any], ctx: _Ctx, op_name: str) -
             "refused": [{"op": a["op"], "reason": "cap", **{k: v for k, v in sizes.items() if k != "over"}, "detail": CAP_HINT} for a in applied] + refused,
             "sizes": {k: v for k, v in sizes.items() if k != "over"},
         }
-    _atomic_write(root / page.path, text)
+    check = _commit(root, page, text, ctx, op_name)
+    if not check["verified"]:
+        return {
+            "path": path,
+            "written": False,
+            "applied": [],
+            "refused": [{"op": a["op"], "reason": "verify-failed", "problems": check["problems"]} for a in applied] + refused,
+            "sizes": {k: v for k, v in sizes.items() if k != "over"},
+        }
     for target, section, stem, role in ctx.deferred:
-        _add_link_to(root, target, section, stem, role)
+        _add_link_to(root, target, section, stem, role, ctx.touched)
     if ctx.record:
         _link_record(root, ctx.record["path"], page.stem)
     counts: dict[str, int] = {}
@@ -1251,9 +1435,12 @@ def _create_page(
     sizes = measure(page_type, text)
     if sizes["over"]:
         raise VaultError(f"Refused: the new page would be {sizes['lines']} lines / {sizes['chars']} chars (cap {sizes['max_lines']} / {sizes['max_chars']}). {CAP_HINT}")
-    _atomic_write(p, text)
+    ctx.strict = True
+    check = _commit(root, page, text, ctx, "create")
+    if not check["verified"]:
+        raise VaultError(f"Refused: the new page did not come back as written ({', '.join(check['problems'])}); nothing was kept.")
     for target, section, stem, role in ctx.deferred:
-        _add_link_to(root, target, section, stem, role)
+        _add_link_to(root, target, section, stem, role, ctx.touched)
     for line in ctx.review:
         _review_add(root, line)
     if ctx.record:
@@ -1266,22 +1453,21 @@ def _create_page(
 
 
 def match(text: str, people: Optional[list[str]] = None, domains: Optional[list[str]] = None, limit: int = 8) -> dict[str, Any]:
+    from administrator_vault import wiki_search  # imported here: the engine imports this module
+
     root = store.vault_root()
+    adopted = _hand_edits(root)
     pages = _all_pages(root)
-    t_norm = _norm_name(text)
-    t_words = _tokens(text)
+    named = wiki_search.page_candidates(text, root)  # the alias (4) and word (2) rules
     addrs = {_s(a).strip().lower() for a in (people or []) if _s(a).strip()}
     doms = {_s(d).strip().lower().lstrip("@") for d in (domains or []) if _s(d).strip()}
     doms |= {a.rsplit("@", 1)[-1] for a in addrs if "@" in a}
     scored = []
     for path, fm in pages:
         score, why = 0, []
-        names = _names(fm)
-        for n in names:
-            nn = _norm_name(n)
-            if nn and len(nn) >= 3 and (nn == t_norm or re.search(r"(?<!\w)" + re.escape(nn) + r"(?!\w)", t_norm)):
-                score, why = max(score, 4), why + ["alias"]
-                break
+        by_name = named.get(_stem(path), (0, []))[0]
+        if by_name >= 4:
+            score, why = max(score, 4), why + ["alias"]
         if fm.get("type") == "person":
             mine = {_s(fm.get("email")).lower()} | {a.lower() for a in _aliases(fm)}
             if mine & addrs:
@@ -1290,22 +1476,24 @@ def match(text: str, people: Optional[list[str]] = None, domains: Optional[list[
             mine = {_s(d).lower().lstrip("@") for d in (fm.get("domains") or [])}
             if mine & doms:
                 score, why = max(score, 1), why + ["domain"]
-        if score < 2:
-            overlap = t_words & {w for n in names for w in _tokens(n)}
-            if len(overlap) >= 2:
-                score, why = max(score, 2), why + ["words"]
+        if score < 2 and by_name == 2:
+            score, why = max(score, 2), why + ["words"]
         if score:
             scored.append((score, _s(fm.get("verified") or fm.get("created")), path, fm, why))
     scored.sort(key=lambda t: t[1], reverse=True)
     scored.sort(key=lambda t: -t[0])
-    return {
+    out = {
         "pages": [{"path": p, "line": _index_line(p, fm), "score": s, "why": why} for s, _v, p, fm, why in scored[: max(1, int(limit or 8))]],
         "candidates": _candidates_over(root, pages),
     }
+    if adopted:
+        out["adopted"] = adopted
+    return out
 
 
 def read(path: str, sections: Optional[list[str]] = None, max_chars: int = 2000) -> dict[str, Any]:
     root = store.vault_root()
+    adopted = _hand_edits(root)
     page = _load(root, page_path(path))
     redirected = None
     if page.type == "redirect" and _s(page.fm.get("redirect")):  # a merged page: follow it
@@ -1313,6 +1501,8 @@ def read(path: str, sections: Optional[list[str]] = None, max_chars: int = 2000)
         page = _load(root, page_path(_s(page.fm.get("redirect"))))
     wanted = [s.strip().lower() for s in (sections or ["lead", "facts"]) if _s(s).strip()]
     out: dict[str, Any] = {"path": page.path, "title": page.title, "frontmatter": page.fm}
+    if adopted:
+        out["adopted"] = adopted
     if redirected:
         out["redirected_from"] = redirected
     for s in wanted:
@@ -1347,19 +1537,21 @@ def ingest(record_path: str, pages: Optional[list[dict[str, Any]]] = None, creat
     root = store.vault_root()
     rec = _record_info(root, record_path)
     with _wiki_lock(root):
+        adopted = _hand_edits(root, True)
         results = []
+        touched: set[str] = set()
         for spec in pages or []:
             if not isinstance(spec, dict):
                 results.append({"written": False, "refused": [{"reason": "bad-page-spec"}]})
                 continue
-            ctx = _Ctx(root=root, src=rec["src"], since=rec["date"], record=rec)
+            ctx = _Ctx(root=root, src=rec["src"], since=rec["date"], record=rec, touched=touched)
             new = spec.get("new")
             ops = spec.get("ops") or []
             if isinstance(new, dict):
                 res = _create_page(root, _s(new.get("type")), _s(new.get("title")), new.get("aliases"), _s(new.get("lead")), _s(new.get("summary")), None, ctx, created_by,
                                    {k: v for k, v in new.items() if k not in ("type", "title", "aliases", "lead", "summary")})
                 if res["created"] and ops:
-                    ctx2 = _Ctx(root=root, src=rec["src"], since=rec["date"], record=rec)
+                    ctx2 = _Ctx(root=root, src=rec["src"], since=rec["date"], record=rec, touched=touched)
                     more = _write_ops(root, res["path"], ops, ctx2, "ingest")
                     res.update(applied=res["applied"] + more["applied"], refused=res["refused"] + more["refused"], written=more["written"], sizes=more["sizes"])
                 elif res["created"]:
@@ -1369,8 +1561,11 @@ def ingest(record_path: str, pages: Optional[list[dict[str, Any]]] = None, creat
             path = page_path(_s(spec.get("path")))
             results.append(_write_ops(root, path, ops, ctx, "ingest"))
         cand = _candidate_note(root, rec["path"], rec["subject"], rec["date"])
-        _write_index(root)
-    return {"record": rec["link"], "pages": results, "candidate": cand}
+        _write_index(root, touched)
+    out = {"record": rec["link"], "pages": results, "candidate": cand}
+    if adopted:
+        out["adopted"] = adopted
+    return out
 
 
 def create(
@@ -1386,10 +1581,13 @@ def create(
 ) -> dict[str, Any]:
     root = store.vault_root()
     with _wiki_lock(root):
+        adopted = _hand_edits(root, True)
         ctx = _Ctx(root=root, src=_s(src).strip() or "user", since=_today(), record=None)
         res = _create_page(root, _s(type).strip().lower(), title, aliases, _s(lead), _s(summary), facts, ctx, created_by, extra)
         if res["created"]:
-            _write_index(root)
+            _write_index(root, ctx.touched)
+    if adopted:
+        res["adopted"] = adopted
     return res
 
 
@@ -1397,14 +1595,18 @@ def apply(path: str, ops: list[dict[str, Any]], created_by: str = CREATED_BY, sr
     root = store.vault_root()
     path = page_path(path)
     with _wiki_lock(root):
+        adopted = _hand_edits(root, True)
         ctx = _Ctx(root=root, src=_s(src).strip() or "user", since=_today(), record=None)
         res = _write_ops(root, path, ops or [], ctx, "apply")
-        _write_index(root)
+        _write_index(root, ctx.touched)
+    if adopted:
+        res["adopted"] = adopted
     return res
 
 
 def log(since: Optional[str] = None, page: Optional[str] = None, limit: int = 50) -> dict[str, Any]:
     root = store.vault_root()
+    adopted = _hand_edits(root)
     p = root / LOG_PATH
     lines = [l for l in read_text(p).split("\n") if l.startswith("- [")] if p.is_file() else []
     if since:
@@ -1412,14 +1614,21 @@ def log(since: Optional[str] = None, page: Optional[str] = None, limit: int = 50
     if page:
         want = _link_target(page).lower()
         lines = [l for l in lines if (m := _LOG_RE.match(l)) and want in m.group(3).lower()]
-    return {"path": LOG_PATH, "total": len(lines), "lines": lines[-max(1, int(limit or 50)) :]}
+    out = {"path": LOG_PATH, "total": len(lines), "lines": lines[-max(1, int(limit or 50)) :]}
+    if adopted:
+        out["adopted"] = adopted
+    return out
 
 
 def review(action: str = "list", item: Optional[str] = None, resolution_ops: Optional[list[dict[str, Any]]] = None, created_by: str = CREATED_BY) -> dict[str, Any]:
     root = store.vault_root()
+    adopted = _hand_edits(root) if action == "list" else []
     open_lines, done_lines = _review_text(root)
     if action == "list":
-        return {"path": REVIEW_PATH, "open": [{"n": i + 1, "text": l} for i, l in enumerate(open_lines)], "done": len(done_lines)}
+        out = {"path": REVIEW_PATH, "open": [{"n": i + 1, "text": l} for i, l in enumerate(open_lines)], "done": len(done_lines)}
+        if adopted:
+            out["adopted"] = adopted
+        return out
     if action != "resolve":
         raise VaultError("action must be 'list' or 'resolve'.")
     key = _s(item).strip()
@@ -1430,12 +1639,14 @@ def review(action: str = "list", item: Optional[str] = None, resolution_ops: Opt
         raise VaultError(f"No open review item matches {item!r}.")
     line = open_lines[idx]
     applied = None
+    touched: set[str] = set()
     with _wiki_lock(root):
+        adopted = _hand_edits(root, True)
         target = next((_link_target(m.group(1)) for m in _LINK_RE.finditer(line) if m.group(1).startswith("Wiki/")), None)
         if resolution_ops:
             if not target:
                 raise VaultError("The review line names no wiki page; resolution_ops need one.")
-            ctx = _Ctx(root=root, src="user", since=_today(), record=None)
+            ctx = _Ctx(root=root, src="user", since=_today(), record=None, touched=touched)
             applied = _write_ops(root, page_path(target), resolution_ops, ctx, "review")
         open_lines, done_lines = _review_text(root)
         if line in open_lines:
@@ -1449,12 +1660,15 @@ def review(action: str = "list", item: Optional[str] = None, resolution_ops: Opt
                 flags = [f for f in (pg.fm.get("flags") or []) if f != "contradiction"]
                 if flags != list(pg.fm.get("flags") or []):
                     pg.fm["flags"] = flags
-                    ctx = _Ctx(root=root, src="user", since=_today(), record=None)
+                    ctx = _Ctx(root=root, src="user", since=_today(), record=None, touched=touched)
                     _finalize(pg, ctx)
                     _write_page(pg, ctx)
         _log(root, "review", target or "-", "user", "resolved: " + line[6:80])
-        _write_index(root)
-    return {"resolved": line, "page": target, "applied": applied}
+        _write_index(root, touched)
+    out = {"resolved": line, "page": target, "applied": applied}
+    if adopted:
+        out["adopted"] = adopted
+    return out
 
 
 def prep_pages(root: Path, person_paths: list[str], subject: str, people: Optional[list[str]] = None, facts_max: int = 8, topics_max: int = 3) -> list[dict[str, Any]]:
@@ -1464,10 +1678,14 @@ def prep_pages(root: Path, person_paths: list[str], subject: str, people: Option
     seen: set[str] = set()
     paths = [p for p in person_paths if p and p.startswith(WIKI_DIR + "/")]
     if _s(subject).strip():
-        pages = _all_pages(root)
-        hits = match(subject, people, None, 20) if pages else {"pages": []}
-        topics = [h["path"] for h in hits["pages"] if (fm := next((f for p, f in pages if p == h["path"]), {})) and fm.get("type") == "topic"]
-        paths += topics[:topics_max]
+        from administrator_vault import wiki_search  # imported here: the engine imports this module
+
+        named = wiki_search.page_candidates(subject, root)
+        topics = [(p, fm) for p, fm in _all_pages(root) if fm.get("type") == "topic" and _stem(p) in named]
+        topics.sort(key=lambda t: _stem(t[0]))
+        topics.sort(key=lambda t: _s(t[1].get("verified") or t[1].get("created")), reverse=True)
+        topics.sort(key=lambda t: -named[_stem(t[0])][0])
+        paths += [p for p, _fm in topics[:topics_max]]
     for path in paths:
         if path in seen or not (root / path).is_file():
             continue
@@ -1510,6 +1728,7 @@ def record_person(
     root = store.vault_root()
     link = _link(record_path)
     with _wiki_lock(root):
+        adopted = _hand_edits(root, True)
         ctx = _Ctx(root=root, src="user", since=record_date or _today(), record=None)
         if existing:
             page = _load(root, existing)
@@ -1537,8 +1756,11 @@ def record_person(
             action = "created"
         _link_record(root, record_path, page.stem)
         _log(root, "record", page.stem, link, action)
-        _write_index(root)
-    return {"path": page.path, "action": action}
+        _write_index(root, ctx.touched)
+    out = {"path": page.path, "action": action}
+    if adopted:
+        out["adopted"] = adopted
+    return out
 
 
 _BODY_RECORD_RE = re.compile(r"^\s*- (\d{4}-\d{2}-\d{2}) — (\[\[[^\]]+\]\])\s*(.*?)\s*$")
@@ -1580,6 +1802,7 @@ def person_write(fm: dict[str, Any], body: str, mode: str = "create") -> dict[st
     last_contact = _s(fm.get("last_contact"))
     org = _s(fm.get("org") or fm.get("company")).strip()
     with _wiki_lock(root):
+        adopted = _hand_edits(root, True)
         ctx = _Ctx(root=root, src="user", since=_today(), record=None)
         changed: list[str] = []
         if hit["found"]:
@@ -1604,8 +1827,11 @@ def person_write(fm: dict[str, Any], body: str, mode: str = "create") -> dict[st
             _finalize(page, ctx)
             _write_page(page, ctx)
             _log(root, "record", page.stem, "user", "appended")
-            _write_index(root)
-            return {"path": page.path, "action": "appended", "identity": ident, "update_heading": None, "frontmatter_changed": changed}
+            _write_index(root, ctx.touched)
+            out = {"path": page.path, "action": "appended", "identity": ident, "update_heading": None, "frontmatter_changed": changed}
+            if adopted:
+                out["adopted"] = adopted
+            return out
         title = name or email.split("@", 1)[0]
         lead = f"{title} ({email})" + (f" — {org}." if org else ".")
         extra = {"email": email, "last_contact": last_contact, "org": org}
@@ -1618,12 +1844,15 @@ def person_write(fm: dict[str, Any], body: str, mode: str = "create") -> dict[st
             _add_record_line(page, link, day, summary)
         _finalize(page, ctx)
         _write_page(page, ctx)
-        _write_index(root)
-    return {"path": page.path, "action": "created", "identity": ident}
+        _write_index(root, ctx.touched)
+    out = {"path": page.path, "action": "created", "identity": ident}
+    if adopted:
+        out["adopted"] = adopted
+    return out
 
 
 __all__ = [
     "CREATED_BY", "WIKI_DIR", "TYPES", "SECTIONS", "CAPS", "Page", "Fact",
-    "parse_page", "format_page", "measure", "page_path", "slugify", "init_files",
+    "parse_page", "format_page", "measure", "page_path", "slugify", "init_files", "new_page_id",
     "match", "read", "ingest", "create", "apply", "log", "review", "record_person", "person_write", "prep_pages",
 ]

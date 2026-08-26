@@ -115,18 +115,21 @@ def _plan_people(root: Path, created_by: str) -> tuple[list[dict[str, Any]], lis
     return people, left
 
 
-def _link_files(root: Path) -> list[tuple[Path, int]]:
+def _link_files(root: Path, pattern: "re.Pattern[str]" = _OLD_LINK_RE) -> list[tuple[Path, int]]:
+    """Every note holding a link that matches ``pattern``, with how many it holds:
+    the old ``People/`` links here, a renamed page in wiki_reconcile. The backup
+    folder and the copies under ``_cache/`` are left out."""
     admin = root / ADMIN_DIR
     out = []
     for p in sorted(admin.rglob("*.md")):
         r = rel(root, p)
-        if r.startswith((OLD_DIR + "/", BACKUP_DIR + "/")):
+        if r.startswith((OLD_DIR + "/", BACKUP_DIR + "/", wiki.CACHE_DIR + "/")):
             continue
         try:
             text = read_text(p)
         except (OSError, UnicodeDecodeError):
             continue
-        n = len(_OLD_LINK_RE.findall(text))
+        n = len(pattern.findall(text))
         if n:
             out.append((p, n))
     return out
@@ -216,7 +219,7 @@ def migrate(dry_run: bool = True, created_by: str = wiki.CREATED_BY) -> dict[str
             rewritten += n
         _apply_views(root, views)
         _log(root, "migrate", "Wiki/People", "-", f"{len(moved)} people, {rewritten} links")
-        _write_index(root)
+        _write_index(root, [wiki._stem(p) for p in moved])
         remaining = [rel(root, p) for p in old.iterdir()]
         removed = False
         if not remaining:

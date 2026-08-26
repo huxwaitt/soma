@@ -14,7 +14,7 @@ from administrator_vault import store, wiki, wiki_migrate, workflows
 from administrator_vault.server import build_server
 
 OLD = "administrator/0.1.0"
-CB = "administrator/0.3.0"
+CB = "administrator/0.4.0"
 A = "Administrator"
 LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:[#|][^\]]*)?\]\]")
 
@@ -138,7 +138,7 @@ def test_migrate_moves_people_and_rewrites_every_link(old_vault):
     assert jfm["org"] == "Example GmbH" and "company" not in jfm and "source" not in jfm
     assert jfm["aliases"] == ["Doe, Jane"] and jfm["last_contact"] == "2026-08-20T09:00:00+02:00" and jfm["status"] == "draft"
     assert jfm["created_by"] == CB and jfm["verified"] == "2026-08-21" and jfm["created"] == "2026-08-18" and jfm["sources"] == 4 and jfm["flags"] == []
-    assert list(jfm)[:4] == ["type", "title", "name", "email"]
+    assert list(jfm)[:5] == ["type", "id", "title", "name", "email"] and len(jfm["id"]) == 26
     body = jane_text.split("---\n", 2)[2].lstrip("\n")
     assert body.startswith("# Jane Doe\n\nJane Doe (jane.doe@example.com) — Example GmbH.\n\n## Facts\n\n## Topics\n\n## Open\n\n## Records\n\n")
     recs = [l for l in body.split("\n") if l.startswith("- 2026-")]

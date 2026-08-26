@@ -15,7 +15,7 @@ from administrator_vault import store, timeblock, wiki
 from administrator_vault.server import build_server
 from administrator_vault.store import VaultError
 
-CB = "administrator/0.3.0"
+CB = "administrator/0.4.0"
 W = "Administrator/Wiki"
 WEEK = "2026-W35"  # Mon 24 Aug - Sun 30 Aug 2026
 TODAY = date(2026, 8, 24)

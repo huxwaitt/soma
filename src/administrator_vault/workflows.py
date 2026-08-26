@@ -20,7 +20,7 @@ from administrator_vault import notes, store, wiki
 from administrator_vault.notes import ADMIN_DIR, NoteError
 from administrator_vault.store import VaultError, read_text, rel, resolve, write_text
 
-CREATED_BY = "administrator/0.3.0"
+CREATED_BY = "administrator/0.4.0"
 RULES_PATH = f"{ADMIN_DIR}/Rules.md"
 FOLLOWUPS_PATH = f"{ADMIN_DIR}/Follow-ups.md"
 CACHE_DIR = f"{ADMIN_DIR}/Attachments/_cache"

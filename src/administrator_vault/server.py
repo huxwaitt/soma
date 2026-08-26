@@ -9,7 +9,7 @@ from typing import Annotated, Any, Callable, Optional
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
-from administrator_vault import priorities, store, timeblock, wiki, wiki_lint, wiki_migrate, workflows
+from administrator_vault import priorities, store, timeblock, wiki, wiki_lint, wiki_migrate, wiki_search, workflows
 from administrator_vault.frontmatter import FrontmatterError
 from administrator_vault.notes import NoteError, SCHEMAS
 
@@ -27,8 +27,10 @@ daily (date), weekly (week), chat (chat_id and date), time-block (week).
 Every tool returns a JSON string.
 
 The wiki (Administrator/Wiki/) holds pages the model keeps: person, org,
-topic, howto, me. vault_wiki_match finds pages, vault_wiki_read returns a
-page's lead and facts (with ids), vault_wiki_ingest / vault_wiki_apply take
+topic, howto, me. vault_wiki_search answers a question with ranked facts
+(brief=true stitches them into one text), vault_wiki_match finds pages,
+vault_wiki_read returns a page's lead and facts (with ids),
+vault_wiki_ingest / vault_wiki_apply take
 op lists (add, update, supersede, confirm, retire, contest, lead, summary,
 status, title, alias, related, role, open, steps, due, owner, org).
 vault_wiki_lint runs the fifteen checks, vault_wiki_merge folds one page
@@ -372,6 +374,27 @@ def register(mcp: FastMCP) -> None:
         return _json(wiki.match(text, people, domains, limit))
 
     @mcp.tool(
+        name="vault_wiki_search",
+        annotations={"title": "Search the wiki for facts", "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+    )
+    @_guard
+    def vault_wiki_search(
+        query: Annotated[str, Field(description="The question in plain words. \"quoted phrases\", ids, dates and amounts are looked up as written; /regex/ searches the raw text.")],
+        kinds: Annotated[Optional[list[str]], Field(description="Keep only these page kinds: person, org, topic, howto, me.")] = None,
+        limit: Annotated[int, Field(ge=1, le=50, description="How many hits to answer with.")] = 10,
+        since: Annotated[Optional[str], Field(description="Only facts dated on or after this ISO date.")] = None,
+        include_superseded: Annotated[bool, Field(description="Also answer with the old wording of facts that were replaced (always shown as superseded and always ranked below).")] = False,
+        brief: Annotated[bool, Field(description="Answer with one stitched text instead of a list of hits.")] = False,
+        max_chars: Annotated[int, Field(ge=200, le=8000, description="Cap for the stitched text.")] = 1500,
+        open_items: Annotated[bool, Field(description="Answer with the open items of the matching pages instead of facts.")] = False,
+        owner: Annotated[Optional[str], Field(description="Open items only: whose item it is; matched once the lines carry an owner.")] = None,
+        due_before: Annotated[Optional[str], Field(description="Open items only: due on or before this ISO date; matched once the lines carry a due date.")] = None,
+        page: Annotated[Optional[str], Field(description="Keep to this one page (path, stem or wikilink).")] = None,
+    ) -> str:
+        """Ranked facts read from the wiki pages themselves: [{page, kind, title, fact_id, text, since, src, score, why[], superseded, streams, confirmed}], best first, at most three facts per page. brief=true answers with {text, pages[], facts[], chars} — the top pages with their lead, facts, open items and the dated facts of the pages they link to. open_items=true answers with [{page, title, text, record, line}]. Notes are never read."""
+        return _json(wiki_search.search_tool(query, kinds, limit, since, include_superseded, brief, max_chars, open_items, owner, due_before, page))
+
+    @mcp.tool(
         name="vault_wiki_read",
         annotations={"title": "Read a wiki page", "readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
     )
@@ -394,7 +417,7 @@ def register(mcp: FastMCP) -> None:
         pages: Annotated[list[dict[str, Any]], Field(description="Per page: {path, ops} for an existing page or {new: {type, title, aliases, lead, summary}, ops} for a new one. An empty ops list still adds the Records line.")],
         created_by: CreatedBy = wiki.CREATED_BY,
     ) -> str:
-        """Apply op lists to wiki pages with the record as source (src and since default to the record's id and date). Per page: applied / refused ops with reasons, new ids, sizes; writes Records, History, the record's wiki: link, Log.md and Index.md; reports the topic candidate for the record's subject."""
+        """Apply op lists to wiki pages with the record as source (src and since default to the record's id and date). Per page: applied / refused ops with reasons, new ids, sizes; writes Records, History, the record's wiki: link, Log.md and Index.md; reports the topic candidate for the record's subject. Every page is read back after the write: one that does not come back as it was written keeps its previous text and answers written: false with reason 'verify-failed'."""
         return _json(wiki.ingest(record_path, pages, created_by))
 
     @mcp.tool(
@@ -463,7 +486,7 @@ def register(mcp: FastMCP) -> None:
         fix: Annotated[bool, Field(description="Apply the safe fixes: regenerate the index, recompute code-owned keys, fix section order, turn dangling links in code-owned sections into plain text, tick open items whose record action is done, set stale topics to dormant, rotate History / Log.")] = False,
         created_by: CreatedBy = wiki.CREATED_BY,
     ) -> str:
-        """The fifteen wiki checks (index vs files, dangling links, orphans, frontmatter, sections, oversized, stale, due in the past, open items done, duplicate pages, records never ingested, topic candidates, History / Log rotation, pages to ask the model about, unconfirmed facts). Flags (orphan, stale, oversized, possible-duplicate) and Review lines are written in both modes; fix=true also applies the safe fixes. Returns {date, fix, pages, counts, checks: {1..15}, flagged, review_added, written, cache}. checks['14'].ask_model lists the pages touched since the last lint: read their facts and report pairs that cannot both be true with a contest op."""
+        """The fifteen wiki checks (index vs files, dangling links, orphans, frontmatter, sections, oversized, stale, due in the past, open items done, duplicate pages, records never ingested, topic candidates, History / Log rotation, pages to ask the model about, unconfirmed facts). Flags (orphan, stale, oversized, possible-duplicate) and Review lines are written in both modes; fix=true also applies the safe fixes. Returns {date, fix, pages, counts, checks: {0..15}, flagged, review_added, written, cache}. checks['0'] is the pass that reads back what the user changed by hand in Obsidian; it runs at the start of every wiki tool, and when it took something over the answer carries adopted: [{page, changes}] — pass that on in one line. checks['14'].ask_model lists the pages touched since the last lint: read their facts and report pairs that cannot both be true with a contest op."""
         return _json(wiki_lint.lint(fix, created_by))
 
     @mcp.tool(

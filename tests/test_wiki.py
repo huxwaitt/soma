@@ -14,7 +14,7 @@ from administrator_vault import frontmatter as fmt
 from administrator_vault import store, wiki, workflows
 from administrator_vault.server import build_server
 
-CB = "administrator/0.3.0"
+CB = "administrator/0.4.0"
 W = "Administrator/Wiki"
 
 
@@ -105,7 +105,8 @@ def test_create_writes_contract_and_refuses_duplicates_and_code_owned(vault):
     fm = fm_of(vault, path)
     assert fm["type"] == "topic" and fm["status"] == "active" and fm["created_by"] == CB
     assert fm["verified"] == "2026-08-22" and fm["sources"] == 1 and fm["open_items"] == 0 and fm["flags"] == []
-    assert list(fm)[:5] == ["type", "title", "aliases", "summary", "status"]
+    assert list(fm)[:6] == ["type", "id", "title", "aliases", "summary", "status"]
+    assert len(fm["id"]) == 26 and set(fm["id"]) <= set("0123456789ABCDEFGHJKMNPQRSTVWXYZ")
     text = text_of(vault, path)
     assert "# Q3 budget\n\nJane collects final Q3 numbers by 2026-08-29.\n\n## Facts\n\n- Deadline for the user's numbers is 2026-08-29 <!-- f:" in text
     assert "- 2026-" in text and "— page created (user)" in text
@@ -257,8 +258,10 @@ def test_page_ops(vault):
     # symmetric: the person lists the topic with the role, the org links back
     assert "## Topics\n\n- [[Wiki/Topics/q3-budget]] — owns the forecast\n" in text_of(vault, jane)
     assert "## Related\n\n- [[Wiki/Topics/q3-budget]]\n" in text_of(vault, org)
-    # index shows the new title and the filename is unchanged
-    assert "[[Wiki/Topics/q3-budget|Q3 budget round]] · dormant" in text_of(vault, f"{W}/Index.md")
+    # index shows the new title and the filename is unchanged; a topic with a due is a project
+    idx = text_of(vault, f"{W}/Index.md")
+    assert "## Projects (1)" in idx and idx.index("## Projects") < idx.index("## People")
+    assert "- [[Wiki/Topics/q3-budget|Q3 budget round]] · Jane Doe · 2026-08-29 · dormant — Numbers due 2026-08-29." in idx
     # refusals of page ops
     r = wiki.apply(path, [
         {"op": "lead", "text": " ".join(["w"] * 81)},
@@ -537,7 +540,7 @@ def test_save_email_person_page_follows_contract(vault):
     fm = fmt.split_note(text)[0]
     assert fm["status"] == "draft" and fm["org"] == "Example GmbH" and fm["email"] == "jane.doe@example.com" and fm["last_contact"] == "2026-08-22T09:14:00+02:00"
     assert all(k in fm for k in ("name", "aliases", "created", "updated", "verified", "sources", "open_items", "flags", "created_by"))
-    assert fm["created_by"] == "administrator/0.3.0"
+    assert fm["created_by"] == "administrator/0.4.0"
     assert "# Jane Doe\n\nJane Doe (jane.doe@example.com) — Example GmbH.\n\n## Facts\n\n## Topics\n\n## Open\n\n## Records\n\n- 2026-08-22 — [[Emails/2026-08-22 Budget Q3]] — Jane asks for the Q3 numbers by Friday.\n\n## Related\n\n## History\n\n- " in text
     assert fm_of(vault, res["path"])["from_link"] == "[[Wiki/People/Jane Doe]]" and fm_of(vault, res["path"])["wiki"] == ["[[Wiki/People/Jane Doe]]"]
     assert "- [[Wiki/People/Jane Doe]] · Example GmbH · " in text_of(vault, f"{W}/Index.md")
@@ -642,3 +645,78 @@ def test_record_info_and_ingest_on_a_chat_record(vault):
     assert "- 2026-08-21 — [[Teams/2026-08-21 Q3 budget]] — Jane Doe: Numbers by Friday?" in text_of(vault, path)
     assert fm_of(vault, rec)["wiki"] == ["[[Wiki/Topics/q3-budget]]"]
     assert fm_of(vault, path)["sources"] == 1  # the fact src and the Records line are the same chat day
+
+
+# ------------------------------------------------------------------ reliable writes
+
+
+def test_a_write_that_comes_back_wrong_is_put_back(vault, monkeypatch):
+    path = topic(vault, facts=[{"text": "Deadline is 2026-08-29", "since": "2026-08-22", "src": "<m1@example.com>"}])
+    before = text_of(vault, path)
+    real = wiki.format_page
+
+    def drops_a_fact(page):
+        return "\n".join(l for l in real(page).split("\n") if not l.startswith("- Deadline is 2026-08-29 <!--"))
+
+    monkeypatch.setattr(wiki, "format_page", drops_a_fact)
+    r = wiki.apply(path, [{"op": "add", "text": "Sheet tab is Sales", "since": "2026-08-22"}])
+    assert r["written"] is False and r["applied"] == []
+    assert [(x["op"], x["reason"]) for x in r["refused"]] == [("add", "verify-failed")]
+    assert any(p.startswith("facts") for p in r["refused"][0]["problems"])
+    # the page is the page it was, and the copy under _cache/prev is the text from before the write
+    assert text_of(vault, path) == before
+    assert text_of(vault, f"{W}/_cache/prev/Topics/q3-budget.md.prev") == before
+    assert wiki.read(path)["facts"][0]["text"] == "Deadline is 2026-08-29"
+    line = wiki.review("list")["open"][0]["text"]
+    assert "[[Wiki/Topics/q3-budget]] — write check failed (facts" in line and "previous text restored (apply, user)" in line
+    assert "restore | Wiki/Topics/q3-budget | user | write check failed: facts" in wiki.log()["lines"][-1]
+
+
+def test_a_hand_edited_index_is_repaired_and_a_normal_write_says_nothing(vault):
+    topic(vault)
+    other = wiki.create("topic", "Offsite venue", lead="Where the team meets in October.")["path"]
+    # a normal write on another page: one log line, nothing else
+    n = wiki.log(limit=500)["total"]
+    wiki.apply(other, [{"op": "add", "text": "Venue is booked", "since": "2026-08-22"}])
+    added = wiki.log(limit=500)["lines"][n:]
+    assert len(added) == 1 and " apply | Wiki/Topics/offsite-venue | user | add 1" in added[0]
+    # someone edits Index.md by hand: the next write puts it right and says so once
+    idx = vault / W / "Index.md"
+    hand = text_of(vault, f"{W}/Index.md").replace("[[Wiki/Topics/q3-budget|Q3 budget]]", "[[Wiki/Topics/q3-budget|Something else]]")
+    assert "Something else" in hand
+    idx.write_text(hand, encoding="utf-8")
+    n = wiki.log(limit=500)["total"]
+    wiki.apply(other, [])
+    added = wiki.log(limit=500)["lines"][n:]
+    assert any("index-repaired | Wiki/Index | - | 1 lines: Wiki/Topics/q3-budget" in l for l in added)
+    idx_text = text_of(vault, f"{W}/Index.md")
+    assert "[[Wiki/Topics/q3-budget|Q3 budget]]" in idx_text and "Something else" not in idx_text
+
+
+def test_page_ids_are_sortable_unique_and_stay(vault):
+    made = []
+    for _ in range(3):
+        made.append(wiki.new_page_id())
+        time.sleep(0.002)
+    assert made == sorted(made) and len(set(made)) == 3 and all(len(i) == 26 for i in made)
+    path = topic(vault)
+    first = fm_of(vault, path)["id"]
+    wiki.apply(path, [{"op": "add", "text": "Sheet tab is Sales", "since": "2026-08-22"}])
+    wiki.apply(path, [{"op": "summary", "text": "Numbers due Friday."}])
+    assert fm_of(vault, path)["id"] == first
+    person = wiki.create("person", "Jane Doe", extra={"email": "jane.doe@example.com"})["path"]
+    assert fm_of(vault, person)["id"] != first and len(fm_of(vault, person)["id"]) == 26
+
+
+def test_projects_group_lists_topics_with_a_due_soonest_first(vault):
+    wiki.create("topic", "Office move", lead="The move to the new floor.")
+    soon = wiki.create("topic", "Acme contract", lead="The supplier contract.", summary="Renewal.")["path"]
+    wiki.create("topic", "Reading list", lead="Things to read.")
+    wiki.apply(f"{W}/Topics/office-move.md", [{"op": "due", "value": "2026-12-01"}])
+    wiki.apply(soon, [{"op": "due", "value": "2026-09-01"}, {"op": "owner", "value": "Jane Doe"}])
+    body = text_of(vault, f"{W}/Index.md").split("# Wiki index\n\n")[1]
+    assert body.index("## Projects (2)") < body.index("## Topics (1)")
+    lines = [l for l in body.split("\n") if l.startswith("- [[Wiki/Topics/")]
+    assert lines[0] == "- [[Wiki/Topics/acme-contract|Acme contract]] · Jane Doe · 2026-09-01 · active — Renewal."
+    assert lines[1] == "- [[Wiki/Topics/office-move|Office move]] · — · 2026-12-01 · active"
+    assert lines[2].startswith("- [[Wiki/Topics/reading-list|Reading list]] · active · ")

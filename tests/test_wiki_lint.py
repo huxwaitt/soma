@@ -11,7 +11,7 @@ from administrator_vault import frontmatter as fmt
 from administrator_vault import store, wiki, wiki_lint, workflows
 from administrator_vault.server import build_server
 
-CB = "administrator/0.3.0"
+CB = "administrator/0.4.0"
 W = "Administrator/Wiki"
 
 
@@ -101,7 +101,7 @@ def test_lint_report_hits_every_check(vault):
     assert c["3"]["pages"] == ["Wiki/Topics/long-history", "Wiki/Topics/stale-thing"]
     # 4 frontmatter
     messy = next(i for i in c["4"]["items"] if i["page"] == "Wiki/Topics/messy")
-    assert messy["extra"] == ["foo"] and messy["code_owned_edited"] == ["sources"] and messy["missing"] == []
+    assert messy["extra"] == ["foo"] and messy["code_owned_edited"] == ["sources"] and messy["missing"] == []  # the id came from the hand-edit pass
     # 5 sections
     assert c["5"]["items"] == [{"page": "Wiki/Topics/messy", "unknown": ["Random"], "duplicate": [], "out_of_order": True}]
     # 6 oversized
@@ -150,9 +150,11 @@ def test_lint_fix_applies_the_safe_fixes(vault):
     c = r["checks"]
     # 2: dangling link in a code-owned section became plain text
     assert "- Wiki/Topics/nope" in text_of(vault, f"{W}/Topics/stale-thing.md") and "[[Wiki/Topics/nope]]" not in text_of(vault, f"{W}/Topics/stale-thing.md")
-    # 4: code-owned keys recomputed, the extra key is only reported
+    # 4: code-owned keys recomputed, the missing id written, the extra key is only reported
     fm = fm_of(vault, f"{W}/Topics/messy.md")
-    assert fm["sources"] == 0 and fm["foo"] == "bar"
+    assert fm["sources"] == 0 and fm["foo"] == "bar" and len(fm["id"]) == 26
+    ids = {fm_of(vault, p)["id"] for p in (f"{W}/Topics/messy.md", f"{W}/Topics/q3-budget.md", f"{W}/People/Jane Doe.md")}
+    assert len(ids) == 3
     # 5: section order fixed, unknown section kept and reported
     text = text_of(vault, f"{W}/Topics/messy.md")
     assert text.index("## Facts") < text.index("## People") and "## Random" in text and c["5"]["items"][0]["unknown"] == ["Random"]
@@ -238,7 +240,7 @@ def test_server_lint_and_merge_tools(vault):
 
     seed(vault)
     r = call("vault_wiki_lint", {"fix": True})
-    assert r["fix"] is True and set(r["checks"]) == {str(i) for i in range(1, 16)}
+    assert r["fix"] is True and set(r["checks"]) == {str(i) for i in range(0, 16)}  # 0 = the hand-edit pass
     m = call("vault_wiki_merge", {"keep": "Wiki/Topics/q3-budget", "drop": "Wiki/Topics/budget-q3"})
     assert m["redirect"] == "[[Wiki/Topics/q3-budget]]"
     assert fm_of(vault, f"{W}/Topics/budget-q3.md")["type"] == "redirect"
@@ -253,3 +255,17 @@ def test_uningested_includes_chat_records(vault):
     page = wiki.create("topic", "Q3 budget", lead="Numbers.", summary="Numbers.")["path"]
     wiki.ingest(rec, [{"path": page, "ops": []}], created_by=CB)
     assert wiki_lint.uningested_records(vault) == (0, [])
+
+
+def test_the_copy_of_a_deleted_page_does_not_hide_the_links_to_it(vault):
+    """_cache/prev/ holds each page's text from before the last write. Those
+    copies are working files, not notes: a link to a page the user deleted is
+    still a dangling link."""
+    path = wiki.create("topic", "Q3 budget", lead="Numbers.", summary="Numbers.")["path"]
+    other = wiki.create("topic", "Offsite venue", lead="October.", summary="Where.")["path"]
+    wiki.apply(other, [{"op": "related", "page": "Wiki/Topics/q3-budget"}])
+    (vault / path).unlink()
+
+    assert (vault / f"{W}/_cache/prev/Topics/q3-budget.md.prev").is_file()
+    c = wiki_lint.lint()["checks"]["2"]
+    assert c["count"] == 1 and c["items"][0]["target"] == "Wiki/Topics/q3-budget"

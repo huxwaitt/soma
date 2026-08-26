@@ -12,7 +12,7 @@ from administrator_vault import frontmatter as fmt
 from administrator_vault import notes, store, wiki, workflows
 from administrator_vault.server import build_server
 
-CB = "administrator/0.3.0"
+CB = "administrator/0.4.0"
 W = "Administrator/Wiki"
 
 
@@ -160,4 +160,4 @@ def test_server_save_chat_round_trip(vault):
     text = out[0].text if isinstance(out, list) else out[0][0].text
     res = json.loads(text)
     assert res["action"] == "created" and res["path"] == "Administrator/Teams/2026-08-21 Q3 budget.md" and res["unknown_people"] == ["Jane Doe"]
-    assert fm_of(vault, res["path"])["created_by"] == "administrator/0.3.0"
+    assert fm_of(vault, res["path"])["created_by"] == "administrator/0.4.0"
