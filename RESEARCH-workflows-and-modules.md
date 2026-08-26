@@ -49,7 +49,7 @@ What the people who got it right do:
 4. **Lists of links in frontmatter** (`attendees: ["[[Jane]]"]`, `from: "[[Jane]]"`) so Bases/Dataview person pages work; flat date-prefixed folders + `type:` property beat deep PARA trees.
 5. **Work vault kept separate, on employer storage, no personal sync** — said out loud in the docs.
 
-## 5. What this means for `administrator`
+## 5. What this means for `soma`
 
 - **Classic Outlook COM is the only no-admin path that works at most companies** (Graph consent blocked, EWS shuts down Oct 2026/Apr 2027) — *and* it's on a clock (new Outlook). So: keep the Outlook layer thin and swappable.
 - **Build for the habits that survive**, not the guru system: few folders + search + a trustworthy "waiting on me / waiting on them" view + a weekly summary note. The most useful thing we can add is what Outlook lacks: **a status per thread** (to reply / waiting / done) kept in the vault and worked out from the conversation itself.
@@ -98,7 +98,7 @@ Raw verbs only: read (list/search/get/export), change (move/mark/delete/send/sav
 - **cleanup** = find(old/large/newsletters) → tidy (bulk) with preview
 
 ### Layer 3 — Commands and templates
-`/administrator:inbox`, `save`, `daily`, `followups`, `prep`, `weekly`, plus the main skill and note templates. No logic lives here.
+`/soma:inbox`, `save`, `daily`, `followups`, `prep`, `weekly`, plus the main skill and note templates. No logic lives here.
 
 ### v0.0.1 cut
 Parts: `ids`, `find`, `label`, `pull-out`, `tidy`, `people`, `vault`, `rules`. Workflows: inbox, save email, daily.

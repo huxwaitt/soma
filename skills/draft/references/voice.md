@@ -49,7 +49,7 @@ Count, do not guess: `greeting_counts` and `signoff_counts` are already counts, 
 
 The plugin does not store the profile: one `outlook_voice_sample` call per person per session is cheaper than a stored block and never goes stale. Two places can still hold user-written rules:
 
-- **`Administrator/Preferences.md`, `## Voice`** — plain bullets, same six facts, free text, written by the user only. It can hold hard rules the sample cannot show: "never use exclamation marks", "always sign with full name to external people", "write German to colleagues at Example GmbH". The plugin reads it (`vault_read("Administrator/Preferences.md")`) and never writes it. When a draft is shown and no `## Voice` exists yet, offer the six bullets once per session with "paste this into Preferences.md under `## Voice` if it looks right" — then drop it.
+- **`Soma/Preferences.md`, `## Voice`** — plain bullets, same six facts, free text, written by the user only. It can hold hard rules the sample cannot show: "never use exclamation marks", "always sign with full name to external people", "write German to colleagues at Example GmbH". The plugin reads it (`vault_read("Soma/Preferences.md")`) and never writes it. When a draft is shown and no `## Voice` exists yet, offer the six bullets once per session with "paste this into Preferences.md under `## Voice` if it looks right" — then drop it.
 - **`Voice with this person:` in a person note** — a block the user (or an earlier plugin version) wrote. When `vault_read` of the person note shows one, it wins over the counted sample for that person. The plugin no longer appends these blocks.
 
 Order of precedence when writing: hard rules in `## Voice` → `Voice with this person:` block → the six facts from the sample → plain neutral voice.
@@ -76,7 +76,7 @@ All three use the same facts and the same rules above; they differ in what goes 
 
 A nudge or minutes email shown to the user carries the same `[fill in: …]` markers when something is missing, and the same "save to Drafts only after a yes" rule as a reply.
 
-## Worked example — `/administrator:draft delivery schedule tom — 8 Sep is fine, ask for the packaging spec`
+## Worked example — `/soma:draft delivery schedule tom — 8 Sep is fine, ask for the packaging spec`
 
 2026-08-22, `outlook_whoami` → `hux@example.com`.
 

@@ -4,7 +4,7 @@ Two full runs, call by call, for `skills/review/SKILL.md`. The user is `hux@exam
 
 ## followups
 
-`/administrator:followups` on Saturday 2026-08-22 10:05 (+02:00). `outlook_whoami` → `hux@example.com`.
+`/soma:followups` on Saturday 2026-08-22 10:05 (+02:00). `outlook_whoami` → `hux@example.com`.
 
 ### Step 1
 
@@ -42,8 +42,8 @@ Two `Accepted:` responses in Sent were skipped by the server; nothing was read b
 `vault_wiki_search(query="", open_items=true, owner="others")` → two items: Carol Ng / "Contract draft" on `Wiki/People/Carol Ng.md` (`id: "4m2t"`, `src: ["00000000AC…"]`, written by `inbox`) and "Delivery schedule September" on `Wiki/People/Tom Lee.md` (`id: "9r7d"`, `owner: "[[Wiki/People/Tom Lee]]"`, `src: ["00000000AB…"]`, written by `prep` from Tom's 19 Aug mail).
 
 - Item 1: no `src` match, but Tom's page holds an item with the same text → already listed.
-- Item 2: `vault_find("person", "priya.nair@northwind.example", fields=["name"])` → not found → one `vault_write("person", {type: person, name: "Priya Nair", email: "priya.nair@northwind.example", last_contact: "", aliases: [], created_by: "administrator/0.4.1"}, "", mode="create")` → `Administrator/Wiki/People/Priya Nair.md`.
-- Item 3: `vault_find("person", "bob.lee@example.com", fields=["name"])` → `Administrator/Wiki/People/Bob Lee.md`.
+- Item 2: `vault_find("person", "priya.nair@northwind.example", fields=["name"])` → not found → one `vault_write("person", {type: person, name: "Priya Nair", email: "priya.nair@northwind.example", last_contact: "", aliases: [], created_by: "soma/0.4.1"}, "", mode="create")` → `Soma/Wiki/People/Priya Nair.md`.
+- Item 3: `vault_find("person", "bob.lee@example.com", fields=["name"])` → `Soma/Wiki/People/Bob Lee.md`.
 
 ```
 vault_wiki_write(pages=[{"path": "Wiki/People/Priya Nair", "ops": [{"op": "open", "text": "Offsite venue options",
@@ -58,7 +58,7 @@ Both answer `written: true` with one `applied: [{op: "open", id: …, owner: "[[
 
 Closing: Carol Ng's item matched no thread and its `src` is an `entry_id` → `outlook_get_conversation(entry_id="00000000AC…", include_body=false, limit=50, fields=["entry_id","from_address","received"])` → last item `from_address: carol.ng@example.com`, `received: 2026-08-22T08:15:00+02:00` → `vault_wiki_write(pages=[{"path": "Wiki/People/Carol Ng", "ops": [{"op": "done", "id": "4m2t", "src": "user"}]}])`. Tom's item matched thread 1 → stays.
 
-`Administrator/Follow-ups.md`, written again after each of those calls, now shows under `## Open`:
+`Soma/Follow-ups.md`, written again after each of those calls, now shows under `## Open`:
 
 ```markdown
 | Since | Who | What | Email | Last checked |
@@ -96,14 +96,14 @@ User: "yes" → `outlook_reply_mail(entry_id="00000000B3…", body=<text>, reply
 ### Step 5
 
 > 23 threads checked from 39 sent mails. 3 waiting longer than 3 days (Tom Lee 6 d, Priya Nair 4 d, Bob Lee 3 d). Follow-ups: 2 items opened, 1 already listed (Tom Lee), 1 closed (Carol Ng replied on Contract draft, 2026-08-22). 2 nudge drafts saved to Drafts (Tom Lee, Bob Lee); nothing sent.
-> obsidian://open?vault=MyVault&file=Administrator/Follow-ups
+> obsidian://open?vault=MyVault&file=Soma/Follow-ups
 > Tokens this turn: 4 900
 
 Calls: 1 `awaiting_reply`, 1 `vault_wiki_search`, 2 `vault_find`, 1 `vault_write`, 3 `vault_wiki_write`, 1 `get_conversation`, 2 `voice_sample`, 2 `reply_mail` = 13 (plus `vault_status` / `whoami` once per session). A second run ten minutes later finds all three `src` keys on the pages: "3 waiting, 0 new items, 0 closed".
 
 ## weekly
 
-`/administrator:weekly` on Saturday 2026-08-22 → week `2026-W34` (2026-08-17 – 2026-08-23), next week 2026-08-24 – 2026-08-28.
+`/soma:weekly` on Saturday 2026-08-22 → week `2026-W34` (2026-08-17 – 2026-08-23), next week 2026-08-24 – 2026-08-28.
 
 ### Step 1
 
@@ -113,28 +113,28 @@ Calls: 1 `awaiting_reply`, 1 `vault_wiki_search`, 2 `vault_find`, 1 `vault_write
 open_from_inbox: 4 rows (six act/reply rows across Daily/2026-08-19, -21, -22; one ticked in To do, one with a done email note — both dropped by the tool)
 waiting: 3 items other people owe, age_days 5 / 4 / 4
 promised_overdue: [{due: "2026-08-20", what: "Send revised forecast to Jane", page: "Wiki/Topics/q3-budget", id: "7k2q", days_over: 2}]
-meetings_held: [{path: "Administrator/Meetings/2026-08-18 1300 Weekly supplier sync.md", date: "2026-08-18",
+meetings_held: [{path: "Soma/Meetings/2026-08-18 1300 Weekly supplier sync.md", date: "2026-08-18",
                  unchecked_actions: ["- [ ] Send revised forecast to Jane — owner: me", "- [ ] Confirm Leipzig delivery address — owner: Tom Lee"]}]
-no_notes: [{path: "Administrator/Meetings/2026-08-20 1000 Budget review with Jane.md", subject: "Budget review with Jane", date: "2026-08-20"}]
-quiet_people: [{name: "Carol Ng", path: "Administrator/Wiki/People/Carol Ng.md", last_contact: "2026-07-10", days: 44},
-               {name: "Sam Ortiz", path: "Administrator/Wiki/People/Sam Ortiz.md", last_contact: "2026-07-18", days: 36}]
+no_notes: [{path: "Soma/Meetings/2026-08-20 1000 Budget review with Jane.md", subject: "Budget review with Jane", date: "2026-08-20"}]
+quiet_people: [{name: "Carol Ng", path: "Soma/Wiki/People/Carol Ng.md", last_contact: "2026-07-10", days: 44},
+               {name: "Sam Ortiz", path: "Soma/Wiki/People/Sam Ortiz.md", last_contact: "2026-07-18", days: 36}]
 ```
 
 `outlook_list_events(start="2026-08-24T00:00:00", end="2026-08-28T23:59:59", include_recurrences=true, limit=200, fields=["subject","start","end","location","organizer","attendees","all_day","occurrence_key","global_id"], response_format="json")` → 9 events. Nine `vault_find("meeting", {...}, fields=[])` calls → 2 found, 7 without a prep note. Tuesday 13:00–14:00 and 13:30–14:30 overlap.
 
 ### Step 2
 
-`vault_write("weekly", {...week: "2026-W34"...}, body, mode="upsert")` → `{"action": "created", "path": "Administrator/Weekly/2026-W34.md"}`:
+`vault_write("weekly", {...week: "2026-W34"...}, body, mode="upsert")` → `{"action": "created", "path": "Soma/Weekly/2026-W34.md"}`:
 
 ```markdown
 ---
 type: weekly
-source: administrator
+source: soma
 week: 2026-W34
 start: 2026-08-17
 end: 2026-08-23
 generated: 2026-08-22T10:20:00+02:00
-created_by: administrator/0.4.1
+created_by: soma/0.4.1
 ---
 
 # Week 2026-W34 (2026-08-17 – 2026-08-23)
@@ -165,7 +165,7 @@ created_by: administrator/0.4.1
 - [ ] Send revised forecast to Jane — owner: me
 - [ ] Confirm Leipzig delivery address — owner: Tom Lee
 
-No notes taken (run /administrator:notes):
+No notes taken (run /soma:notes):
 
 - [[Meetings/2026-08-20 1000 Budget review with Jane]]
 
@@ -206,8 +206,8 @@ Everything above `## Notes` is the two tool results laid out; the three bullets 
 
 ### Step 3
 
-> Week 2026-W34 written to `Weekly/2026-W34.md`. Open from inbox: 4. Waiting on: 3 (oldest 5 days), 1 of mine past due. Meetings held: 1 with 2 open items; 1 without notes. Next week: 9 meetings, 1 clash, 7 without prep. Going quiet: 2. Run /administrator:prep for next week.
-> obsidian://open?vault=MyVault&file=Administrator/Weekly/2026-W34
+> Week 2026-W34 written to `Weekly/2026-W34.md`. Open from inbox: 4. Waiting on: 3 (oldest 5 days), 1 of mine past due. Meetings held: 1 with 2 open items; 1 without notes. Next week: 9 meetings, 1 clash, 7 without prep. Going quiet: 2. Run /soma:prep for next week.
+> obsidian://open?vault=MyVault&file=Soma/Weekly/2026-W34
 > Tokens this turn: 6 200
 
 Calls: 1 `vault_weekly_facts`, 1 `list_events`, 9 `vault_find`, 1 `vault_write` = 12. Run again on Sunday: `action: appended`, the new pass sits under `## Update 2026-08-23T…` in the same file.

@@ -1,11 +1,11 @@
 ---
 name: find
-description: Finds one email (or thread) from a plain-language description — "the email where we agreed on the Q3 budget with Sam", "the spreadsheet Maria sent with vendor pricing last month", "which email had the venue options". Reads the sentence into people, topic words, dates and an attachment hint, then makes ONE `outlook_find` call (the server runs the folder loop, dedupes by thread, ranks and returns ten snippets), adds `outlook_search_attachments` / `outlook_advanced_search` only on an attachment hint, opens at most two threads to quote the exact line, and shows up to 3 candidates with who / date / subject / the matching line / attachment names / an existing note link. Offers `/administrator:save` on the winner. Hard cap 6 `outlook_*` calls. Trigger on "/administrator:find", "find the email where", "which email had the", "where did X say", "the mail from X about", "the attachment Y sent", "did we ever agree on", "look for the thread about". Read-only in Outlook; writes nothing.
+description: Finds one email (or thread) from a plain-language description — "the email where we agreed on the Q3 budget with Sam", "the spreadsheet Maria sent with vendor pricing last month", "which email had the venue options". Reads the sentence into people, topic words, dates and an attachment hint, then makes ONE `outlook_find` call (the server runs the folder loop, dedupes by thread, ranks and returns ten snippets), adds `outlook_search_attachments` / `outlook_advanced_search` only on an attachment hint, opens at most two threads to quote the exact line, and shows up to 3 candidates with who / date / subject / the matching line / attachment names / an existing note link. Offers `/soma:save` on the winner. Hard cap 6 `outlook_*` calls. Trigger on "/soma:find", "find the email where", "which email had the", "where did X say", "the mail from X about", "the attachment Y sent", "did we ever agree on", "look for the thread about". Read-only in Outlook; writes nothing.
 ---
 
 # find — one email from a sentence
 
-The user describes an email the way they remember it. You turn the sentence into a small search object, the server does the searching and ranking, you read ten snippets and quote the line that matters. Outlook is read through the `outlook_*` tools, the vault through `vault_*`; nothing is changed or written. Outlook mechanics (`response_format`, `fields`, dates, `entry_id`) follow the `outlook` skill and `skills/administrator/references/outlook.md`.
+The user describes an email the way they remember it. You turn the sentence into a small search object, the server does the searching and ranking, you read ten snippets and quote the line that matters. Outlook is read through the `outlook_*` tools, the vault through `vault_*`; nothing is changed or written. Outlook mechanics (`response_format`, `fields`, dates, `entry_id`) follow the `outlook` skill and `skills/soma/references/outlook.md`.
 
 Load `references/search-plan.md` when the workflow starts (parsing rules, when to widen, the call cap). Worked runs are in `references/examples.md`; load it only when a step is unclear.
 
@@ -36,15 +36,15 @@ Up to three candidates, best first:
    "Agreed then: Q3 budget stays at 180k, with the 15k contingency held by finance."
    Attachments: Q3_budget_v4.xlsx
    Note: [[Emails/2026-06-12 Q3 budget — wrap-up]]
-   obsidian://open?vault=MyVault&file=Administrator%2FEmails%2F2026-06-12%20Q3%20budget%20%E2%80%94%20wrap-up
+   obsidian://open?vault=MyVault&file=Soma%2FEmails%2F2026-06-12%20Q3%20budget%20%E2%80%94%20wrap-up
 2. …
 ```
 
 When step 0b found a page, one line comes first: `Wiki: [[Wiki/Topics/q3-budget]] — <lead sentence that answers>` (verbatim from the page), then the candidates.
 
-Line 1: who → whom (display names; "me" for the user), `received` as local date and time, subject with reply prefixes kept; `from_address` is the user's own → "me → …". Line 2: the quoted sentence, exact words, one or two sentences. Line 3 only when there are attachments (filenames from `matches[]`). Line 4 only when a note exists: the wikilink plus an `obsidian://open?vault=<vault_status.vault_name>&file=<path, URL-encoded>` link (`skills/administrator/references/obsidian.md`).
+Line 1: who → whom (display names; "me" for the user), `received` as local date and time, subject with reply prefixes kept; `from_address` is the user's own → "me → …". Line 2: the quoted sentence, exact words, one or two sentences. Line 3 only when there are attachments (filenames from `matches[]`). Line 4 only when a note exists: the wikilink plus an `obsidian://open?vault=<vault_status.vault_name>&file=<path, URL-encoded>` link (`skills/soma/references/obsidian.md`).
 
-Then one line: `Save #1 as a note? (/administrator:save <entry_id>)` — for the winner only, skipped when it already has a note. Say nothing is saved until they answer. `find` never calls `vault_write`; saving is the `save` skill's job after a yes.
+Then one line: `Save #1 as a note? (/soma:save <entry_id>)` — for the winner only, skipped when it already has a note. Say nothing is saved until they answer. `find` never calls `vault_write`; saving is the `save` skill's job after a yes.
 
 ## Rules
 

@@ -4,9 +4,9 @@ Four runs, call by call. Tool results are cut to what the model reads. Times are
 
 ## Example 1 — planning this week on Monday morning
 
-User: `/administrator:time-block`
+User: `/soma:time-block`
 
-1. `vault_read("Administrator/Priorities.md")` → body under `## Priorities`:
+1. `vault_read("Soma/Priorities.md")` → body under `## Priorities`:
 
 ```
 1. [[Wiki/Topics/acme-supplier-contract]]
@@ -111,40 +111,40 @@ Book these 12 blocks? They are appointments without attendees — nothing is sen
 
 ```
 outlook_create_event(subject="[Focus] ACME supplier contract", start="2026-08-24T10:15:00", end="2026-08-24T11:45:00",
-                     show_as="busy", categories="Administrator", reminder_minutes=0,
-                     body="Planned by administrator on 2026-08-24 for ACME supplier contract")
+                     show_as="busy", categories="Soma", reminder_minutes=0,
+                     body="Planned by soma on 2026-08-24 for ACME supplier contract")
 ```
 
 ```json
 {"status": "created", "entry_id": "00000000D01…", "global_id": "0400D01…", "occurrence_key": "0400D01…|2026-08-24T10:15:00+02:00",
  "subject": "[Focus] ACME supplier contract", "start": "2026-08-24T10:15:00+02:00", "end": "2026-08-24T11:45:00+02:00",
- "show_as": "busy", "categories": "Administrator", "invite_sent": false}
+ "show_as": "busy", "categories": "Soma", "invite_sent": false}
 ```
 
-   The admin blocks get `body="Planned by administrator on 2026-08-24 for email and small tasks"`. Thursday's existing block is not created again.
+   The admin blocks get `body="Planned by soma on 2026-08-24 for email and small tasks"`. Thursday's existing block is not created again.
 
 6. The note — all 13 blocks, the 12 new ones with their `entry_id` and `occurrence_key` merged in:
 
 ```
-vault_time_block(action="write", week="2026-W35", blocks=[...13 blocks...], created_by="administrator/0.4.1")
+vault_time_block(action="write", week="2026-W35", blocks=[...13 blocks...], created_by="soma/0.4.1")
 ```
 
-   → `{"path": "Administrator/Time-blocks/2026-W35.md", "action": "created", "week": "2026-W35", "blocks": 13, "planned": 13}`. The note (the model never types it):
+   → `{"path": "Soma/Time-blocks/2026-W35.md", "action": "created", "week": "2026-W35", "blocks": 13, "planned": 13}`. The note (the model never types it):
 
 ```markdown
 ---
 type: time-block
-source: administrator
+source: soma
 week: 2026-W35
 start: "2026-08-24"
 end: "2026-08-30"
 planned: 13
-created_by: administrator/0.4.1
+created_by: soma/0.4.1
 ---
 
 # Time blocks — 2026-W35
 
-Week of Mon 24 Aug to Sun 30 Aug. Planned by /administrator:time-block; the appointments live in Outlook, this note keeps the plan and how it went.
+Week of Mon 24 Aug to Sun 30 Aug. Planned by /soma:time-block; the appointments live in Outlook, this note keeps the plan and how it went.
 
 ## Plan
 
@@ -168,15 +168,15 @@ Week of Mon 24 Aug to Sun 30 Aug. Planned by /administrator:time-block; the appo
 
 > Booked 12 blocks for 2026-W35: focus 9 h, admin 5.25 h, at least 25 % of each day left free; Thursday's existing block kept; Wednesday skipped (meetings 6.5 h).
 > Last week: 6 blocks planned — 3 held, 1 moved, 1 skipped, 1 unanswered; ACME contract 3 h held, Q3 budget 0 h.
-> Written: Administrator/Time-blocks/2026-W35.md (created). Open: obsidian://open?vault=Vault&file=Administrator%2FTime-blocks%2F2026-W35
+> Written: Soma/Time-blocks/2026-W35.md (created). Open: obsidian://open?vault=Vault&file=Soma%2FTime-blocks%2F2026-W35
 > Tokens this turn: 9.8k
 
 ## Example 2 — re-plan on Tuesday after a cancellation
 
-Tuesday 25 Aug, 08:10. The vendor demo on Wednesday was cancelled. User: `/administrator:time-block` (same week: Tuesday → `2026-W35`).
+Tuesday 25 Aug, 08:10. The vendor demo on Wednesday was cancelled. User: `/soma:time-block` (same week: Tuesday → `2026-W35`).
 
 1. `Priorities.md` unchanged. Last week's audit is the same three lines as above (shown again).
-2. `outlook_list_events(...)` for 24–30 Aug now returns 21 items: the 9 meetings and the Dentist, plus the 12 blocks booked on Monday (0 attendees, `busy_status: "busy"`, `categories: "Administrator"`) — Vendor demo gone.
+2. `outlook_list_events(...)` for 24–30 Aug now returns 21 items: the 9 meetings and the Dentist, plus the 12 blocks booked on Monday (0 attendees, `busy_status: "busy"`, `categories: "Soma"`) — Vendor demo gone.
 
 ```
 vault_time_block(action="plan", week="2026-W35", events=<items[]>, today="2026-08-25", now="08:50")
@@ -212,9 +212,9 @@ Q3 budget gets no new block from today on (Monday's block was held).
 Book these 1 blocks? They are appointments without attendees — nothing is sent to anyone.
 ```
 
-   User: "yes" → one `outlook_create_event(subject="[Focus] ACME supplier contract", start="2026-08-26T12:15:00", end="2026-08-26T13:45:00", show_as="busy", categories="Administrator", reminder_minutes=0, body="Planned by administrator on 2026-08-25 for ACME supplier contract")` → `occurrence_key: "0400E01…|2026-08-26T12:15:00+02:00"`.
+   User: "yes" → one `outlook_create_event(subject="[Focus] ACME supplier contract", start="2026-08-26T12:15:00", end="2026-08-26T13:45:00", show_as="busy", categories="Soma", reminder_minutes=0, body="Planned by soma on 2026-08-25 for ACME supplier contract")` → `occurrence_key: "0400E01…|2026-08-26T12:15:00+02:00"`.
 
-4. `vault_time_block(action="write", week="2026-W35", blocks=[<the one new block with its keys>], created_by="administrator/0.4.1")` → `{"path": "Administrator/Time-blocks/2026-W35.md", "action": "appended", "week": "2026-W35", "blocks": 1, "planned": 14}`. The note gains:
+4. `vault_time_block(action="write", week="2026-W35", blocks=[<the one new block with its keys>], created_by="soma/0.4.1")` → `{"path": "Soma/Time-blocks/2026-W35.md", "action": "appended", "week": "2026-W35", "blocks": 1, "planned": 14}`. The note gains:
 
 ```markdown
 ## Update 2026-08-25T08:11:02+02:00
@@ -226,11 +226,11 @@ Book these 1 blocks? They are appointments without attendees — nothing is sent
 | Wed 26 Aug | 12:15 | 13:45 | focus | [Focus] ACME supplier contract | ACME supplier contract <!-- occurrence_key: 0400E01…\|2026-08-26T12:15:00+02:00 # plan --> |
 ```
 
-5. Report: "Added 1 block on Wednesday (vendor demo cancelled); 9 existing blocks kept, nothing deleted. Written: Administrator/Time-blocks/2026-W35.md (appended)." plus the link. Had the user said "no Wednesday, leave it free", nothing would be created or written.
+5. Report: "Added 1 block on Wednesday (vendor demo cancelled); 9 existing blocks kept, nothing deleted. Written: Soma/Time-blocks/2026-W35.md (appended)." plus the link. Had the user said "no Wednesday, leave it free", nothing would be created or written.
 
-## Example 3 — the audit inside `/administrator:weekly`
+## Example 3 — the audit inside `/soma:weekly`
 
-Saturday 22 Aug, `/administrator:weekly` for `2026-W34`. Next to `vault_weekly_facts` and next week's calendar, the `review` skill makes one more read for the review week itself:
+Saturday 22 Aug, `/soma:weekly` for `2026-W34`. Next to `vault_weekly_facts` and next week's calendar, the `review` skill makes one more read for the review week itself:
 
 ```
 outlook_list_events(start="2026-08-17T00:00:00", end="2026-08-23T23:59:59", include_recurrences=true, limit=200,
@@ -238,7 +238,7 @@ outlook_list_events(start="2026-08-17T00:00:00", end="2026-08-23T23:59:59", incl
 vault_time_block(action="audit", week="2026-W34", events=<items[]>)
 ```
 
-The result is the one in example 1 step 2: `/administrator:collect-information` had answered five of the six blocks in the note's `## Held` table (Mon focus held, Mon admin held, Tue focus skipped "urgent ACME call", Tue admin moved "done 17:30", Thu focus held; Thu admin never answered). The skipped block's 90 minutes count as unplanned; the moved block keeps its 45. The weekly note gets, between `## People going quiet` and `## Wiki`:
+The result is the one in example 1 step 2: `/soma:collect-information` had answered five of the six blocks in the note's `## Held` table (Mon focus held, Mon admin held, Tue focus skipped "urgent ACME call", Tue admin moved "done 17:30", Thu focus held; Thu admin never answered). The skipped block's 90 minutes count as unplanned; the moved block keeps its 45. The weekly note gets, between `## People going quiet` and `## Wiki`:
 
 ```markdown
 ## Time
@@ -254,14 +254,14 @@ A week without a `Time-blocks/` note still gets the section: line 1 from the cal
 
 Monday 24 Aug, 08:05, the calendar of example 1, but the vault was set up by 0.2.0: `Priorities.md` holds only the placeholder line and `Preferences.md` has no `peak_hours` key. User: "plan my week".
 
-1. `vault_read("Administrator/Priorities.md")` → one line under `## Priorities`: `1. (your first priority — a topic page link such as [[Wiki/Topics/acme-supplier-contract]] or plain words)`. That counts as empty, so:
+1. `vault_read("Soma/Priorities.md")` → one line under `## Priorities`: `1. (your first priority — a topic page link such as [[Wiki/Topics/acme-supplier-contract]] or plain words)`. That counts as empty, so:
 
 ```
 vault_priorities_write(action="candidates")
 ```
 
 ```json
-{"path": "Administrator/Priorities.md",
+{"path": "Soma/Priorities.md",
  "topics": [
   {"title": "ACME supplier contract", "page": "[[Wiki/Topics/acme-supplier-contract]]", "status": "active", "due": "2026-08-29", "open_items": 2, "verified": "2026-08-22", "summary": "Contract v3 with ACME Parts; signature and PO pending."},
   {"title": "Q3 budget", "page": "[[Wiki/Topics/q3-budget]]", "status": "active", "due": "2026-09-02", "open_items": 1, "verified": "2026-08-21", "summary": "Numbers due, forecast closes 2 Sep."},
@@ -287,10 +287,10 @@ Use these as your priorities? (reorder, drop or add lines, or say yes)
    The parking permits topic stays out (no due date, nothing open). User: "yes, and add 'Hiring: backend role' as 4".
 
 ```
-vault_priorities_write(action="write", lines=["[[Wiki/Topics/acme-supplier-contract]]", "[[Wiki/Topics/q3-budget]]", "[[Wiki/Topics/offsite-2026]]", "Hiring: backend role"], created_by="administrator/0.4.1")
+vault_priorities_write(action="write", lines=["[[Wiki/Topics/acme-supplier-contract]]", "[[Wiki/Topics/q3-budget]]", "[[Wiki/Topics/offsite-2026]]", "Hiring: backend role"], created_by="soma/0.4.1")
 ```
 
-   → `{"path": "Administrator/Priorities.md", "action": "written", "lines": ["[[Wiki/Topics/acme-supplier-contract]]", "[[Wiki/Topics/q3-budget]]", "[[Wiki/Topics/offsite-2026]]", "Hiring: backend role"], "previous": []}`. Under `## Priorities` the file now holds the four numbered lines and `<!-- suggested by administrator, confirmed 2026-08-24 -->`; the text above the heading is untouched. The run goes on in the same turn.
+   → `{"path": "Soma/Priorities.md", "action": "written", "lines": ["[[Wiki/Topics/acme-supplier-contract]]", "[[Wiki/Topics/q3-budget]]", "[[Wiki/Topics/offsite-2026]]", "Hiring: backend role"], "previous": []}`. Under `## Priorities` the file now holds the four numbered lines and `<!-- suggested by soma, confirmed 2026-08-24 -->`; the text above the heading is untouched. The run goes on in the same turn.
 
 2. Last week: the calls and the three lines of example 1 step 2.
 
@@ -306,5 +306,5 @@ vault_time_block(action="plan", week="2026-W35", events=<items[]>, today="2026-0
 
 5. Report, two lines more than example 1:
 
-> Priorities written: Administrator/Priorities.md (4 lines). Open: obsidian://open?vault=Vault&file=Administrator%2FPriorities.md — edit it in Obsidian any time.
-> Preferences.md has no peak_hours; this plan used 09:00–12:00. Put `peak_hours: ["09:00-12:00"]` in the file: obsidian://open?vault=Vault&file=Administrator%2FPreferences.md
+> Priorities written: Soma/Priorities.md (4 lines). Open: obsidian://open?vault=Vault&file=Soma%2FPriorities.md — edit it in Obsidian any time.
+> Preferences.md has no peak_hours; this plan used 09:00–12:00. Put `peak_hours: ["09:00-12:00"]` in the file: obsidian://open?vault=Vault&file=Soma%2FPreferences.md

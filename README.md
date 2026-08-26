@@ -1,89 +1,89 @@
-# administrator
+# soma
 
 A Claude Code plugin that runs your classic Outlook mailbox and keeps the paper trail in an Obsidian vault.
 
-It reads Outlook through the bundled `outlook-classic-mcp` server, decides what matters, and writes plain markdown notes into one folder of your vault through that package's second server, `administrator-vault`. It reads freely. It never moves, marks, deletes, books, or sends anything without an explicit yes from you, and it never sends plain email: the most it does with mail is save a draft to your Drafts folder.
+It reads Outlook through the bundled `outlook-classic-mcp` server (and, when set up, your Teams chats through `local-ms-teams`), decides what matters, and writes plain markdown notes into one folder of your vault through that package's vault server, `soma-vault`. It reads freely. It never moves, marks, deletes, books, or sends anything without an explicit yes from you, and it never sends plain email: the most it does with mail is save a draft to your Drafts folder.
 
 ## What you get
 
-- **`/administrator:setup`** — checks that both MCP servers, classic Outlook and the vault are reachable, creates the `Administrator\` folder, the `Wiki\` folder (with `Decisions\` and `Questions.md`), `Follow-ups.md`, `Preferences.md`, `Rules.md` and the Bases views if missing (asking your work hours and peak hours once), offers to move an older vault's `People\` folder and the rows of `Follow-ups.md` into the wiki (dry run first), and warns when exports cannot work. Run it first.
-- **`/administrator:inbox`** — goes through unread mail, sorts each item into act / reply / waiting / fyi / noise, writes today's daily note, and offers batch clean-up you can accept or decline.
-- **`/administrator:save`** — saves one email (or, on request, its whole thread via `outlook_get_conversation`) as a note with stable identity, the body without quoted history or signature (`trim_quoted`), action items, a link to a person note, and optional `.msg` and attachment exports. Give it a file path instead of a mail and it reads the file into the vault as a document record; after an attachment export it offers to read those files in too. See "Documents" below.
-- **`/administrator:daily`** — inbox plus today's calendar in one daily note, with clashes and meetings that have no prep note called out.
-- **`/administrator:prep`** — a prep brief per meeting in `Meetings\`: the previous occurrence and its open action items, attendee person notes, the last five related email threads, open follow-ups, suggested points. Read-only in Outlook.
-- **`/administrator:notes`** — paste your raw notes (or a transcript) after a meeting; they go into the meeting note, action items and waiting-on items are pulled out (each becomes an open item with an owner and, when the notes give one, a due date on the page it is about), and a minutes email is offered that goes to your Drafts folder only after you say yes. Nothing is ever sent.
-- **`/administrator:free`** — tells you when the named people and you are all free, using `outlook_find_meeting_times` and your own preferences (working hours, buffers, no-meeting blocks, daily limit). Read-only.
-- **`/administrator:schedule`** — the same, then books the slot you pick after you say yes (the invite goes out at once), writes the `Meetings\` note, and adds the meeting to the daily note. Moves one meeting on request, and drafts a "proposed times" email when someone's calendar is not visible.
-- **`/administrator:followups`** — threads where you wrote last and nobody answered for N days (default 3): who, subject, days waiting, the last line you wrote. Opens an item on the page of whoever owes you the answer, ticks the ones that got a reply, and offers a short nudge email per thread that goes to your Drafts folder only after you say yes.
-- **`/administrator:weekly`** — one review note per week in `Weekly\`: inbox items still open, what you are waiting on and for how long, meetings held with their unchecked action items, next week's calendar with clashes, people you have not heard from in 30+ days, and the wiki's lint result and review queue. Read-only in Outlook.
-- **`/administrator:find`** — describe an email the way you remember it ("the email where we agreed on the Q3 budget with Sam", "the spreadsheet Maria sent with vendor pricing last month") and get up to three candidates with the exact line that answers you, attachment names, and a link if the note already exists. One `outlook_find` call searches Inbox and Sent and ranks; attachment names and indexed text are checked when you mention a file. Read-only; offers to save the winner.
-- **`/administrator:wiki`** — read a wiki page, ask the wiki a question ("what do we know about the ACME contract", answered from the facts themselves), add or change a fact from chat (kept as yours, so no later mail overrides it), resolve the review queue, or ingest a record saved before the wiki existed.
-- **`/administrator:lint`** — the wiki's fixed checklist: index drift, dangling links, orphans, stale pages (decisions never go stale), size caps, possible duplicates, records never ingested, contradictions, pages that disagree with each other, projects nothing has moved in three months, pages still standing on one record, your own commitments past their due date, and how many of your own questions (`Wiki\Questions.md`) the wiki can answer. `fix` applies the safe fixes; merges, closures and new pages only after a yes.
-- **`/administrator:collect-information`** — everything since the last run in one pass: Teams chats from the local client cache (optional, see "Teams" below), new mail in Inbox and Sent, notes that changed in the vault, and files that changed in the folders you asked it to watch. Chat records and the mails that touch a wiki page are saved, the wiki changes are shown as bullets grouped by page, and only after your yes are they applied, oldest record first — a later source wins, an older one that disagrees goes to the review queue. Then one question: how did today's `[Focus]` / `[Admin]` blocks go? Nothing in Outlook or Teams is changed.
-- **`/administrator:load-history`** — the months *before* that: it reads your old Outlook inbox, your sent items and your Teams chats into the wiki, oldest first, in batches of 25 records with one yes per batch, so a new wiki starts full instead of empty. It fixes where each source stops (the day `/administrator:collect-information` already covers), remembers where it got to after every batch, and picks up there when you come back. Nothing in Outlook or Teams is changed.
-- **`/administrator:time-block`** — plans your week's focus and admin blocks around the meetings already in your calendar, shows how last week went against your priorities, and after your yes books the blocks as appointments in your own calendar — no attendees, so nothing is sent to anyone. A re-plan fills gaps that opened up and never deletes a block. See "Time blocks" below.
-- **`/administrator:draft`** — a reply to any thread, written the way you write: it reads the thread with the quoted history removed, the sender's wiki page and the open items between the two of you (both directions), learns your greeting, sign-off and length from your sent mail, answers every question in the last mail and marks anything it does not know as `[fill in: …]`. Shows the draft; on a yes it lands in Outlook Drafts as a reply in the thread. Never sends.
+- **`/soma:setup`** — checks that the three MCP servers, classic Outlook and the vault are reachable, creates the `Soma\` folder, the `Wiki\` folder (with `Decisions\` and `Questions.md`), `Follow-ups.md`, `Preferences.md`, `Rules.md` and the Bases views if missing (asking your work hours and peak hours once), offers to move an older vault's `People\` folder and the rows of `Follow-ups.md` into the wiki (dry run first), and warns when exports cannot work. Run it first.
+- **`/soma:inbox`** — goes through unread mail, sorts each item into act / reply / waiting / fyi / noise, writes today's daily note, and offers batch clean-up you can accept or decline.
+- **`/soma:save`** — saves one email (or, on request, its whole thread via `outlook_get_conversation`) as a note with stable identity, the body without quoted history or signature (`trim_quoted`), action items, a link to a person note, and optional `.msg` and attachment exports. Give it a file path instead of a mail and it reads the file into the vault as a document record; after an attachment export it offers to read those files in too. See "Documents" below.
+- **`/soma:daily`** — inbox plus today's calendar in one daily note, with clashes and meetings that have no prep note called out.
+- **`/soma:prep`** — a prep brief per meeting in `Meetings\`: the previous occurrence and its open action items, attendee person notes, the last five related email threads, open follow-ups, suggested points. Read-only in Outlook.
+- **`/soma:notes`** — paste your raw notes (or a transcript) after a meeting; they go into the meeting note, action items and waiting-on items are pulled out (each becomes an open item with an owner and, when the notes give one, a due date on the page it is about), and a minutes email is offered that goes to your Drafts folder only after you say yes. Nothing is ever sent.
+- **`/soma:free`** — tells you when the named people and you are all free, using `outlook_find_meeting_times` and your own preferences (working hours, buffers, no-meeting blocks, daily limit). Read-only.
+- **`/soma:schedule`** — the same, then books the slot you pick after you say yes (the invite goes out at once), writes the `Meetings\` note, and adds the meeting to the daily note. Moves one meeting on request, and drafts a "proposed times" email when someone's calendar is not visible.
+- **`/soma:followups`** — threads where you wrote last and nobody answered for N days (default 3): who, subject, days waiting, the last line you wrote. Opens an item on the page of whoever owes you the answer, ticks the ones that got a reply, and offers a short nudge email per thread that goes to your Drafts folder only after you say yes.
+- **`/soma:weekly`** — one review note per week in `Weekly\`: inbox items still open, what you are waiting on and for how long, meetings held with their unchecked action items, next week's calendar with clashes, people you have not heard from in 30+ days, and the wiki's lint result and review queue. Read-only in Outlook.
+- **`/soma:find`** — describe an email the way you remember it ("the email where we agreed on the Q3 budget with Sam", "the spreadsheet Maria sent with vendor pricing last month") and get up to three candidates with the exact line that answers you, attachment names, and a link if the note already exists. One `outlook_find` call searches Inbox and Sent and ranks; attachment names and indexed text are checked when you mention a file. Read-only; offers to save the winner.
+- **`/soma:wiki`** — read a wiki page, ask the wiki a question ("what do we know about the ACME contract", answered from the facts themselves), add or change a fact from chat (kept as yours, so no later mail overrides it), resolve the review queue, or ingest a record saved before the wiki existed.
+- **`/soma:lint`** — the wiki's fixed checklist: index drift, dangling links, orphans, stale pages (decisions never go stale), size caps, possible duplicates, records never ingested, contradictions, pages that disagree with each other, projects nothing has moved in three months, pages still standing on one record, your own commitments past their due date, and how many of your own questions (`Wiki\Questions.md`) the wiki can answer. `fix` applies the safe fixes; merges, closures and new pages only after a yes.
+- **`/soma:collect-information`** — everything since the last run in one pass: Teams chats from the local client cache (optional, see "Teams" below), new mail in Inbox and Sent, notes that changed in the vault, and files that changed in the folders you asked it to watch. Chat records and the mails that touch a wiki page are saved, the wiki changes are shown as bullets grouped by page, and only after your yes are they applied, oldest record first — a later source wins, an older one that disagrees goes to the review queue. Then one question: how did today's `[Focus]` / `[Admin]` blocks go? Nothing in Outlook or Teams is changed.
+- **`/soma:load-history`** — the months *before* that: it reads your old Outlook inbox, your sent items and your Teams chats into the wiki, oldest first, in batches of 25 records with one yes per batch, so a new wiki starts full instead of empty. It fixes where each source stops (the day `/soma:collect-information` already covers), remembers where it got to after every batch, and picks up there when you come back. Nothing in Outlook or Teams is changed.
+- **`/soma:time-block`** — plans your week's focus and admin blocks around the meetings already in your calendar, shows how last week went against your priorities, and after your yes books the blocks as appointments in your own calendar — no attendees, so nothing is sent to anyone. A re-plan fills gaps that opened up and never deletes a block. See "Time blocks" below.
+- **`/soma:draft`** — a reply to any thread, written the way you write: it reads the thread with the quoted history removed, the sender's wiki page and the open items between the two of you (both directions), learns your greeting, sign-off and length from your sent mail, answers every question in the last mail and marks anything it does not know as `[fill in: …]`. Shows the draft; on a yes it lands in Outlook Drafts as a reply in the thread. Never sends.
 
 ## The wiki
 
-Records (saved emails, meeting notes, daily and weekly notes) are never edited; they are what happened. Next to them, `Administrator\Wiki\` holds what is *currently true*: one page per person, organisation, decision, topic (a subject with a timeline and an outcome) and procedure, plus one about you, each with a short lead, dated facts that point back to the records they came from, open items, and a History that keeps every fact that was replaced. A topic that has an owner and a due date **is a project** — there is no separate kind, the index simply groups those pages under Projects, with their owner, due date and status. A **decision** page is written the moment a record says the choice was made ("we agreed", "we are going with", an approval): it holds the choice as its first fact, who made it and what would reopen it, is flagged as unconfirmed until you confirm or drop it, and is added to but never rewritten — what turned out differently is a new decision that links to it. `save` and `notes` end by putting the facts of the new record onto the pages they belong to; `prep`, `find` and `draft` read the pages before they read old mail; `weekly` runs the lint and shows the review queue. A fact changes only when a *later* record says so — an old thread you save today can never overwrite a newer fact; it goes to `Wiki\Review.md` for you to settle. A topic page is created only when a subject shows up in two records on two different days, or when you name it. Two facts on one page may not name different days or different amounts for the same thing: a new fact that would do that is turned away with the one it clashes with, and it is written only as a replacement (when the record is the newer) or as a contradiction for you (when it is older, or unclear) — so a page never quietly holds both the 27th and the 29th. When a fact rests on a single source and nothing has confirmed it for half a year, the wiki says so where it answers, and the reply hedges or asks instead of stating it flat.
+Records (saved emails, meeting notes, daily and weekly notes) are never edited; they are what happened. Next to them, `Soma\Wiki\` holds what is *currently true*: one page per person, organisation, decision, topic (a subject with a timeline and an outcome) and procedure, plus one about you, each with a short lead, dated facts that point back to the records they came from, open items, and a History that keeps every fact that was replaced. A topic that has an owner and a due date **is a project** — there is no separate kind, the index simply groups those pages under Projects, with their owner, due date and status. A **decision** page is written the moment a record says the choice was made ("we agreed", "we are going with", an approval): it holds the choice as its first fact, who made it and what would reopen it, is flagged as unconfirmed until you confirm or drop it, and is added to but never rewritten — what turned out differently is a new decision that links to it. `save` and `notes` end by putting the facts of the new record onto the pages they belong to; `prep`, `find` and `draft` read the pages before they read old mail; `weekly` runs the lint and shows the review queue. A fact changes only when a *later* record says so — an old thread you save today can never overwrite a newer fact; it goes to `Wiki\Review.md` for you to settle. A topic page is created only when a subject shows up in two records on two different days, or when you name it. Two facts on one page may not name different days or different amounts for the same thing: a new fact that would do that is turned away with the one it clashes with, and it is written only as a replacement (when the record is the newer) or as a contradiction for you (when it is older, or unclear) — so a page never quietly holds both the 27th and the 29th. When a fact rests on a single source and nothing has confirmed it for half a year, the wiki says so where it answers, and the reply hedges or asks instead of stating it flat.
 
-**Commitments.** Every page has an `## Open` list, and one line there is one thing somebody owes somebody: what it is, who does it (you by default, or a person page, or a plain name), when it is due, and the record it came from. The item lives on the page of the thing it is about, or on the other person's page when nothing else matches. `Administrator\Follow-ups.md` is written from those lines — what other people owe you on top, the newest fifty closed ones below — and rewritten after every change, so it can never disagree with the pages; tick or edit the item on its page, or say "done" in chat. Your own items due within the week appear in the daily note under `## Promised`, get a focus block before their due day when you plan the week, and are listed for you when they go past due. Nothing is deleted, merged, or resolved without your yes. `Wiki\Index.md` is the home page (generated, one line per page); `Wiki\Wiki.md` is the contract, the same text the plugin reads, and you can add your own notes at the bottom. Say "save without wiki" to skip the step for one record. A vault from 0.1.0 keeps working; `/administrator:setup` shows a dry run and moves `People\` into the wiki only after you agree.
+**Commitments.** Every page has an `## Open` list, and one line there is one thing somebody owes somebody: what it is, who does it (you by default, or a person page, or a plain name), when it is due, and the record it came from. The item lives on the page of the thing it is about, or on the other person's page when nothing else matches. `Soma\Follow-ups.md` is written from those lines — what other people owe you on top, the newest fifty closed ones below — and rewritten after every change, so it can never disagree with the pages; tick or edit the item on its page, or say "done" in chat. Your own items due within the week appear in the daily note under `## Promised`, get a focus block before their due day when you plan the week, and are listed for you when they go past due. Nothing is deleted, merged, or resolved without your yes. `Wiki\Index.md` is the home page (generated, one line per page); `Wiki\Wiki.md` is the contract, the same text the plugin reads, and you can add your own notes at the bottom. Say "save without wiki" to skip the step for one record. A vault from 0.1.0 keeps working; `/soma:setup` shows a dry run and moves `People\` into the wiki only after you agree.
 
 **Search.** Asking the wiki something reads the pages themselves and ranks the facts on them, so a fact is found by what it says and not only by the name of the page it sits on: "what did we agree on packaging" finds the bullet even when no page is called packaging. Ids, dates, amounts and anything you put in quotes are looked up exactly as written, so `2026-08-29` or a fact's own id always lands; a name spelt wrong still finds the person; the pages a good hit links to come with it; and wordings that were replaced are found only when you ask for them, always below the fact that holds today. What you write under `## Notes` is never read. One question gives one stitched answer — the best three pages with their lead, their dated facts, their open items — instead of the four or five reads it used to take. Nothing is sent anywhere: the whole thing is code reading your own files, with a cache under `Wiki\_cache\` you can delete at any time without losing anything.
 
-**Loading the past.** A wiki that starts empty is not much use, so `/administrator:load-history` fills it from what you already have. It starts ninety days back (or any date you name) and walks forward to the day the regular collection already covers — the Outlook inbox first, then your sent items, then the Teams chats — handing you one window of days at a time: twenty-five records, the same relevance gate and the same page-by-page proposal as the regular run, one yes, then a line saying what was saved and what comes next. Say yes as often as you like and stop whenever you want; the place each source reached is written after every batch, so the next run carries on from there rather than starting over, and a record that gets read twice is added to, never duplicated. The window widens when a stretch is quiet and narrows when it is busy, so a batch stays about the size of a batch. When it is through all three, it says so and tells you to run `/administrator:lint`, because a great many pages were written in one go and that is what checks them against each other.
+**Loading the past.** A wiki that starts empty is not much use, so `/soma:load-history` fills it from what you already have. It starts ninety days back (or any date you name) and walks forward to the day the regular collection already covers — the Outlook inbox first, then your sent items, then the Teams chats — handing you one window of days at a time: twenty-five records, the same relevance gate and the same page-by-page proposal as the regular run, one yes, then a line saying what was saved and what comes next. Say yes as often as you like and stop whenever you want; the place each source reached is written after every batch, so the next run carries on from there rather than starting over, and a record that gets read twice is added to, never duplicated. The window widens when a stretch is quiet and narrows when it is busy, so a batch stays about the size of a batch. When it is through all three, it says so and tells you to run `/soma:lint`, because a great many pages were written in one go and that is what checks them against each other.
 
-**Questions you want answered.** `Wiki\Questions.md` is yours: one line per question the wiki should be able to answer, with the page that holds the answer — `- When are the Q3 numbers due? → [[Wiki/Topics/q3-budget]]`, and `f:<id>` after the link when one particular fact is the answer. It is created empty, with two examples above the list, and never rewritten. Every `/administrator:lint` run asks the wiki all of them and tells you how many it answered (`questions 17/20`), which ones it missed and what came back instead — the same number goes in the wiki's log, so you can see whether it is getting better or worse from week to week. The other side of it is the questions the wiki was actually asked and could not answer at all: asked twice or more in a month, each one becomes a review line — *no page answers "…" — create one?* — so the gaps turn into pages.
+**Questions you want answered.** `Wiki\Questions.md` is yours: one line per question the wiki should be able to answer, with the page that holds the answer — `- When are the Q3 numbers due? → [[Wiki/Topics/q3-budget]]`, and `f:<id>` after the link when one particular fact is the answer. It is created empty, with two examples above the list, and never rewritten. Every `/soma:lint` run asks the wiki all of them and tells you how many it answered (`questions 17/20`), which ones it missed and what came back instead — the same number goes in the wiki's log, so you can see whether it is getting better or worse from week to week. The other side of it is the questions the wiki was actually asked and could not answer at all: asked twice or more in a month, each one becomes a review line — *no page answers "…" — create one?* — so the gaps turn into pages.
 
 **Editing pages by hand.** The pages are ordinary markdown, so you can edit them in Obsidian, and the next wiki command reads your edit back before it does anything else. A bullet you type under `## Facts` becomes a fact of yours — dated the day you saved the file, marked as yours, so no later mail overwrites it. A fact you reword keeps its id and its old wording goes to History; a fact you delete is retired there; a box you tick is done. Rename a page or drag it into another folder and it stays the same page: every link to it is rewritten and the index follows. A new `.md` file in a wiki folder becomes a page. Nothing you wrote is thrown away: text under a heading the contract does not know moves under `## Notes` with a dated marker, a History you shortened comes back from the copy the plugin keeps, and a page you deleted is only ever asked about — with how many links still point at it — never restored or forgotten on its own. Whenever something was read back, the reply says so in one line. Writes go the other way just as carefully: every page is read again after it is written and compared with what was meant, and a page that does not come back as it went in keeps its previous text and says so.
 
 ## Documents
 
-A file can be a record too. `/administrator:save` with a path instead of a mail — `/administrator:save C:\Users\<you>\Downloads\ACME-kickoff.pptx` — reads the text out of a PDF, a Word file, a PowerPoint deck, an Excel workbook, or a plain `.txt`, `.md` or `.csv`, and writes one note in `Administrator\Documents\<date> <file name>.md`: the summary and action items you gave it, then the text itself, split into the parts the file has — one section per page of a pdf, per slide of a deck (title, text frames and speaker notes), per heading of a Word file, per sheet of a workbook (each row with the address of its first filled cell). A file over forty thousand characters keeps its part headings and the first three hundred characters of each in the note, with the whole text in `Attachments\<name>\text.md`. Reading a PDF needs the server's `search` extra (`uv sync --extra search` in the checkout); everything else is read with what Python already ships. There is no OCR: a scanned PDF with no text layer says so and writes nothing else.
+A file can be a record too. `/soma:save` with a path instead of a mail — `/soma:save C:\Users\<you>\Downloads\ACME-kickoff.pptx` — reads the text out of a PDF, a Word file, a PowerPoint deck, an Excel workbook, or a plain `.txt`, `.md` or `.csv`, and writes one note in `Soma\Documents\<date> <file name>.md`: the summary and action items you gave it, then the text itself, split into the parts the file has — one section per page of a pdf, per slide of a deck (title, text frames and speaker notes), per heading of a Word file, per sheet of a workbook (each row with the address of its first filled cell). A file over forty thousand characters keeps its part headings and the first three hundred characters of each in the note, with the whole text in `Attachments\<name>\text.md`. Reading a PDF needs the server's `search` extra (`uv sync --extra search` in the checkout); everything else is read with what Python already ships. There is no OCR: a scanned PDF with no text layer says so and writes nothing else.
 
 The parts are what make the file useful to the wiki. Each one has a short label — `p3` for a page, `s7` for a slide, `Sheet1!A7` for a row — and the plugin reads back only the parts that match a page it already keeps, at most five, one call each, rather than the whole file. A fact that comes out of slide 7 is written on the page with `#s7` after the record's id, so the page says not just which document a claim came from but where in it. However many facts cite it, one document counts as one source, so a page standing on a single deck still says so. Documents feed the same pages as mail, meetings and chats, and are found the same way: through the pages that cite them.
 
-Two other ways in. After `/administrator:save` exports a mail's attachments, it offers to read those files in as well; on a yes the mail and each document link to each other, so the note says where the file came from and the mail says what was in it. And `document_folders` in `Preferences.md` names folders to watch — anywhere on the machine, or inside the vault: `/administrator:collect-information` lists the files that changed there since the last run, keeps the ones whose name matches something the wiki knows, reads those in and puts their facts on the pages, and names the rest so you can decide. The folders are only ever read; nothing in them is moved, renamed or written.
+Two other ways in. After `/soma:save` exports a mail's attachments, it offers to read those files in as well; on a yes the mail and each document link to each other, so the note says where the file came from and the mail says what was in it. And `document_folders` in `Preferences.md` names folders to watch — anywhere on the machine, or inside the vault: `/soma:collect-information` lists the files that changed there since the last run, keeps the ones whose name matches something the wiki knows, reads those in and puts their facts on the pages, and names the rest so you can decide. The folders are only ever read; nothing in them is moved, renamed or written.
 
 ## Time blocks
 
-`/administrator:time-block` puts your own work into the calendar the way meetings already are, on five findings that hold up (the sources and numbers are in `skills/time-block/references/method.md`). A task with a fixed day and hour gets done far more often than one on a list, so every block is an appointment with a start and an end. Thinking is measurably better at some hours of the day than others, and deep work needs a long run, so focus blocks are 90 minutes or more and go into your `peak_hours` first, named after a priority from `Administrator\Priorities.md` (`[Focus] ACME supplier contract`; rank 1 gets every other block). Email and small tasks cost more when they interrupt than when they are batched, so they get two shorter `[Admin] Email and small tasks` blocks outside the peak hours. A fifth of each day stays free for what comes up (`slack_share`), and a day the meetings have already filled past that gets no blocks at all rather than a squeezed one. Finally, `/administrator:collect-information` asks each day whether the blocks were held, moved or skipped, and `/administrator:weekly` prints where the hours went — meetings, focus, admin, other, unplanned — against your priorities under `## Time`. The blocks are appointments without attendees, marked busy and filed under the Outlook category `Administrator`; nothing is ever sent to anyone, and the plugin never deletes one — if a block is in the way, delete it in Outlook, or let `/administrator:daily` move it when a meeting lands on it. `/administrator:free` and `/administrator:schedule` do not count blocks towards your `max_meetings_per_day`.
+`/soma:time-block` puts your own work into the calendar the way meetings already are, on five findings that hold up (the sources and numbers are in `skills/time-block/references/method.md`). A task with a fixed day and hour gets done far more often than one on a list, so every block is an appointment with a start and an end. Thinking is measurably better at some hours of the day than others, and deep work needs a long run, so focus blocks are 90 minutes or more and go into your `peak_hours` first, named after a priority from `Soma\Priorities.md` (`[Focus] ACME supplier contract`; rank 1 gets every other block). Email and small tasks cost more when they interrupt than when they are batched, so they get two shorter `[Admin] Email and small tasks` blocks outside the peak hours. A fifth of each day stays free for what comes up (`slack_share`), and a day the meetings have already filled past that gets no blocks at all rather than a squeezed one. Finally, `/soma:collect-information` asks each day whether the blocks were held, moved or skipped, and `/soma:weekly` prints where the hours went — meetings, focus, admin, other, unplanned — against your priorities under `## Time`. The blocks are appointments without attendees, marked busy and filed under the Outlook category `Soma`; nothing is ever sent to anyone, and the plugin never deletes one — if a block is in the way, delete it in Outlook, or let `/soma:daily` move it when a meeting lands on it. `/soma:free` and `/soma:schedule` do not count blocks towards your `max_meetings_per_day`.
 
 ## Requirements
 
 - Windows 10 or 11.
 - **Classic** Outlook (desktop, `outlook.exe`) with a configured mail profile. The new Outlook (`olk.exe`) is not supported; switch back to classic if you are on it. The new Teams client is fine (and the only one whose cache the optional Teams server reads).
 - [uv](https://docs.astral.sh/uv/) on your PATH.
-- A local checkout of `outlook-classic-mcp` 0.4.0 or later (the current checkout with `outlook_get_event_by_key`, `outlook_get_free_busy`, `outlook_find_meeting_times`, `outlook_search_attachments`, `outlook_advanced_search`, `outlook_extract_attachment_text`, `outlook_reply_mail(save_only=true)`, `outlook_awaiting_reply`, `outlook_find`, `outlook_voice_sample`, `fields=` / `preview_chars=` on every list, search and get tool, `trim_quoted` and the `administrator-vault` script with its `vault_wiki_*`, `vault_save`, `vault_collect` and `vault_row` tools — 46 Outlook tools plus 20 vault tools; install its `search` extra for PDF and Excel attachment text), with its path in the `OUTLOOK_MCP_DIR` environment variable (see "Set the vault path" below). The plugin starts three servers from that checkout: `outlook` (`uv run --directory $OUTLOOK_MCP_DIR outlook-mcp`, reads Outlook), `vault` (`… administrator-vault`, writes the notes) and the optional `local-ms-teams` (`… local-ms-teams`, reads the Teams cache; see "Teams" below). All need `OUTLOOK_MCP_DIR`; `vault` also needs `ADMINISTRATOR_VAULT`.
+- A local checkout of `outlook-classic-mcp` 0.4.0 or later (the current checkout with `outlook_get_event_by_key`, `outlook_get_free_busy`, `outlook_find_meeting_times`, `outlook_search_attachments`, `outlook_advanced_search`, `outlook_extract_attachment_text`, `outlook_reply_mail(save_only=true)`, `outlook_awaiting_reply`, `outlook_find`, `outlook_voice_sample`, `fields=` / `preview_chars=` on every list, search and get tool, `trim_quoted` and the `soma-vault` script with its `vault_wiki_*`, `vault_save`, `vault_collect` and `vault_row` tools — 46 Outlook tools plus 20 vault tools; install its `search` extra for PDF and Excel attachment text), with its path in the `OUTLOOK_MCP_DIR` environment variable (see "Set the vault path" below). The plugin starts three servers from that checkout: `outlook` (`uv run --directory $OUTLOOK_MCP_DIR outlook-mcp`, reads Outlook), `vault` (`… soma-vault`, writes the notes) and the optional `local-ms-teams` (`… local-ms-teams`, reads the Teams cache; see "Teams" below). All need `OUTLOOK_MCP_DIR`; `vault` also needs `SOMA_VAULT`.
 - An Obsidian vault on disk. Notes are plain markdown with frontmatter; no community plugins are needed to read them.
 
 ### Teams (optional)
 
-`/administrator:collect-information` can read your Teams chats without any Graph permission or admin consent: the third server, `local-ms-teams` (`uv run --directory $OUTLOOK_MCP_DIR local-ms-teams`), reads a *copy* of the new Teams client's local cache on this machine and never writes to it or talks to the network. It sees what the client has synced — recent chats, group chats, channel and meeting chats you opened, with sender names and times — and nothing else: no meeting transcripts (those still go through `/administrator:notes`), no history the client has not loaded, no attachments. The cache format belongs to Microsoft and can change with a Teams update; when it does, `teams_status` says so and the command skips Teams. To turn it on, install the extra in the checkout once — `uv sync --extra teams`, which pins the cache reader to the one commit this was tested against — sign in to the new Teams client on this machine, and restart Claude Code. Without the extra the server still starts and reports the one-line fix; nothing else in the plugin depends on it.
+`/soma:collect-information` can read your Teams chats without any Graph permission or admin consent: the third server, `local-ms-teams` (`uv run --directory $OUTLOOK_MCP_DIR local-ms-teams`), reads a *copy* of the new Teams client's local cache on this machine and never writes to it or talks to the network. It sees what the client has synced — recent chats, group chats, channel and meeting chats you opened, with sender names and times — and nothing else: no meeting transcripts (those still go through `/soma:notes`), no history the client has not loaded, no attachments. The cache format belongs to Microsoft and can change with a Teams update; when it does, `teams_status` says so and the command skips Teams. To turn it on, install the extra in the checkout once — `uv sync --extra teams`, which pins the cache reader to the one commit this was tested against — sign in to the new Teams client on this machine, and restart Claude Code. Without the extra the server still starts and reports the one-line fix; nothing else in the plugin depends on it.
 
 ## Install
 
-1. Clone or copy this folder somewhere on disk, for example `C:\Users\<you>\PycharmProjects\administrator`.
+1. Clone or copy this folder somewhere on disk, for example `C:\Users\<you>\PycharmProjects\soma`.
 2. In Claude Code, add it as a local plugin:
 
    ```
-   /plugin install C:\Users\<you>\PycharmProjects\administrator
+   /plugin install C:\Users\<you>\PycharmProjects\soma
    ```
 
    or register it in your marketplace settings, then restart Claude Code.
-3. Run `/administrator:setup`. It reports the Outlook account and timezone, creates the vault folder layout, and ends with a link that opens `Preferences.md` in Obsidian. If it says a server is missing, check `OUTLOOK_MCP_DIR` and restart Claude Code.
+3. Run `/soma:setup`. It reports the Outlook account and timezone, creates the vault folder layout, and ends with a link that opens `Preferences.md` in Obsidian. If it says a server is missing, check `OUTLOOK_MCP_DIR` and restart Claude Code.
 
 ## Set the vault path
 
-The plugin writes only under `<vault>\Administrator\`. Tell it where the vault is with one environment variable holding an absolute path:
+The plugin writes only under `<vault>\Soma\`. Tell it where the vault is with one environment variable holding an absolute path:
 
 ```powershell
 # Current session
-$env:ADMINISTRATOR_VAULT = "C:\Users\<you>\Documents\MyVault"
+$env:SOMA_VAULT = "C:\Users\<you>\Documents\MyVault"
 
 # Permanent (user scope)
-[Environment]::SetEnvironmentVariable("ADMINISTRATOR_VAULT", "C:\Users\<you>\Documents\MyVault", "User")
+[Environment]::SetEnvironmentVariable("SOMA_VAULT", "C:\Users\<you>\Documents\MyVault", "User")
 ```
 
 In the same way, tell the plugin where your `outlook-classic-mcp` checkout is:
@@ -93,12 +93,12 @@ $env:OUTLOOK_MCP_DIR = "C:\Users\<you>\PycharmProjects\outlook-classic-mcp"
 [Environment]::SetEnvironmentVariable("OUTLOOK_MCP_DIR", "C:\Users\<you>\PycharmProjects\outlook-classic-mcp", "User")
 ```
 
-The plugin registers three MCP servers from that directory: `outlook` (`outlook-mcp`, reads Outlook), `vault` (`administrator-vault`, writes the notes) and `local-ms-teams` (reads the local Teams cache; optional). All three need `OUTLOOK_MCP_DIR`; `vault` also needs `ADMINISTRATOR_VAULT`. `OUTLOOK_MCP_DIR` is only needed while the servers are run from a local checkout. Once `outlook-classic-mcp` is published, the plugin will start them with `uvx` and this variable goes away.
+The plugin registers three MCP servers from that directory: `outlook` (`outlook-mcp`, reads Outlook), `vault` (`soma-vault`, writes the notes) and `local-ms-teams` (reads the local Teams cache; optional). All three need `OUTLOOK_MCP_DIR`; `vault` also needs `SOMA_VAULT`. `OUTLOOK_MCP_DIR` is only needed while the servers are run from a local checkout. Once `outlook-classic-mcp` is published, the plugin will start them with `uvx` and this variable goes away.
 
-Restart Claude Code after setting either variable permanently. `/administrator:setup` (or the first command you run) creates this layout with `vault_init`:
+Restart Claude Code after setting either variable permanently. `/soma:setup` (or the first command you run) creates this layout with `vault_init`:
 
 ```
-<vault>\Administrator\
+<vault>\Soma\
   Daily\YYYY-MM-DD.md          one per day
   Emails\YYYY-MM-DD <slug>.md  one per saved mail
   Meetings\YYYY-MM-DD HHmm <slug>.md  one per meeting (prepared, noted, or booked)
@@ -124,62 +124,62 @@ The model decides; code moves the text. Every list, search and get call names th
 
 ## Commands
 
-### `/administrator:setup`
+### `/soma:setup`
 
 ```
-/administrator:setup
+/soma:setup
 ```
 
 > Both servers are up. Outlook: hux@example.com, UTC+02:00.
-> Vault: `C:\Users\<you>\Documents\Vault` (name `Vault`). Created `Administrator/`, 10 folders (`Documents/` among them), `Wiki/` (5 page folders including `Decisions/`, and `Questions.md`), `Follow-ups.md`, `Preferences.md` (09:00–17:00, buffer 15), `Rules.md`, `Priorities.md` and 5 views.
-> obsidian://open?vault=Vault&file=Administrator%2FPreferences.md
-> obsidian://open?vault=Vault&file=Administrator%2FWiki%2FQuestions.md
+> Vault: `C:\Users\<you>\Documents\Vault` (name `Vault`). Created `Soma/`, 10 folders (`Documents/` among them), `Wiki/` (5 page folders including `Decisions/`, and `Questions.md`), `Follow-ups.md`, `Preferences.md` (09:00–17:00, buffer 15), `Rules.md`, `Priorities.md` and 5 views.
+> obsidian://open?vault=Vault&file=Soma%2FPreferences.md
+> obsidian://open?vault=Vault&file=Soma%2FWiki%2FQuestions.md
 > Edit Preferences.md in Obsidian any time; the plugin reads it once per session and never changes it. Questions.md is yours too: write the questions the wiki should be able to answer there, and every lint run asks them.
 
 Running it again when everything exists reports "Nothing to create." and the same link.
 
-### `/administrator:inbox [folder] [since]`
+### `/soma:inbox [folder] [since]`
 
 ```
-/administrator:inbox
-/administrator:inbox inbox 2026-08-20
-/administrator:inbox "Inbox/Projects/Acme"
+/soma:inbox
+/soma:inbox inbox 2026-08-20
+/soma:inbox "Inbox/Projects/Acme"
 ```
 
 Lists unread mail since the last daily note's `inbox_checked` time (or the last 24 hours), lets `Rules.md` and the built-in rules label what they can, labels the rest, has the vault server write `Daily\<today>.md`, opens an item on the sender's page for every waiting mail and lists what you promised this week, then lists possible batch changes (mark fyi/noise as read, move to a folder, set categories) with the count and subjects each one touches. Nothing runs until you say yes to a specific option.
 
-### `/administrator:save <entry_id | search terms>`
+### `/soma:save <entry_id | search terms>`
 
 ```
-/administrator:save invoice acme july
-/administrator:save 00000000AC3F...
+/soma:save invoice acme july
+/soma:save 00000000AC3F...
 ```
 
-With search terms it shows up to five matches and asks you to pick. Then it asks whether to export the `.msg` and attachments into `Attachments\`, writes `Emails\<date> <subject>.md`, and creates or updates `People\<Sender>.md`. Running it twice on the same mail appends an update section instead of making a duplicate. Given a file path (`/administrator:save C:\Users\<you>\Downloads\ACME-kickoff.pptx`) it writes a document record instead — see "Documents" below.
+With search terms it shows up to five matches and asks you to pick. Then it asks whether to export the `.msg` and attachments into `Attachments\`, writes `Emails\<date> <subject>.md`, and creates or updates `People\<Sender>.md`. Running it twice on the same mail appends an update section instead of making a duplicate. Given a file path (`/soma:save C:\Users\<you>\Downloads\ACME-kickoff.pptx`) it writes a document record instead — see "Documents" below.
 
-### `/administrator:daily [date]`
+### `/soma:daily [date]`
 
 ```
-/administrator:daily
-/administrator:daily 2026-08-25
+/soma:daily
+/soma:daily 2026-08-25
 ```
 
 Runs the inbox workflow, then adds today's agenda from `outlook_list_events`, flags overlapping meetings and meetings with no prep note, and gives you a short brief.
 
-### `/administrator:prep [date | event words]`
+### `/soma:prep [date | event words]`
 
 ```
-/administrator:prep
-/administrator:prep tomorrow
-/administrator:prep supplier sync
+/soma:prep
+/soma:prep tomorrow
+/soma:prep supplier sync
 ```
 
 Lists the day's meetings (all-day events skipped unless named) and writes `Meetings\<date> <time> <subject>.md` for each, with a Prep section. Running it twice appends an update instead of making a second note.
 
-### `/administrator:notes [event words | path] <raw notes or file path>`
+### `/soma:notes [event words | path] <raw notes or file path>`
 
 ```
-/administrator:notes supplier sync
+/soma:notes supplier sync
 - Jane ok with net 45, I'll sign tomorrow
 - Tom to send updated schedule by Wed
 ```
@@ -188,132 +188,132 @@ Finds the meeting (today's first, asks if unclear), appends your notes, pulls ou
 
 Paste a transcript instead of notes (Teams/Copilot speaker-by-speaker text; a ready-made Copilot prompt is in `skills/meetings/references/copilot-transcript-prompt.md`) and it is stored under `## Transcript` in a collapsed callout, each speaker linked to their person note, decisions and action items pulled out, and `## Notes` left for your own summary unless you ask for one.
 
-### `/administrator:free <people> [duration] [window]`
+### `/soma:free <people> [duration] [window]`
 
 ```
-/administrator:free Sam
-/administrator:free Sam, Jane Doe 45 min next week
-/administrator:free sam.ortiz@example.com tomorrow afternoon
+/soma:free Sam
+/soma:free Sam, Jane Doe 45 min next week
+/soma:free sam.ortiz@example.com tomorrow afternoon
 ```
 
-Turns names into addresses (asks if it cannot), reads free/busy, applies `Administrator\Preferences.md`, and shows up to five times in your local time with who is free. People outside your organisation have no visible calendar; it says so and offers an email instead. Nothing is written or sent.
+Turns names into addresses (asks if it cannot), reads free/busy, applies `Soma\Preferences.md`, and shows up to five times in your local time with who is free. People outside your organisation have no visible calendar; it says so and offers an email instead. Nothing is written or sent.
 
-### `/administrator:schedule <people> [duration] [window] [subject]`
+### `/soma:schedule <people> [duration] [window] [subject]`
 
 ```
-/administrator:schedule Sam 30 min next week "Budget review"
-/administrator:schedule Sam, Jane Doe Thursday
+/soma:schedule Sam 30 min next week "Budget review"
+/soma:schedule Sam, Jane Doe Thursday
 move my 2pm with Sam to Thursday
 ```
 
 Same as `free`, then you pick a slot, it shows subject / time / attendees / location, and only after a clear yes calls `outlook_create_event`. The invite reaches everyone the moment it is created, so it tells you that before asking. Then it writes `Meetings\<date time> <subject>.md` (the same note `prep` uses) and adds a row to that day's daily note if one exists. For a move it finds the meeting, offers new times, and on a yes calls `outlook_update_event`. One meeting per request; it will not move a whole day.
 
-### `/administrator:followups [days]`
+### `/soma:followups [days]`
 
 ```
-/administrator:followups
-/administrator:followups 5
+/soma:followups
+/soma:followups 5
 ```
 
 One `outlook_awaiting_reply` call checks your Sent folder for the last 30 days and lists the threads where your mail is the last message and it is at least `days` old, with the last line you wrote. A new thread opens an item on the page of the person who owes the answer; an item whose thread has since been answered is ticked. Then it shows one nudge draft at a time and saves it to Drafts only on a yes. Nothing is ever sent.
 
-### `/administrator:weekly [week]`
+### `/soma:weekly [week]`
 
 ```
-/administrator:weekly
-/administrator:weekly last
-/administrator:weekly 2026-W33
+/soma:weekly
+/soma:weekly last
+/soma:weekly 2026-W33
 ```
 
 Writes `Weekly\YYYY-Www.md` from `vault_weekly_facts` (the week's daily notes, the open items of the wiki pages — what others owe you and what of yours is past due — the meeting notes and the person notes, counted in the vault server), next week's calendar, and the week's hours by kind against your priorities (`vault_time_block(action="audit")`, under `## Time`), plus a few bullets of its own under `## Notes`. Running it again on the same week appends an update section.
 
-### `/administrator:time-block [week | this | next]`
+### `/soma:time-block [week | this | next]`
 
 ```
-/administrator:time-block
-/administrator:time-block next
+/soma:time-block
+/soma:time-block next
 ```
 
-Reads `Preferences.md` and `Priorities.md` — when the list is empty, or you say "suggest priorities", it proposes 3–5 from the wiki's due dates, open items, the oldest things people owe you and unfinished weekly items and writes `Priorities.md` only after your yes (edit the file in Obsidian any time); a `Preferences.md` from before 0.3.0 has no `peak_hours`, so it asks once when you are sharpest — shows last week in three lines (hours per kind, blocks held / moved / skipped, hours per priority), then the plan for the week as one line per day — focus blocks in your peak hours named after your priorities, admin blocks outside them, a fifth of each day left free, days already full of meetings skipped with the reason — and asks once: "Book these N blocks? They are appointments without attendees — nothing is sent to anyone." On a yes it creates the appointments (busy, category `Administrator`, no reminder) and writes `Time-blocks\YYYY-Www.md`. Running it again keeps every existing block and adds only where room opened up.
+Reads `Preferences.md` and `Priorities.md` — when the list is empty, or you say "suggest priorities", it proposes 3–5 from the wiki's due dates, open items, the oldest things people owe you and unfinished weekly items and writes `Priorities.md` only after your yes (edit the file in Obsidian any time); a `Preferences.md` from before 0.3.0 has no `peak_hours`, so it asks once when you are sharpest — shows last week in three lines (hours per kind, blocks held / moved / skipped, hours per priority), then the plan for the week as one line per day — focus blocks in your peak hours named after your priorities, admin blocks outside them, a fifth of each day left free, days already full of meetings skipped with the reason — and asks once: "Book these N blocks? They are appointments without attendees — nothing is sent to anyone." On a yes it creates the appointments (busy, category `Soma`, no reminder) and writes `Time-blocks\YYYY-Www.md`. Running it again keeps every existing block and adds only where room opened up.
 
-### `/administrator:find <sentence>`
-
-```
-/administrator:find the email where we agreed on the Q3 budget with Sam
-/administrator:find the spreadsheet Maria sent with vendor pricing last month
-```
-
-Pulls people, topic words, dates and attachment hints out of the sentence, makes one `outlook_find` call (the server searches the folders, ranks and returns ten snippets), opens at most two threads, and quotes the sentence that answers the question. Hard cap of 6 Outlook calls. Changes nothing; saving is offered through `/administrator:save`.
-
-### `/administrator:collect-information [since <date> | today]`
+### `/soma:find <sentence>`
 
 ```
-/administrator:collect-information
-/administrator:collect-information today
-/administrator:collect-information since 2026-08-21
+/soma:find the email where we agreed on the Q3 budget with Sam
+/soma:find the spreadsheet Maria sent with vendor pricing last month
+```
+
+Pulls people, topic words, dates and attachment hints out of the sentence, makes one `outlook_find` call (the server searches the folders, ranks and returns ten snippets), opens at most two threads, and quotes the sentence that answers the question. Hard cap of 6 Outlook calls. Changes nothing; saving is offered through `/soma:save`.
+
+### `/soma:collect-information [since <date> | today]`
+
+```
+/soma:collect-information
+/soma:collect-information today
+/soma:collect-information since 2026-08-21
 ```
 
 Reads the "last collected" stamps and, when they are older than a day, asks once: "Last collected: Fri 21 Aug 18:10. Collect since then, or just today?" Then Teams (`teams_list_chats`, at most 15 chats with 20 messages each), Inbox and Sent (`outlook_list_mails`, 50 per folder; at most 8 mails that touch a wiki page are opened and saved), the vault's own notes changed since (`vault_collect(action="changed")`, the record folders plus any `collect_folders` you list in `Preferences.md`), and the files that changed in any `document_folders` you list there — named only, and read in only when the name matches something the wiki already knows. Chat records go to `Teams\`, mails to `Emails\`; then the wiki changes are shown grouped by page and applied only after your yes, oldest record first. The stamps move, and one last question asks whether today's `[Focus]` / `[Admin]` blocks were held, moved or skipped (recorded in the week's `Time-blocks\` note). Nothing in Outlook or Teams is changed.
 
-### `/administrator:load-history [since | status | stop]`
+### `/soma:load-history [since | status | stop]`
 
 ```
-/administrator:load-history
-/administrator:load-history status
-/administrator:load-history since 2026-01-01
-/administrator:load-history stop
+/soma:load-history
+/soma:load-history status
+/soma:load-history since 2026-01-01
+/soma:load-history stop
 ```
 
-Asks once — "Load the past since 2026-05-28? (90 days, about 39 batches of 25, one yes per batch)" — and then works through it a window at a time: the Outlook inbox, then the sent items, then the Teams chats, oldest first, stopping at the day `/administrator:collect-information` already covers (its "last collected" stamps are read for that and never moved). Each window is the same pipeline as a regular collection — the mails and chats that touch a wiki page are saved, the changes are shown grouped by page, and only after your yes are they applied — and ends with one line: "Batch 4: 6 saved, pages …; next window 1–8 Jul — continue?". `status` says how far it got; `stop` ends the session and keeps the place, so the next run carries on from there. Nothing in Outlook or Teams is changed.
+Asks once — "Load the past since 2026-05-28? (90 days, about 39 batches of 25, one yes per batch)" — and then works through it a window at a time: the Outlook inbox, then the sent items, then the Teams chats, oldest first, stopping at the day `/soma:collect-information` already covers (its "last collected" stamps are read for that and never moved). Each window is the same pipeline as a regular collection — the mails and chats that touch a wiki page are saved, the changes are shown grouped by page, and only after your yes are they applied — and ends with one line: "Batch 4: 6 saved, pages …; next window 1–8 Jul — continue?". `status` says how far it got; `stop` ends the session and keeps the place, so the next run carries on from there. Nothing in Outlook or Teams is changed.
 
-### `/administrator:draft <thread words or entry_id> [what to say]`
+### `/soma:draft <thread words or entry_id> [what to say]`
 
 ```
-/administrator:draft delivery schedule tom — 8 Sep is fine, ask for the packaging spec
-/administrator:draft offsite venue priya
+/soma:draft delivery schedule tom — 8 Sep is fine, ask for the packaging spec
+/soma:draft offsite venue priya
 ```
 
 Finds the thread (asks when more than one matches), reads it, reads what the vault knows about the sender, and writes the reply in your voice. Your voice comes from one `outlook_voice_sample` call: the opening and sign-off of your last 10 sent mails to that person (or overall) plus counted greetings and sign-offs; you can add hard rules in `Preferences.md` under `## Voice` — the plugin only reads that file. Missing facts become `[fill in: …]` markers, never guesses. Only after a yes does it call `outlook_reply_mail(save_only=true)`; the draft sits in Drafts inside the conversation and you send it from Outlook.
 
-### `/administrator:wiki <page | question | statement | ingest <record>>`
+### `/soma:wiki <page | question | statement | ingest <record>>`
 
 ```
-/administrator:wiki q3 budget
-/administrator:wiki who owns the supplier contract at ACME
-/administrator:wiki add: Jane is out of office until 2026-09-08
-/administrator:wiki ingest Emails/2026-08-12 Net 30 terms
-/administrator:wiki resolve review
+/soma:wiki q3 budget
+/soma:wiki who owns the supplier contract at ACME
+/soma:wiki add: Jane is out of office until 2026-09-08
+/soma:wiki ingest Emails/2026-08-12 Net 30 terms
+/soma:wiki resolve review
 ```
 
 A page name shows the page (lead, facts, open items, newest records). A question is answered from the facts the wiki's own search ranks highest across every page, every claim with its page link; "what am I waiting for" answers from the open items instead. A statement becomes one operation on one page, shown first and written only after you say ok, marked as yours so that no later mail replaces it without asking. `ingest` runs the wiki step on a record that was saved before the wiki existed; `resolve review` walks through `Wiki\Review.md` one item at a time.
 
-### `/administrator:lint [fix]`
+### `/soma:lint [fix]`
 
 ```
-/administrator:lint
-/administrator:lint fix
+/soma:lint
+/soma:lint fix
 ```
 
-Runs every check in `Wiki\Wiki.md` and reports the counts: the pages you changed in Obsidian, index out of step, dangling links, orphans, frontmatter, section order, oversized pages, stale pages, past due dates, ticked open items, possible duplicates, records never ingested, topic candidates, contradictions, unconfirmed facts, pages that disagree with each other, projects with no update in ninety days, pages still standing on one record after sixty, your own items past their due date, the score of your own questions in `Wiki\Questions.md`, and the questions the wiki could not answer. With `fix` the safe ones are applied (index, keys, order, ticked items, stale topics set dormant, the missing side of a one-way link, an owner's name turned into a link, roll-overs). Merges, closures and new topic pages are questions; nothing happens without a yes. `/administrator:weekly` runs the same with `fix` and offers to ingest records that were never ingested, ten at a time.
+Runs every check in `Wiki\Wiki.md` and reports the counts: the pages you changed in Obsidian, index out of step, dangling links, orphans, frontmatter, section order, oversized pages, stale pages, past due dates, ticked open items, possible duplicates, records never ingested, topic candidates, contradictions, unconfirmed facts, pages that disagree with each other, projects with no update in ninety days, pages still standing on one record after sixty, your own items past their due date, the score of your own questions in `Wiki\Questions.md`, and the questions the wiki could not answer. With `fix` the safe ones are applied (index, keys, order, ticked items, stale topics set dormant, the missing side of a one-way link, an owner's name turned into a link, roll-overs). Merges, closures and new topic pages are questions; nothing happens without a yes. `/soma:weekly` runs the same with `fix` and offers to ingest records that were never ingested, ten at a time.
 
-### `Administrator\Preferences.md`
+### `Soma\Preferences.md`
 
-Created by `/administrator:setup` (or with defaults the first time any command needs it). Edit it in Obsidian: `work_start`, `work_end`, `buffer_minutes`, `no_meeting_blocks`, `max_meetings_per_day`, `default_duration`, `default_location`, `preferred_days`, and for the time blocks `peak_hours`, `focus_block_minutes`, `focus_blocks_per_day`, `admin_blocks_per_day`, `admin_block_minutes`, `slack_share` (plus `collect_folders` and `document_folders` for `/administrator:collect-information`). The plugin reads it once per session and never changes it. An optional `## Voice` section (plain bullets: greeting, sign-off, length, formality, hard rules like "no exclamation marks") is read by `/administrator:draft`, nudges and minutes; you write it yourself, the plugin never edits the file.
+Created by `/soma:setup` (or with defaults the first time any command needs it). Edit it in Obsidian: `work_start`, `work_end`, `buffer_minutes`, `no_meeting_blocks`, `max_meetings_per_day`, `default_duration`, `default_location`, `preferred_days`, and for the time blocks `peak_hours`, `focus_block_minutes`, `focus_blocks_per_day`, `admin_blocks_per_day`, `admin_block_minutes`, `slack_share` (plus `collect_folders` and `document_folders` for `/soma:collect-information`). The plugin reads it once per session and never changes it. An optional `## Voice` section (plain bullets: greeting, sign-off, length, formality, hard rules like "no exclamation marks") is read by `/soma:draft`, nudges and minutes; you write it yourself, the plugin never edits the file.
 
 ## What never happens without a yes
 
 - Marking mail read or unread, flagging, or setting categories (`outlook_mark_mail`, `outlook_bulk_mark_mails`, `outlook_set_category`).
 - Moving or deleting mail (`outlook_move_mail`, `outlook_delete_mail`, `outlook_bulk_move_mails`, `outlook_bulk_delete_mails`). The inbox workflow never deletes at all; it offers a move instead.
-- Writing files from Outlook to disk (`outlook_save_mail_as`, `outlook_save_attachments`); these land in `<vault>\Administrator\Attachments\<date slug>\` and are offered once per save.
-- Saving an email draft (`outlook_send_mail(save_only=true)` — minutes after `/administrator:notes`, proposed times from `/administrator:schedule`, nudge drafts from `/administrator:followups`; `outlook_reply_mail(save_only=true)` — a reply in the thread from `/administrator:draft`). The plugin never sends plain email, not even with a yes: `outlook_send_mail` without `save_only`, `outlook_reply_mail` without `save_only` and `outlook_forward_mail` are never called. You send from Drafts.
-- Creating or moving a meeting (`outlook_create_event`, `outlook_update_event`), both only from `/administrator:schedule` after the full summary. An invite goes to every attendee as soon as it is created. Deleting events or answering invites never happens.
-- Booking or moving your own time blocks (`outlook_create_event` without attendees from `/administrator:time-block` after "Book these N blocks?"; `outlook_update_event` on a block from `/administrator:daily` after "Move it?"). Blocks have no attendees, so nothing reaches anyone; the plugin never deletes one.
+- Writing files from Outlook to disk (`outlook_save_mail_as`, `outlook_save_attachments`); these land in `<vault>\Soma\Attachments\<date slug>\` and are offered once per save.
+- Saving an email draft (`outlook_send_mail(save_only=true)` — minutes after `/soma:notes`, proposed times from `/soma:schedule`, nudge drafts from `/soma:followups`; `outlook_reply_mail(save_only=true)` — a reply in the thread from `/soma:draft`). The plugin never sends plain email, not even with a yes: `outlook_send_mail` without `save_only`, `outlook_reply_mail` without `save_only` and `outlook_forward_mail` are never called. You send from Drafts.
+- Creating or moving a meeting (`outlook_create_event`, `outlook_update_event`), both only from `/soma:schedule` after the full summary. An invite goes to every attendee as soon as it is created. Deleting events or answering invites never happens.
+- Booking or moving your own time blocks (`outlook_create_event` without attendees from `/soma:time-block` after "Book these N blocks?"; `outlook_update_event` on a block from `/soma:daily` after "Move it?"). Blocks have no attendees, so nothing reaches anyone; the plugin never deletes one.
 
 Every offer states the exact action, the number of items, and their subjects. "Yes" means that option only.
 
 ## Path sandbox
 
-`outlook_save_mail_as` and `outlook_save_attachments` only write to absolute paths under your user profile (`C:\Users\<you>\...`). Keep the vault there and exports land in `<vault>\Administrator\Attachments\` without trouble. If the vault lives on another drive or a network share, the export step is skipped unless you set `OUTLOOK_MCP_ALLOW_ANY_PATH=1` in your environment. The plugin's own note writing has no such limit, but it never writes outside `<vault>\Administrator\`.
+`outlook_save_mail_as` and `outlook_save_attachments` only write to absolute paths under your user profile (`C:\Users\<you>\...`). Keep the vault there and exports land in `<vault>\Soma\Attachments\` without trouble. If the vault lives on another drive or a network share, the export step is skipped unless you set `OUTLOOK_MCP_ALLOW_ANY_PATH=1` in your environment. The plugin's own note writing has no such limit, but it never writes outside `<vault>\Soma\`.
 
 ## Classic Outlook only
 
@@ -321,13 +321,13 @@ The connector talks to Outlook through COM, which only classic desktop Outlook e
 
 ## Notes the plugin writes
 
-Every note has frontmatter with `type` (`email`, `daily`, `person`, `meeting`, `weekly`, `chat`, `document`, `time-block`, `preferences`, `priorities`, or a wiki type `org`, `topic`, `decision`, `howto`, `me`), `source: outlook` (`teams` for chat records, `file` for documents, `administrator` for preferences, priorities, weekly and time-block notes), `created_by: administrator/0.4.1`, and for emails the Outlook identity (`internet_message_id`, `entry_id`, `conversation_id`), sender SMTP address, recipients, `received` with timezone offset, and a `status` of `todo`, `waiting`, `done`, or `fyi`. Meeting notes carry the event's `global_id` and `occurrence_key` (one note per occurrence of a recurring meeting) and a `status` of `upcoming`, `held`, or `cancelled`. Links use wikilinks (`[[Wiki/People/Jane Doe]]`) so Obsidian's graph and backlinks work out of the box.
+Every note has frontmatter with `type` (`email`, `daily`, `person`, `meeting`, `weekly`, `chat`, `document`, `time-block`, `preferences`, `priorities`, or a wiki type `org`, `topic`, `decision`, `howto`, `me`), `source: outlook` (`teams` for chat records, `file` for documents, `soma` for preferences, priorities, weekly and time-block notes), `created_by: soma/0.4.1`, and for emails the Outlook identity (`internet_message_id`, `entry_id`, `conversation_id`), sender SMTP address, recipients, `received` with timezone offset, and a `status` of `todo`, `waiting`, `done`, or `fyi`. Meeting notes carry the event's `global_id` and `occurrence_key` (one note per occurrence of a recurring meeting) and a `status` of `upcoming`, `held`, or `cancelled`. Links use wikilinks (`[[Wiki/People/Jane Doe]]`) so Obsidian's graph and backlinks work out of the box.
 
 Existing notes are never overwritten. When a mail is saved again, an `## Update <timestamp>` section is appended. Every command that writes a note ends with an `obsidian://open` link to it. The notes are written by the `vault` server, which also enforces the frontmatter and never edits text that is already there.
 
 ## Obsidian
 
-Notes are plain markdown with frontmatter and wikilinks; nothing beyond core Obsidian is needed. `Administrator\_views\` holds five Bases files (core plugin, Obsidian 1.9+): `People.base`, `Follow-ups.base`, `Meetings.base` (by week), `Emails.base` (by status and sender), `Wiki.base` (projects, decisions, active topics, stale pages, the review queue, people by organisation). Open them like notes or embed one with `![[Administrator/_views/People.base]]`. Every command reply ends with an `obsidian://open` link to the note it wrote; set `ADMINISTRATOR_VAULT_NAME` if the name Obsidian shows differs from the folder name. The plugin never touches `.obsidian\` or anything outside `Administrator\`. Details, including sync advice and why the saved `.msg` is the way back to the original mail: `skills/administrator/references/obsidian.md`.
+Notes are plain markdown with frontmatter and wikilinks; nothing beyond core Obsidian is needed. `Soma\_views\` holds five Bases files (core plugin, Obsidian 1.9+): `People.base`, `Follow-ups.base`, `Meetings.base` (by week), `Emails.base` (by status and sender), `Wiki.base` (projects, decisions, active topics, stale pages, the review queue, people by organisation). Open them like notes or embed one with `![[Soma/_views/People.base]]`. Every command reply ends with an `obsidian://open` link to the note it wrote; set `SOMA_VAULT_NAME` if the name Obsidian shows differs from the folder name. The plugin never touches `.obsidian\` or anything outside `Soma\`. Details, including sync advice and why the saved `.msg` is the way back to the original mail: `skills/soma/references/obsidian.md`.
 
 ## License
 

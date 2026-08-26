@@ -1,15 +1,15 @@
 ---
 name: load-history
-description: Reads the months *before* the "last collected" stamps into the wiki, one window of days at a time — Outlook inbox, then Outlook sent items, then the Teams chats — 25 records per batch with one yes per batch — or one "yes to all" for every batch that is left, with an optional token cap — each batch run through the `collect-information` pipeline. `vault_load_history` fixes the start date and the upper bound per source, hands out the exact call to list each window, and remembers the place each source got to, so a run that stopped picks up there. Trigger when the user says "/administrator:load-history", "load the last three months", "load my history into the wiki", "fill the wiki from old mail", "read the past into the wiki", "start the wiki from my old mail", "continue loading the past", "carry on with the history", "yes to all", "yes to all, stop at 500k", or "how far did the history get". Reads Outlook and Teams only; nothing in either is changed, and the "last collected" stamps are only read, never moved.
+description: Reads the months *before* the "last collected" stamps into the wiki, one window of days at a time — Outlook inbox, then Outlook sent items, then the Teams chats — 25 records per batch with one yes per batch — or one "yes to all" for every batch that is left, with an optional token cap — each batch run through the `collect-information` pipeline. `vault_load_history` fixes the start date and the upper bound per source, hands out the exact call to list each window, and remembers the place each source got to, so a run that stopped picks up there. Trigger when the user says "/soma:load-history", "load the last three months", "load my history into the wiki", "fill the wiki from old mail", "read the past into the wiki", "start the wiki from my old mail", "continue loading the past", "carry on with the history", "yes to all", "yes to all, stop at 500k", or "how far did the history get". Reads Outlook and Teams only; nothing in either is changed, and the "last collected" stamps are only read, never moved.
 ---
 
 # load-history — the months before the stamps, one window at a time
 
-`/administrator:collect-information` covers the stamps forward to now. This covers what lies before them, so a new wiki starts full instead of empty. `vault_load_history` fixes a start date (90 days back by default) and, per source, the day the pass stops at (that source's collect stamp, else now); then it hands out one window of days at a time together with the exact call that lists it, and writes the place it got to after every batch.
+`/soma:collect-information` covers the stamps forward to now. This covers what lies before them, so a new wiki starts full instead of empty. `vault_load_history` fixes a start date (90 days back by default) and, per source, the day the pass stops at (that source's collect stamp, else now); then it hands out one window of days at a time together with the exact call that lists it, and writes the place it got to after every batch.
 
 Every batch *is* `collect-information`'s pipeline. This skill names that skill's steps by number and does not restate them. Load `skills/collect-information/SKILL.md` and `skills/wiki/SKILL.md` before the first batch (plus their `references/examples.md` on the first run of a session). A full first batch and a run that picked up where it stopped: `references/examples.md`.
 
-Once per session: `vault_status` (any folder or file flag false → `vault_init(created_by="administrator/0.4.1")`; vault unset or not a directory → stop and tell the user) and `outlook_whoami(response_format="json")` — `local_time` is "now", `accounts[].smtp_address` are `self_addresses`, `current_user` and `accounts[].display_name` are `self_names`.
+Once per session: `vault_status` (any folder or file flag false → `vault_init(created_by="soma/0.4.1")`; vault unset or not a directory → stop and tell the user) and `outlook_whoami(response_format="json")` — `local_time` is "now", `accounts[].smtp_address` are `self_addresses`, `current_user` and `accounts[].display_name` are `self_names`.
 
 ## Caps (fixed, say when one is hit)
 
@@ -27,7 +27,7 @@ Ask exactly one question and stop the turn: **"Load the past since <date>? (N da
 
 On a yes: `vault_load_history(action="plan", since=<ISO date, or left out for 90 days back>, batch=25)` → `{planned: true, path, since, batch, window_days, until_max, stamps, days, left_days, batches_estimate, sources, started_over, kept_ids, next_hint, note}`. Report `note` in one line, with `batches_estimate` as the number of yeses ahead. (Asking before planning means N and M are your own estimate; take the real ones from the answer and correct the line if they differ.)
 
-`{planned: false, refused: "already-running", note, status}` means a pass is running: do not plan again — say where it stands and go to step 3, or, when the user asks to start over, `plan(reset=true)`. No stamp at all (`note` says so) → mention that each source stops at now and that `/administrator:collect-information` keeps its own stamps.
+`{planned: false, refused: "already-running", note, status}` means a pass is running: do not plan again — say where it stands and go to step 3, or, when the user asks to start over, `plan(reset=true)`. No stamp at all (`note` says so) → mention that each source stops at now and that `/soma:collect-information` keeps its own stamps.
 
 ### 3. The window to list
 
@@ -55,7 +55,7 @@ In auto mode (`auto: true` in the `next` answer) with a `cap`, that line is also
 For the records that survived step 3, `collect-information`'s own steps, in order:
 
 - **step 3** for chats and **step 4** for mail — the relevance gate exactly as each of those steps runs it (a chat's `vault_wiki_search(pages=true)` is followed by one `vault_wiki_search(brief=true, max_chars=1200)` for its page context; a mail's is not): keep what touches a page or a candidate or carries work content on its own, skip banter and name it;
-- **step 6** — the records first (`vault_save(kind="chat")`, or the `save` skill's `outlook_get_mail` then `vault_save(kind="email")`, both with `created_by="administrator/0.4.1"`), then one proposal as short bullets grouped by page with the Review items expected, and **one** question: "Apply these? (name a line to drop it)". Nothing else happens in that turn;
+- **step 6** — the records first (`vault_save(kind="chat")`, or the `save` skill's `outlook_get_mail` then `vault_save(kind="email")`, both with `created_by="soma/0.4.1"`), then one proposal as short bullets grouped by page with the Review items expected, and **one** question: "Apply these? (name a line to drop it)". Nothing else happens in that turn;
 - **step 7** — on a yes, one `vault_wiki_write` per record oldest first, the open items with their owner, the decision rule, and the second pass over each record (the `wiki` skill's ingest step 5, on by default here) as a second smaller ingest in the same turn.
 
 A "no" to the proposal leaves the records written; report the batch with `saved` naming only what was actually saved.
@@ -98,7 +98,7 @@ Read the answer's `note` back as it stands — **"Batch n: k saved, pages …; n
 
 ### 8. When every source is finished
 
-`all_done: true` (or `status.finished`) → read the `summary` out: how many records in how many batches, per source, how many pages touched, ending with **"Run /administrator:lint."** — the pass touched many pages at once, and lint is what checks them against each other. A finished pass does not block a new one: `plan` with an earlier `since` starts another, and `kept_ids` says how many ids it carried over — it walks the covered days again, but they come back as `skip_ids` instead of being read twice. `plan(reset=true)` is the one thing that forgets them.
+`all_done: true` (or `status.finished`) → read the `summary` out: how many records in how many batches, per source, how many pages touched, ending with **"Run /soma:lint."** — the pass touched many pages at once, and lint is what checks them against each other. A finished pass does not block a new one: `plan` with an earlier `since` starts another, and `kept_ids` says how many ids it carried over — it walks the covered days again, but they come back as `skip_ids` instead of being read twice. `plan(reset=true)` is the one thing that forgets them.
 
 ## Rules
 

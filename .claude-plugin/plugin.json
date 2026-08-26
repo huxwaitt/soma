@@ -1,5 +1,5 @@
 {
-  "name": "administrator",
+  "name": "soma",
   "version": "0.4.1",
   "description": "An assistant that runs your classic Outlook mailbox and keeps the paper trail in an Obsidian vault. Checks its own setup, goes through the inbox and writes a daily note, saves any email as a linked note with a person stub, builds a daily page from inbox plus calendar, prepares you for meetings and files your notes afterwards, finds free times and books meetings, chases threads nobody answered, drafts replies in your own voice that land in Drafts, finds the one email you half-remember and quotes the line that matters, reads a pdf, Word file, deck, workbook or plain text file into the vault as a document record whose pages, slides and sheets its facts point back at, writes a weekly review, and collects what happened since the last run — Teams chats from the local client cache, new mail, changed notes — into the wiki after showing you the changes. Reads the months before that into the wiki as well, oldest first, in batches of 25 records with one yes per batch, remembering where it got to. Reads freely; never moves, marks, books, or sends anything without an explicit yes; never sends plain mail. Bundles the outlook-classic-mcp server, its vault writer and the optional read-only local-ms-teams server.",
   "author": {
@@ -14,7 +14,7 @@
     },
     "vault": {
       "command": "uv",
-      "args": ["run", "--directory", "${OUTLOOK_MCP_DIR}", "administrator-vault"]
+      "args": ["run", "--directory", "${OUTLOOK_MCP_DIR}", "soma-vault"]
     },
     "local-ms-teams": {
       "command": "uv",

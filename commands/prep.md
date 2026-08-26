@@ -3,7 +3,7 @@ description: Write a prep brief into a meeting note for today's meetings (or one
 argument-hint: "[date | event words]"
 ---
 
-# /administrator:prep
+# /soma:prep
 
 Argument (optional): a date (`2026-08-25`, `tomorrow`, `Monday`) for all meetings that day, or words that match one event (`supplier sync`, `jane`, `1pm`). Nothing → today.
 
@@ -11,8 +11,8 @@ Argument given: `$ARGUMENTS`
 
 ## Steps
 
-1. Load the `administrator` skill, then the `meetings` skill and its `references/meeting-note.md`. Load the `outlook` skill if it is not already loaded. Open `skills/meetings/references/examples.md` only if a shape is unclear.
-2. `vault_status` if not done yet this session (any folder or file flag false → `vault_init(created_by="administrator/0.4.1")`); `outlook_whoami(response_format="json")` once for the user's own address.
+1. Load the `soma` skill, then the `meetings` skill and its `references/meeting-note.md`. Load the `outlook` skill if it is not already loaded. Open `skills/meetings/references/examples.md` only if a shape is unclear.
+2. `vault_status` if not done yet this session (any folder or file flag false → `vault_init(created_by="soma/0.4.1")`); `outlook_whoami(response_format="json")` once for the user's own address.
 3. `outlook_list_events(start=<day 00:00>, end=<day 23:59:59>, include_recurrences=true, fields=["entry_id","global_id","occurrence_key","subject","start","end","location","organizer","organizer_address","attendees","is_recurring","all_day"], response_format="json")`. With words: today plus 7 days, matched against subject, attendee names, location and start time; one hit → take it, several → numbered list and ask, none → say so and stop. Skip all-day and `Canceled:` events unless named.
 4. Per event, as the `meetings` skill describes:
    - `vault_prep_context(occurrence_key, global_id, attendees=[{name, address}…], subject=<event subject>)` — one call gives `existing_note`, `previous_occurrence.open_actions` (carried over), `people[]` (person pages, `company`, `last_contact`), `commitments[]` (the open items on the attendees' pages and the items anywhere they own, both directions: `{page, stem, type, title, owner_name, id, text, owner, due, since, src, record, done}`) and `wiki[]` (`path, type, title, status, lead, open[], facts[]` for the attendees' person pages and up to 3 topic or decision pages the search engine matched on the subject, projects first, then decisions). Do not `vault_find` / `vault_read` / `vault_wiki_read` / `vault_wiki_search` for any of that; `wiki[]` becomes a `### Wiki` block in the Prep and the suggested points start from the topic lead and its open items.
@@ -25,15 +25,15 @@ Argument given: `$ARGUMENTS`
 ## Example
 
 ```
-/administrator:prep
-/administrator:prep tomorrow
-/administrator:prep supplier sync
+/soma:prep
+/soma:prep tomorrow
+/soma:prep supplier sync
 ```
 
-`/administrator:prep supplier sync` on 2026-08-25: one event, one `vault_prep_context` call (previous occurrence 2026-08-18 with two open actions, Jane Doe has a note, Tom Lee does not, one open follow-up), one `outlook_find` call (three threads), one person stub, one `vault_write`:
+`/soma:prep supplier sync` on 2026-08-25: one event, one `vault_prep_context` call (previous occurrence 2026-08-18 with two open actions, Jane Doe has a note, Tom Lee does not, one open follow-up), one `outlook_find` call (three threads), one person stub, one `vault_write`:
 
 > Prep written: `Meetings/2026-08-25 1300 Weekly supplier sync.md` (previous: 2026-08-18, 2 items carried over, 3 threads, 1 open follow-up). New person note `Wiki/People/Tom Lee.md`.
-> obsidian://open?vault=Vault&file=Administrator%2FMeetings%2F2026-08-25%201300%20Weekly%20supplier%20sync.md
+> obsidian://open?vault=Vault&file=Soma%2FMeetings%2F2026-08-25%201300%20Weekly%20supplier%20sync.md
 > Points: sign the contract or say what blocks it; answer Tom on the 8 Sep delivery; packaging spec; Leipzig address.
 
 Running it again appends `## Update 2026-08-25T…` with "Nothing new since the last prep." and reports "existing note found". Full example: `skills/meetings/references/examples.md`.

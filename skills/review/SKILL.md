@@ -1,18 +1,18 @@
 ---
 name: review
-description: Two look-back workflows over Outlook and the vault. `followups` asks `outlook_awaiting_reply` for the threads where the user wrote last and nobody answered for N days, opens an item on the person page of whoever owes an answer and ticks the ones that got a reply (`Administrator/Follow-ups.md` is written from those items), and offers short nudge drafts that go to Drafts only. `weekly` takes `vault_weekly_facts` plus next week's calendar and writes one note `Administrator/Weekly/YYYY-Www.md` with what is still open from the week's inbox, what the user is waiting on and for how long, meetings held with their unchecked action items, next week's calendar with clashes, people who have gone quiet for 30+ days, and where the week's hours went against the user's priorities (`vault_time_block(action="audit")` over the week's events and the `[Focus]` / `[Admin]` blocks). Trigger when the user says "/administrator:followups", "/administrator:weekly", "who hasn't replied", "who owes me an answer", "what am I waiting on", "anything I chased and heard nothing", "weekly review", "wrap up the week", "what did I not get to this week", "what's next week look like", "who have I not talked to in a while". Reads Outlook only; the single Outlook write is a nudge draft with `save_only=true`, one yes per draft, never a send.
+description: Two look-back workflows over Outlook and the vault. `followups` asks `outlook_awaiting_reply` for the threads where the user wrote last and nobody answered for N days, opens an item on the person page of whoever owes an answer and ticks the ones that got a reply (`Soma/Follow-ups.md` is written from those items), and offers short nudge drafts that go to Drafts only. `weekly` takes `vault_weekly_facts` plus next week's calendar and writes one note `Soma/Weekly/YYYY-Www.md` with what is still open from the week's inbox, what the user is waiting on and for how long, meetings held with their unchecked action items, next week's calendar with clashes, people who have gone quiet for 30+ days, and where the week's hours went against the user's priorities (`vault_time_block(action="audit")` over the week's events and the `[Focus]` / `[Admin]` blocks). Trigger when the user says "/soma:followups", "/soma:weekly", "who hasn't replied", "who owes me an answer", "what am I waiting on", "anything I chased and heard nothing", "weekly review", "wrap up the week", "what did I not get to this week", "what's next week look like", "who have I not talked to in a while". Reads Outlook only; the single Outlook write is a nudge draft with `save_only=true`, one yes per draft, never a send.
 ---
 
 # review — followups and weekly
-Both workflows look back instead of at the inbox of the moment. The tools do the collecting, comparing and counting; you decide and write the few lines only a person can write. Outlook is read through `outlook_*` tools, the vault is read and written only through `vault_*` tools (`skills/administrator/references/vault.md`), and nothing in Outlook changes except, in `followups`, a draft the user said yes to. Outlook mechanics follow the `outlook` skill and `skills/administrator/references/outlook.md`. Worked examples with real call sequences: `references/examples.md` (load it the first time a workflow runs in a session).
+Both workflows look back instead of at the inbox of the moment. The tools do the collecting, comparing and counting; you decide and write the few lines only a person can write. Outlook is read through `outlook_*` tools, the vault is read and written only through `vault_*` tools (`skills/soma/references/vault.md`), and nothing in Outlook changes except, in `followups`, a draft the user said yes to. Outlook mechanics follow the `outlook` skill and `skills/soma/references/outlook.md`. Worked examples with real call sequences: `references/examples.md` (load it the first time a workflow runs in a session).
 
-Before either workflow: `vault_status` once per session (run `vault_init(created_by="administrator/0.4.1")` if a folder or file flag is false) and `outlook_whoami(response_format="json")` once per session. "Self" = any `accounts[].smtp_address`, compared case-insensitively. "Today" and "now" come from `whoami.local_time`, never from a guess.
+Before either workflow: `vault_status` once per session (run `vault_init(created_by="soma/0.4.1")` if a folder or file flag is false) and `outlook_whoami(response_format="json")` once per session. "Self" = any `accounts[].smtp_address`, compared case-insensitively. "Today" and "now" come from `whoami.local_time`, never from a guess.
 
 Cost rules for both: pass `fields=[...]` on every list, search, get and conversation call and `preview_chars=0` unless a preview is needed; never repeat text a tool result already holds (paste `last_line`, `subject`, `who` as they came); never read a note with `vault_read` when a helper already returned the facts.
 
 ## followups — who has not replied
 
-`/administrator:followups [days]`. `days` = how long a thread must have been quiet to count, default 3.
+`/soma:followups [days]`. `days` = how long a thread must have been quiet to count, default 3.
 
 ### 1. One call
 
@@ -30,9 +30,9 @@ Cost rules for both: pass `fields=[...]` on every list, search, get and conversa
 
 ### 3. The open items on the pages
 
-`vault_wiki_search(query="", open_items=true, owner="others")` — one call, no `vault_read`: `[{page, stem, type, title, owner_name, id, text, owner, due, since, src, record, done}]`, oldest `since` first. These are the lines `Administrator/Follow-ups.md` is written from; the file itself takes no rows (`vault_row` refuses it). Load `skills/wiki/SKILL.md` before the first write here.
+`vault_wiki_search(query="", open_items=true, owner="others")` — one call, no `vault_read`: `[{page, stem, type, title, owner_name, id, text, owner, due, since, src, record, done}]`, oldest `since` first. These are the lines `Soma/Follow-ups.md` is written from; the file itself takes no rows (`vault_row` refuses it). Load `skills/wiki/SKILL.md` before the first write here.
 
-**Open.** Per item: key = `internet_message_id`, `entry_id` when empty. Skip the thread as "already listed" when an open item's `src` holds that key, or an item on that person's page has the same text. Otherwise `vault_find("person", <to[0]>, fields=["name"])` → the person page; not found → `vault_write("person", {type: person, name: <to_names[0], else the local part of the address>, email: <to[0]>, last_contact: "", aliases: [], created_by: "administrator/0.4.1"}, "", mode="create")` writes the draft page first. Then
+**Open.** Per item: key = `internet_message_id`, `entry_id` when empty. Skip the thread as "already listed" when an open item's `src` holds that key, or an item on that person's page has the same text. Otherwise `vault_find("person", <to[0]>, fields=["name"])` → the person page; not found → `vault_write("person", {type: person, name: <to_names[0], else the local part of the address>, email: <to[0]>, last_contact: "", aliases: [], created_by: "soma/0.4.1"}, "", mode="create")` writes the draft page first. Then
 
 ```
 vault_wiki_write(pages=[{"path": "Wiki/People/<name>", "ops": [{"op": "open", "text": <subject, ten words or fewer>,
@@ -64,15 +64,15 @@ Body:
 Save this to Drafts? (yes / no / skip all)
 ```
 
-Only on a clear yes: `outlook_reply_mail(entry_id=<item entry_id, the user's own last mail>, body=<text>, reply_all=false, html=false, save_only=true)` → the draft lands in Drafts inside the thread, addressed to the original recipients; tell the user to check the To line before sending from Outlook. `to[]` empty → show the draft, say it cannot be saved without an address, move on. "no" skips one, "skip all" stops. Never `outlook_reply_mail` or `outlook_send_mail` without `save_only=true`, never `outlook_forward_mail`. When the item's `record` links an email note: `vault_write("email", <frontmatter from a `vault_find`>, "Nudge draft saved to Drafts via /administrator:followups.", mode="append")`; no note → nothing.
+Only on a clear yes: `outlook_reply_mail(entry_id=<item entry_id, the user's own last mail>, body=<text>, reply_all=false, html=false, save_only=true)` → the draft lands in Drafts inside the thread, addressed to the original recipients; tell the user to check the To line before sending from Outlook. `to[]` empty → show the draft, say it cannot be saved without an address, move on. "no" skips one, "skip all" stops. Never `outlook_reply_mail` or `outlook_send_mail` without `save_only=true`, never `outlook_forward_mail`. When the item's `record` links an email note: `vault_write("email", <frontmatter from a `vault_find`>, "Nudge draft saved to Drafts via /soma:followups.", mode="append")`; no note → nothing.
 
 ### 5. Report
 
-Three to five lines: `threads_checked` from `sent_scanned` mails, waiting count, open items added / already listed / closed, drafts saved. End with `obsidian://open?vault=<vault_status.vault_name>&file=Administrator/Follow-ups`.
+Three to five lines: `threads_checked` from `sent_scanned` mails, waiting count, open items added / already listed / closed, drafts saved. End with `obsidian://open?vault=<vault_status.vault_name>&file=Soma/Follow-ups`.
 
 ## weekly — one note for the week
 
-`/administrator:weekly [week]`. `week` = `YYYY-Www` (ISO, Monday–Sunday), a date inside the week, `this`, or `last`. Default: the ISO week containing today, except on a Monday or Tuesday, when it is the previous week (say which was used). Read-only in Outlook; exactly one `vault_write`, plus the wiki lint and whatever the user says yes to in step 2.
+`/soma:weekly [week]`. `week` = `YYYY-Www` (ISO, Monday–Sunday), a date inside the week, `this`, or `last`. Default: the ISO week containing today, except on a Monday or Tuesday, when it is the previous week (say which was used). Read-only in Outlook; exactly one `vault_write`, plus the wiki lint and whatever the user says yes to in step 2.
 
 ### 1. Three calls
 
@@ -82,15 +82,15 @@ Three to five lines: `threads_checked` from `sent_scanned` mails, waiting count,
 
 ### 2. Wiki (load `skills/wiki/SKILL.md` first)
 
-`vault_wiki_keep(action="lint", fix=true, items=true, created_by="administrator/0.4.1")` once (`items=true` because the proposals and duplicates below are read out one by one; without it the answer carries counts only) (the safe fixes: index, code-owned keys, section order, ticked open items, stale topics to `dormant`, roll-overs); then `vault_wiki_keep(action="review")`. From the two results: the open Review items (`open[].text`: page, question, record links), the topic proposals (`checks["12"].items`: "create `<slug>` from N records?"), the possible duplicates (`checks["10"].items`, pairs `{a, b, shared}`), the un-ingested records (`checks["11"].count` and `records[]` with paths), the per-check numbers in `counts`. Ask one question per proposal and act only on a yes (a `new:` spec through `vault_wiki_write`, or `vault_wiki_keep(action="merge")`). Un-ingested records: offer "ingest the N records saved before the wiki, ten at a time?"; on a yes run the `wiki` skill's ingest steps on the first 10 (`vault_read` each once, oldest first), report, offer the next 10. Skip this whole step on "without wiki".
+`vault_wiki_keep(action="lint", fix=true, items=true, created_by="soma/0.4.1")` once (`items=true` because the proposals and duplicates below are read out one by one; without it the answer carries counts only) (the safe fixes: index, code-owned keys, section order, ticked open items, stale topics to `dormant`, roll-overs); then `vault_wiki_keep(action="review")`. From the two results: the open Review items (`open[].text`: page, question, record links), the topic proposals (`checks["12"].items`: "create `<slug>` from N records?"), the possible duplicates (`checks["10"].items`, pairs `{a, b, shared}`), the un-ingested records (`checks["11"].count` and `records[]` with paths), the per-check numbers in `counts`. Ask one question per proposal and act only on a yes (a `new:` spec through `vault_wiki_write`, or `vault_wiki_keep(action="merge")`). Un-ingested records: offer "ingest the N records saved before the wiki, ten at a time?"; on a yes run the `wiki` skill's ingest steps on the first 10 (`vault_read` each once, oldest first), report, offer the next 10. Skip this whole step on "without wiki".
 
 ### 3. Write the note
 
 Identity = `week`. Render the sections from the results, line for line, without rewording — the layout is in `references/examples.md`:
 
-- `## Still open from inbox` — one line per `open_from_inbox` row, oldest first: `- <date> — <label> — <subject> (<from>) — <note>` (the `<!-- entry_id: … -->` comment when `note` is null). Empty → `- nothing open`; no daily notes → `- no daily notes this week (run /administrator:inbox)`.
+- `## Still open from inbox` — one line per `open_from_inbox` row, oldest first: `- <date> — <label> — <subject> (<from>) — <note>` (the `<!-- entry_id: … -->` comment when `note` is null). Empty → `- nothing open`; no daily notes → `- no daily notes this week (run /soma:inbox)`.
 - `## Waiting on` — table `| Since | Who | What | Days |` from `waiting`, `who`/`what` as returned. Empty → `- nothing`. Then, when `promised_overdue` is not empty, one line per entry under `**Past due from me**`: `- <due> — <what> — [[<page>]] (<days_over> days over)`; done, rescheduled or dropped is a `done` / `reschedule` op on that page, one question at a time in step 2.
-- `## Meetings held` — `### [[<path without .md>]] — <date>` then the `unchecked_actions` lines, or `- all done`; `no_notes` under `No notes taken (run /administrator:notes):` as plain links. Nothing → `- none`.
+- `## Meetings held` — `### [[<path without .md>]] — <date>` then the `unchecked_actions` lines, or `- all done`; `no_notes` under `No notes taken (run /soma:notes):` as plain links. Nothing → `- none`.
 - `## Next week` — one table per weekday with events `| Start | End | Subject | Location | Organizer |` (`all day` in both time columns for all-day events), then `**Watch out**`: each clash (overlapping `start`/`end` on the same day, each pair once) and the count without a prep note. No events → `- nothing booked`.
 - `## People going quiet` — `- [[<path without .md>]] — last contact <last_contact> (<days> days)`. None → `- nobody`.
 - `## Time` — the `lines` of `vault_time_block(action="audit")`, one bullet each, as returned (hours per kind with shares of the work hours; blocks planned / held / moved / skipped / unanswered; hours per priority planned and held). A week without a `Time-blocks/` note still gets the first line and `Blocks: none planned this week.`
@@ -99,8 +99,8 @@ Identity = `week`. Render the sections from the results, line for line, without 
 
 ```
 vault_write("weekly",
-    {"type": "weekly", "source": "administrator", "week": "2026-W34", "start": "2026-08-17", "end": "2026-08-23",
-     "generated": "<ISO now with offset>", "created_by": "administrator/0.4.1"},
+    {"type": "weekly", "source": "soma", "week": "2026-W34", "start": "2026-08-17", "end": "2026-08-23",
+     "generated": "<ISO now with offset>", "created_by": "soma/0.4.1"},
     <body: "# Week 2026-W34 (2026-08-17 – 2026-08-23)" + the sections>, mode="upsert")
 ```
 
@@ -108,12 +108,12 @@ vault_write("weekly",
 
 ### 4. Report
 
-One line per section with counts, the note path, and `obsidian://open?vault=<vault_name>&file=Administrator/Weekly/<week>`. Offer `/administrator:followups` only when a `waiting` row has `age_days` over 7 or `promised_overdue` is not empty, `/administrator:prep` only when next week has meetings without a prep note, `/administrator:wiki resolve review` when Review has open items, `/administrator:time-block` when `blocks.planned` is 0 or `shares.unplanned` is above the `slack_share` of `Preferences.md`.
+One line per section with counts, the note path, and `obsidian://open?vault=<vault_name>&file=Soma/Weekly/<week>`. Offer `/soma:followups` only when a `waiting` row has `age_days` over 7 or `promised_overdue` is not empty, `/soma:prep` only when next week has meetings without a prep note, `/soma:wiki resolve review` when Review has open items, `/soma:time-block` when `blocks.planned` is 0 or `shares.unplanned` is above the `slack_share` of `Preferences.md`.
 
 ## Rules that apply to both
 
 - Never call `outlook_mark_mail`, `outlook_move_mail`, `outlook_delete_mail`, `outlook_set_category`, any `bulk_*` tool, `outlook_create_event`, `outlook_update_event`, `outlook_forward_mail`, or `outlook_send_mail` / `outlook_reply_mail` without `save_only=true`.
-- The vault is written only through `vault_write` and the `vault_wiki_*` tools (`open` / `done` items in `followups`, the ingest and lint in `weekly`); nothing by hand, nothing outside `Administrator/`. `Follow-ups.md` is written from the pages and never edited.
+- The vault is written only through `vault_write` and the `vault_wiki_*` tools (`open` / `done` items in `followups`, the ingest and lint in `weekly`); nothing by hand, nothing outside `Soma/`. `Follow-ups.md` is written from the pages and never edited.
 - Keep datetimes exactly as the tools returned them. "Days" are counted on local dates by the tools; do not recount. No raw JSON in the reply: tables and bullet lines only.
 - A second run leaves the vault as after the first: `followups` finds every key already on the pages; `weekly` appends an `## Update` section to the same note and never creates a second file.
 - Measurement: when the host shows the turn's token count, end the reply with `Tokens this turn: <n>`; when it does not, say nothing about it. Neither workflow writes a daily note, so `tokens_used` is only passed to `vault_write_daily` when that tool is called in the same turn.

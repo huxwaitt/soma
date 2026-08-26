@@ -1,8 +1,8 @@
 # schedule — worked examples
 
-Three runs of the `schedule` skill with every call and result. Load this when a step in `SKILL.md` is unclear; it adds nothing the skill does not already say. Session setup (`vault_status`, `outlook_whoami`, one `vault_read("Administrator/Preferences.md")`) happened before each example; the preferences are the template defaults (09:00–17:00, buffer 15, `Fri 13:00-17:00` blocked, max 5 per day, preferred Tue Wed Thu, default 30 min, Teams). The user is `hux@example.com`, today is Sat 2026-08-22.
+Three runs of the `schedule` skill with every call and result. Load this when a step in `SKILL.md` is unclear; it adds nothing the skill does not already say. Session setup (`vault_status`, `outlook_whoami`, one `vault_read("Soma/Preferences.md")`) happened before each example; the preferences are the template defaults (09:00–17:00, buffer 15, `Fri 13:00-17:00` blocked, max 5 per day, preferred Tue Wed Thu, default 30 min, Teams). The user is `hux@example.com`, today is Sat 2026-08-22.
 
-## Example 1 — `/administrator:free Sam 30 min next week`
+## Example 1 — `/soma:free Sam 30 min next week`
 
 1. `outlook_resolve_name(name="Sam")` → `resolved: true`, `smtp_address: "sam.ortiz@example.com"`.
 2. "next week" → `start="2026-08-24T00:00:00"`, `end="2026-08-28T23:59:59"`; duration 30.
@@ -22,7 +22,7 @@ Reply:
 
 Nothing written, nothing sent. Had the user then asked "why is Sam busy Tuesday morning?": `outlook_get_free_busy(addresses=["sam.ortiz@example.com"], start="2026-08-25T00:00:00", end="2026-08-25T23:59:59")` → `people[0].busy_blocks` = `[{start: "…T09:00:00+02:00", end: "…T10:00:00+02:00"}, …]` → "Sam is busy 09:00–10:00 and 11:00–12:30." `slots[]` is not returned and not needed.
 
-## Example 2 — `/administrator:schedule Sam, Jane Doe 30 min next week "Budget review"`
+## Example 2 — `/soma:schedule Sam, Jane Doe 30 min next week "Budget review"`
 
 Names: Sam as above; `outlook_resolve_name(name="Jane Doe")` → `resolved: false`; `outlook_search_contacts(query="Jane Doe", include_directory=true, limit=5)` → one hit `jane.doe@acme-parts.com`, company ACME Parts GmbH. `find_meeting_times` with both addresses → candidates with `unknown: ["jane.doe@acme-parts.com"]` on every one.
 
@@ -45,9 +45,9 @@ User: "a, 1". `outlook_list_events` for Tue 25 Aug with the same `fields` → no
 >
 > Send this invite? Outlook sends it to both the moment it is created.
 
-User: "yes". `outlook_create_event(subject="Budget review", start="2026-08-25T10:00:00", end="2026-08-25T10:30:00", attendees=["sam.ortiz@example.com","jane.doe@acme-parts.com"], location="Teams", is_online_meeting=true, body="Booked by administrator on 2026-08-22")` → `{"status":"created","entry_id":"00000000C1…","global_id":"040000008200E0…","occurrence_key":"040000008200E0…|2026-08-25T10:00:00+02:00","subject":"Budget review","start":"2026-08-25T10:00:00+02:00","end":"2026-08-25T10:30:00+02:00","invite_sent":true}`. `global_id` is there, so no `outlook_get_event`.
+User: "yes". `outlook_create_event(subject="Budget review", start="2026-08-25T10:00:00", end="2026-08-25T10:30:00", attendees=["sam.ortiz@example.com","jane.doe@acme-parts.com"], location="Teams", is_online_meeting=true, body="Booked by soma on 2026-08-22")` → `{"status":"created","entry_id":"00000000C1…","global_id":"040000008200E0…","occurrence_key":"040000008200E0…|2026-08-25T10:00:00+02:00","subject":"Budget review","start":"2026-08-25T10:00:00+02:00","end":"2026-08-25T10:30:00+02:00","invite_sent":true}`. `global_id` is there, so no `outlook_get_event`.
 
-Person notes: `vault_find("person", {"email": "jane.doe@acme-parts.com"})` → found (from an earlier save) → `vault_write("person", <frontmatter as found>, "- 2026-08-25 — [[Meetings/2026-08-25 1000 Budget review]]", mode="append")`. `vault_find("person", {"email": "sam.ortiz@example.com"})` → not found → `vault_write("person", {type: person, name: "Sam Ortiz", email: "sam.ortiz@example.com", last_contact: "", aliases: [], created_by: "administrator/0.4.1"}, "- 2026-08-25 — [[Meetings/2026-08-25 1000 Budget review]]", mode="create")` (the server writes the `draft` wiki page with that line under `## Records`).
+Person notes: `vault_find("person", {"email": "jane.doe@acme-parts.com"})` → found (from an earlier save) → `vault_write("person", <frontmatter as found>, "- 2026-08-25 — [[Meetings/2026-08-25 1000 Budget review]]", mode="append")`. `vault_find("person", {"email": "sam.ortiz@example.com"})` → not found → `vault_write("person", {type: person, name: "Sam Ortiz", email: "sam.ortiz@example.com", last_contact: "", aliases: [], created_by: "soma/0.4.1"}, "- 2026-08-25 — [[Meetings/2026-08-25 1000 Budget review]]", mode="create")` (the server writes the `draft` wiki page with that line under `## Records`).
 
 Meeting note — frontmatter passed as an object (the server quotes what needs quoting):
 
@@ -71,7 +71,7 @@ attendee_links:
   - "[[Wiki/People/Jane Doe]]"
 is_recurring: false
 status: upcoming
-created_by: administrator/0.4.1
+created_by: soma/0.4.1
 ```
 
 Body:
@@ -86,7 +86,7 @@ Body:
 
 ## Prep
 
-_(booked by /administrator:schedule on 2026-08-22; no prep was run)_
+_(booked by /soma:schedule on 2026-08-22; no prep was run)_
 
 ## Notes
 
@@ -105,12 +105,12 @@ _(none yet)_
 - none
 ```
 
-`vault_write("meeting", frontmatter, body, mode="upsert")` → `{"path": "Administrator/Meetings/2026-08-25 1000 Budget review.md", "action": "created"}`. `vault_find("daily", {"date": "2026-08-25"})` → not found → nothing added.
+`vault_write("meeting", frontmatter, body, mode="upsert")` → `{"path": "Soma/Meetings/2026-08-25 1000 Budget review.md", "action": "created"}`. `vault_find("daily", {"date": "2026-08-25"})` → not found → nothing added.
 
 Report:
 
 > Sent. Invite went to Sam Ortiz and Jane Doe. Note: `Meetings/2026-08-25 1000 Budget review.md`; new person note `Wiki/People/Sam Ortiz.md`.
-> obsidian://open?vault=Vault&file=Administrator%2FMeetings%2F2026-08-25%201000%20Budget%20review.md
+> obsidian://open?vault=Vault&file=Soma%2FMeetings%2F2026-08-25%201000%20Budget%20review.md
 
 Had the user answered "b":
 
@@ -150,7 +150,7 @@ A yes → `outlook_send_mail(to=["jane.doe@acme-parts.com"], subject="Proposed t
 > Move it?
 
 4. "yes" → `outlook_update_event(entry_id="00000000C2…", start="2026-08-27T09:00:00", end="2026-08-27T09:30:00")` → `{"status":"updated","entry_id":"00000000C2…","update_sent":true}`.
-5. `vault_find("meeting", {"global_id": "0400…"})` → `Administrator/Meetings/2026-08-25 1400 Budget review with Sam.md` → `vault_write("meeting", <frontmatter as found>, "- Moved from 2026-08-25 14:00 to 2026-08-27 09:00 (attendee: Sam Ortiz; new occurrence_key: 0400…|2026-08-27T09:00:00+02:00)", mode="append")`, which lands as:
+5. `vault_find("meeting", {"global_id": "0400…"})` → `Soma/Meetings/2026-08-25 1400 Budget review with Sam.md` → `vault_write("meeting", <frontmatter as found>, "- Moved from 2026-08-25 14:00 to 2026-08-27 09:00 (attendee: Sam Ortiz; new occurrence_key: 0400…|2026-08-27T09:00:00+02:00)", mode="append")`, which lands as:
 
 ```markdown
 ## Update 2026-08-22T16:10:00+02:00
@@ -163,7 +163,7 @@ A yes → `outlook_send_mail(to=["jane.doe@acme-parts.com"], subject="Proposed t
 Report:
 
 > Moved to Thu 27 Aug 09:00–09:30; Sam Ortiz has been sent the updated invite. Appended the move to `Meetings/2026-08-25 1400 Budget review with Sam.md`.
-> obsidian://open?vault=Vault&file=Administrator%2FMeetings%2F2026-08-25%201400%20Budget%20review%20with%20Sam.md
+> obsidian://open?vault=Vault&file=Soma%2FMeetings%2F2026-08-25%201400%20Budget%20review%20with%20Sam.md
 
 ## Preferences applied, with changed values
 

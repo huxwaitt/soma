@@ -1,6 +1,6 @@
 # Meeting note reference — template and rules
 
-A meeting note is the vault record for one calendar event occurrence. It lives at `<vault>/Administrator/Meetings/YYYY-MM-DD HHmm <slug>.md`. The `meetings` skill writes it; `/administrator:prep` fills `## Prep`, `/administrator:notes` fills `## Notes`, `## Action items`, `## Waiting on` and (on request) `## Minutes draft`. The `schedule` skill writes the same note, with the same template, when it books a meeting (see "Note written by `schedule`" at the end). This file is the one template for meeting notes; no skill keeps its own. The general conventions in `skills/administrator/references/vault.md` apply (ISO dates with offset, quoted ids and wikilinks, block lists, vanilla Obsidian).
+A meeting note is the vault record for one calendar event occurrence. It lives at `<vault>/Soma/Meetings/YYYY-MM-DD HHmm <slug>.md`. The `meetings` skill writes it; `/soma:prep` fills `## Prep`, `/soma:notes` fills `## Notes`, `## Action items`, `## Waiting on` and (on request) `## Minutes draft`. The `schedule` skill writes the same note, with the same template, when it books a meeting (see "Note written by `schedule`" at the end). This file is the one template for meeting notes; no skill keeps its own. The general conventions in `skills/soma/references/vault.md` apply (ISO dates with offset, quoted ids and wikilinks, block lists, vanilla Obsidian).
 
 ## Filename
 
@@ -40,7 +40,7 @@ attendee_links:
   - "[[Wiki/People/Tom Lee]]"
 is_recurring: false
 status: upcoming
-created_by: administrator/0.4.1
+created_by: soma/0.4.1
 ---
 
 # <Subject as Outlook returned it>
@@ -52,11 +52,11 @@ created_by: administrator/0.4.1
 
 ## Prep
 
-<Written by /administrator:prep. See "Prep section" below.>
+<Written by /soma:prep. See "Prep section" below.>
 
 ## Notes
 
-<Human text. Raw notes go here verbatim only when /administrator:notes creates the note; on an existing note they go under "## Update <ISO>" as "### Notes". The plugin never edits this section once written.>
+<Human text. Raw notes go here verbatim only when /soma:notes creates the note; on an existing note they go under "## Update <ISO>" as "### Notes". The plugin never edits this section once written.>
 
 ## Action items
 
@@ -73,7 +73,7 @@ created_by: administrator/0.4.1
 
 ## Minutes draft
 
-<Only present when /administrator:notes created this note and saved a minutes email in the same run. Otherwise the draft text sits under "## Update <ISO>" as "### Minutes draft".>
+<Only present when /soma:notes created this note and saved a minutes email in the same run. Otherwise the draft text sits under "## Update <ISO>" as "### Minutes draft".>
 ```
 
 A transcript never sits in the body `notes` creates: `vault_save(kind="transcript")` appends it as `### Transcript` (speakers line, collapsed callout or a file link) under its own `## Update` heading, and the decisions go into a separate append under `### Decisions`; see `references/transcript.md`.
@@ -93,7 +93,7 @@ A transcript never sits in the body `notes` creates: `vault_save(kind="transcrip
 | `attendee_links` | One `"[[Wiki/People/<Display Name>]]"` per entry in `attendees`, same order. |
 | `is_recurring` | `true` / `false` from the event. |
 | `status` | `upcoming` on creation by `prep` or `schedule`; `held` set by `notes`; `cancelled` set by `prep` when `outlook_get_event_by_key` no longer finds the occurrence or the subject starts with `Canceled:` / `Abgesagt:`. This is the only frontmatter key edited in place. |
-| `created_by` | `administrator/0.4.1`. |
+| `created_by` | `soma/0.4.1`. |
 
 Header lines under the `# Subject`: `**When:**` is `YYYY-MM-DD HH:MM–HH:MM` (one date; if `end` is on another day write both dates). `**Organizer:**` is `me <address>` when the user organised it. `**Attendees:**` lists every attendee as a wikilink with `(required|optional|resource, <response>)` where `<response>` is the event's `attendees[].response` in plain words: `accepted`, `tentative`, `declined`, `no reply` (for `none` and `notresponded`), `organizer`.
 
@@ -113,7 +113,7 @@ The section order above is fixed. `prep` writes every heading even when a sectio
 
 ## Prep section
 
-Written once by `/administrator:prep`, in this order; leave out a sub-heading only when there is nothing for it **and** say so in one line.
+Written once by `/soma:prep`, in this order; leave out a sub-heading only when there is nothing for it **and** say so in one line.
 
 ```markdown
 ## Prep
@@ -163,7 +163,7 @@ A second `prep` run on an existing note (same `occurrence_key`) appends:
 ```markdown
 ## Update 2026-08-25T08:40:00+02:00
 
-Prep re-run via /administrator:prep.
+Prep re-run via /soma:prep.
 
 ### Prep
 
@@ -177,7 +177,7 @@ Every `notes` drop (the first one included, unless `notes` created the note in t
 ```markdown
 ## Update 2026-08-25T15:12:00+02:00
 
-Notes added via /administrator:notes.
+Notes added via /soma:notes.
 
 ### Notes
 
@@ -196,7 +196,7 @@ Notes added via /administrator:notes.
 - <the carried-over or follow-up item the notes say is done, and what closed it>
 ```
 
-`### Waiting on` / `### Closed` are left out when empty. The `## Notes` placeholder, `- none` lines and existing boxes stay as they are; readers, `prep` (carried-over items) and `/administrator:weekly` collect the `- [ ]` lines from the whole note.
+`### Waiting on` / `### Closed` are left out when empty. The `## Notes` placeholder, `- none` lines and existing boxes stay as they are; readers, `prep` (carried-over items) and `/soma:weekly` collect the `- [ ]` lines from the whole note.
 
 ## Person page: the meeting's Records line
 
@@ -222,13 +222,13 @@ on the topic or decision page the meeting matched, else on that person's page. `
 
 - The same wording twice, or this meeting twice, is refused as `duplicate`; leave it.
 - `notes` closes an item only when the user's notes say it is done ("Tom confirmed the address"): `{"op": "done", "id": <the id from `commitments[]`>}`. `inbox` and `followups` close their own items the same way. Old boxes in the meeting note are never ticked.
-- `Administrator/Follow-ups.md` shows the items other people owe, written from the pages after every wiki change; `vault_row` refuses the file.
+- `Soma/Follow-ups.md` shows the items other people owe, written from the pages after every wiki change; `vault_row` refuses the file.
 
 ## Note written by `schedule`
 
-When `/administrator:schedule` books a meeting it writes the same note from the same template, so `prep` and `notes` find it later by `occurrence_key`. Differences from a note written by `prep`:
+When `/soma:schedule` books a meeting it writes the same note from the same template, so `prep` and `notes` find it later by `occurrence_key`. Differences from a note written by `prep`:
 
 - `entry_id` is always present (from `outlook_create_event`); `global_id` and `occurrence_key` come from `outlook_get_event(entry_id=…, response_format="json")`, called once right after the create. `organizer` is the user's own address, `organizer_link: ""`, `is_recurring: false`, `status: upcoming`.
 - `attendees` / `attendee_links`: same rule as `prep` — one person note per attendee, found or created exactly as `prep` step 3 does (`vault_find("person", {"email": …})` first, which also matches `aliases`; stub with `last_contact: ""`, `aliases: []`; a `## Records` line on each).
-- `## Prep` holds the single line `_(booked by /administrator:schedule on <YYYY-MM-DD>; no prep was run)_` followed by the user's agenda text as bullets if they gave any. `## Notes` holds `_(none yet)_`, `## Action items` and `## Waiting on` hold `- none`, `## Related emails` holds `- none`.
+- `## Prep` holds the single line `_(booked by /soma:schedule on <YYYY-MM-DD>; no prep was run)_` followed by the user's agenda text as bullets if they gave any. `## Notes` holds `_(none yet)_`, `## Action items` and `## Waiting on` hold `- none`, `## Related emails` holds `- none`.
 - A move (`outlook_update_event`) never renames the file or edits `start` / `end`; it appends `## Update <ISO>` with the old and new time. The `occurrence_key` keeps the original start, so `prep` run after a move will not find the note by the event's new key; it then falls back to `vault_find("meeting", {"global_id": <id>})` (same id after a move) and treats that note as the existing one.

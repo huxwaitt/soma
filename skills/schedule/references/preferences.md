@@ -1,13 +1,13 @@
-# Preferences reference — `<vault>/Administrator/Preferences.md`
+# Preferences reference — `<vault>/Soma/Preferences.md`
 
-One file holds the user's scheduling preferences. The `schedule` skill reads it (`vault_read("Administrator/Preferences.md")`) once per session — again only when the user says they changed it — and applies it on top of what Outlook returns. The `time-block` skill's planner (`vault_time_block(action="plan")`) and `/administrator:collect-information` (`vault_collect(action="changed")`) read the same file inside the vault server. The user edits it by hand in Obsidian; `vault_init` creates it when it is missing (`/administrator:setup` asks for work hours first, every other command uses the defaults below) and only `vault_init(overwrite=true)` ever rewrites it.
+One file holds the user's scheduling preferences. The `schedule` skill reads it (`vault_read("Soma/Preferences.md")`) once per session — again only when the user says they changed it — and applies it on top of what Outlook returns. The `time-block` skill's planner (`vault_time_block(action="plan")`) and `/soma:collect-information` (`vault_collect(action="changed")`) read the same file inside the vault server. The user edits it by hand in Obsidian; `vault_init` creates it when it is missing (`/soma:setup` asks for work hours first, every other command uses the defaults below) and only `vault_init(overwrite=true)` ever rewrites it.
 
 ## Template (what `vault_init` writes with the defaults)
 
 ```markdown
 ---
 type: preferences
-source: administrator
+source: soma
 work_start: "09:00"
 work_end: "17:00"
 timezone: "local — the timezone Outlook reports in outlook_whoami; all times in this file are in it"
@@ -30,7 +30,7 @@ admin_block_minutes: 45
 slack_share: 0.2
 collect_folders: []
 document_folders: []
-created_by: administrator/0.4.1
+created_by: soma/0.4.1
 ---
 
 # Scheduling preferences
@@ -45,14 +45,14 @@ Edit the frontmatter above. The plugin reads it before suggesting or booking any
 - `default_duration` — minutes, used when you do not say how long.
 - `default_location` — used when you do not say where. `"Teams"`, a room name, or `""` for none.
 - `preferred_days` — days listed here are shown first when there is a choice. An empty list `[]` means no preference.
-- `peak_hours` — the hours you think best, as ranges `"09:00-12:00"`, one per line; focus blocks are placed there first. `/administrator:setup` asks for them together with the work hours; a file from before 0.3.0 has no such key, and `/administrator:time-block` then asks once per session and uses the answer for that run only.
+- `peak_hours` — the hours you think best, as ranges `"09:00-12:00"`, one per line; focus blocks are placed there first. `/soma:setup` asks for them together with the work hours; a file from before 0.3.0 has no such key, and `/soma:time-block` then asks once per session and uses the answer for that run only.
 - `focus_block_minutes` — length of one focus block; nothing shorter is booked.
 - `focus_blocks_per_day` — how many focus blocks a day may get at most.
 - `admin_blocks_per_day` — how many admin blocks (email and small tasks) a day may get at most.
 - `admin_block_minutes` — length of one admin block.
 - `slack_share` — the share of the work day left unbooked for what comes up: `0.2` keeps a fifth free. Days where meetings already eat past this share get no blocks.
-- `collect_folders` — extra folders /administrator:collect-information reads for changed notes, as paths relative to the vault root (`"Projects"`, `"Journal/2026"`). They are only read, never written. An empty list `[]` means only the Administrator/ notes.
-- `document_folders` — folders whose files (pdf, docx, pptx, xlsx, txt, md, csv) /administrator:collect-information offers to read into the vault as document records. Relative to the vault root, or a full path anywhere on the machine (`"C:/Users/you/Documents/Contracts"`). They are only read, never written. An empty list `[]` means no folder is watched.
+- `collect_folders` — extra folders /soma:collect-information reads for changed notes, as paths relative to the vault root (`"Projects"`, `"Journal/2026"`). They are only read, never written. An empty list `[]` means only the Soma/ notes.
+- `document_folders` — folders whose files (pdf, docx, pptx, xlsx, txt, md, csv) /soma:collect-information offers to read into the vault as document records. Relative to the vault root, or a full path anywhere on the machine (`"C:/Users/you/Documents/Contracts"`). They are only read, never written. An empty list `[]` means no folder is watched.
 
 ## Notes
 
@@ -61,8 +61,8 @@ Anything you write below this line is yours; the plugin never touches it.
 
 ## Rules
 
-- File path is fixed: `<vault>/Administrator/Preferences.md`. Identity is the path; there is never a second file.
-- Created by `vault_init` (work hours and buffer from its arguments; `/administrator:setup` asks for them once, other commands pass the defaults 09:00–17:00, 15). Report "Created Administrator/Preferences.md with defaults — edit it any time, or run /administrator:setup to set your work hours." once, then carry on.
+- File path is fixed: `<vault>/Soma/Preferences.md`. Identity is the path; there is never a second file.
+- Created by `vault_init` (work hours and buffer from its arguments; `/soma:setup` asks for them once, other commands pass the defaults 09:00–17:00, 15). Report "Created Soma/Preferences.md with defaults — edit it any time, or run /soma:setup to set your work hours." once, then carry on.
 - Never rewritten, never appended by the plugin (only `vault_init(overwrite=true)`, on the user's explicit request). The user owns it. If a key is missing, malformed, or the frontmatter cannot be parsed, use the default from the template for that key, and say so in one line ("`work_end` missing in Preferences.md, using 17:00"). Do not fix the file.
 - Times are `"HH:MM"` strings, always quoted in YAML so `09:00` is not read as a number.
 - `no_meeting_blocks` entries are `<Day> <HH:MM>-<HH:MM>`. An entry that does not match that shape is ignored with a one-line warning naming it.

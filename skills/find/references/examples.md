@@ -1,6 +1,6 @@
 # find — worked examples
 
-Two runs of `/administrator:find` on 2026-08-22, `outlook_whoami` → `hux@example.com`. Both stay well under the 6-call cap.
+Two runs of `/soma:find` on 2026-08-22, `outlook_whoami` → `hux@example.com`. Both stay well under the 6-call cap.
 
 ## Example 1 — "the email where we agreed on the Q3 budget with Sam"
 
@@ -22,7 +22,7 @@ outlook_find(people=["Sam"], words=["q3", "budget"], since="2025-08-22", folders
 
 All three `from_address` values are different people, but only one is a Sam → no question to ask. Snippet 1 answers the sentence word for word, so no `outlook_get_conversation` is needed.
 
-Step 5 (free): `vault_find("email", {"internet_message_id": "", "entry_id": "00000000A1…"})` → `Administrator/Emails/2026-06-12 Q3 budget — wrap-up.md`; the other two are not in the vault.
+Step 5 (free): `vault_find("email", {"internet_message_id": "", "entry_id": "00000000A1…"})` → `Soma/Emails/2026-06-12 Q3 budget — wrap-up.md`; the other two are not in the vault.
 
 Shown:
 
@@ -30,7 +30,7 @@ Shown:
 1. Sam Ortiz → me, 2026-06-12 14:05 — Re: Q3 budget — wrap-up
    "Agreed then: Q3 budget stays at 180k, with the 15k contingency held by finance."
    Note: [[Emails/2026-06-12 Q3 budget — wrap-up]]
-   obsidian://open?vault=MyVault&file=Administrator%2FEmails%2F2026-06-12%20Q3%20budget%20%E2%80%94%20wrap-up
+   obsidian://open?vault=MyVault&file=Soma%2FEmails%2F2026-06-12%20Q3%20budget%20%E2%80%94%20wrap-up
 2. me → Sam Ortiz, 2026-06-11 17:30 — Q3 budget — numbers for Sam
    "Here are the final numbers; if 180k works for you I'll call it agreed tomorrow."
 3. Jane Doe → me, 2026-06-03 09:14 — Q3 budget draft v2
@@ -65,7 +65,7 @@ Shown:
 3. Maria Klein → me, 2026-07-02 08:50 — Pricing call Thursday?
    "Can we go through the vendor pricing on Thursday before I send the final sheet?"
 
-Save #1 as a note? (/administrator:save 00000000C7…)
+Save #1 as a note? (/soma:save 00000000C7…)
 ```
 
 Four `outlook_*` calls. On a yes the `save` skill takes over (it asks again before exporting the .xlsx). On no, nothing happens.

@@ -3,7 +3,7 @@ description: Write a reply to an email thread in your own voice (one outlook_voi
 argument-hint: "<thread words or entry_id> [what to say]"
 ---
 
-# /administrator:draft
+# /soma:draft
 
 Arguments: the thread (search words or an `entry_id`), then optionally what you want to say, after a comma, a dash, or `say` / `saying` / `tell them`.
 
@@ -11,8 +11,8 @@ Argument given: `$ARGUMENTS`
 
 ## Steps
 
-1. Load the `administrator` skill, then the `draft` skill and `skills/draft/references/voice.md`. Load the `outlook` skill if it is not already loaded.
-2. Call `vault_status` (run `vault_init(created_by="administrator/0.4.1")` if anything is missing) and `outlook_whoami(response_format="json")` for your own address(es) and local time.
+1. Load the `soma` skill, then the `draft` skill and `skills/draft/references/voice.md`. Load the `outlook` skill if it is not already loaded.
+2. Call `vault_status` (run `vault_init(created_by="soma/0.4.1")` if anything is missing) and `outlook_whoami(response_format="json")` for your own address(es) and local time.
 3. Find the thread: an `entry_id` is used as is; words go to `outlook_search_mails(query, limit=5, fields=["entry_id","from","from_address","subject","received"], preview_chars=0, response_format="json")` (Inbox, then Sent). One subject → proceed. Two or three → show them and ask which. None → say so and stop.
 4. `outlook_get_conversation(entry_id, include_body=true, max_body_chars=4000, limit=20, trim_quoted=true, fields=["entry_id","internet_message_id","from","from_address","to","received","body_trimmed"])`. The last mail's open questions, in order; `outlook_get_mail(entry_id, include_body=false, fields=["recipients","subject"], response_format="json")` once for the recipients and `reply_all`. If you wrote last, say so and stop unless you gave something to say.
 5. `vault_wiki_search(query=<the sender's name + the subject>, brief=true, max_chars=1000)` (how they work with you, the facts the reply may state) and one `vault_wiki_read(path=<the sender's page>, sections=["notes"], max_chars=600)` for a `Voice with this person:` block, which search never reads; one `vault_wiki_search(query="", open_items=true, page=<the sender's person page>)` for the open items both ways (what they owe, what you owe them); `vault_find("email", …, fields=["status"])` for an existing note; `## Voice` in `Preferences.md`.
@@ -25,9 +25,9 @@ Argument given: `$ARGUMENTS`
 ## Example
 
 ```
-/administrator:draft delivery schedule tom — 8 Sep is fine, ask for the packaging spec
-/administrator:draft offsite venue priya
-/administrator:draft 00000000B3… saying we take venue 2
+/soma:draft delivery schedule tom — 8 Sep is fine, ask for the packaging spec
+/soma:draft offsite venue priya
+/soma:draft 00000000B3… saying we take venue 2
 ```
 
 On 2026-08-22, "delivery schedule tom" finds one thread of 4 mails; Tom asked two questions on 2026-08-21. `outlook_voice_sample("tom.lee@acme-parts.com")` counts `Hi Tom,` 8/10 and `Thanks` 9/10 at ~60 words. The draft answers the date from what you said and leaves `[fill in: Leipzig site or warehouse]` for the address; "change: warehouse" fixes it; "yes" saves it. Five Outlook calls including the save.

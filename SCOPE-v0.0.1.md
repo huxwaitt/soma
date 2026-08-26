@@ -1,4 +1,4 @@
-# administrator — v0.0.1 scope
+# soma — v0.0.1 scope
 
 **One line:** an agent plugin that runs the user's Outlook (via `outlook-classic-mcp` 0.4.0) and keeps the paper trail in an Obsidian vault.
 
@@ -16,29 +16,29 @@ v0.0.1 goal: *prove the loop* — read Outlook → decide → write a durable no
 ## Architecture
 
 ```
-administrator/                      # plugin repo (this dir)
-  .claude-plugin/plugin.json        # name: administrator, bundles outlook MCP server
+soma/                      # plugin repo (this dir)
+  .claude-plugin/plugin.json        # name: soma, bundles outlook MCP server
   skills/
-    administrator/SKILL.md          # core: how it behaves, vault conventions, when to ask, which skill to use
-    administrator/references/vault.md      # note templates + frontmatter schema
-    administrator/references/outlook.md    # pointer to outlook skill conventions (entry_id, folders, dates)
+    soma/SKILL.md          # core: how it behaves, vault conventions, when to ask, which skill to use
+    soma/references/vault.md      # note templates + frontmatter schema
+    soma/references/outlook.md    # pointer to outlook skill conventions (entry_id, folders, dates)
     inbox/SKILL.md                  # go-through-inbox workflow
     save/SKILL.md                   # email/thread → note workflow
   commands/
-    inbox.md                       # /administrator:inbox [folder] [since]
-    save.md                      # /administrator:save <entry_id | search terms>
-    daily.md                        # /administrator:daily  (inbox + today's calendar → daily note)
+    inbox.md                       # /soma:inbox [folder] [since]
+    save.md                      # /soma:save <entry_id | search terms>
+    daily.md                        # /soma:daily  (inbox + today's calendar → daily note)
   README.md
 ```
 
 **Outlook:** `plugin.json` `mcpServers.outlook` → `uv run --directory <outlook-classic-mcp> outlook-mcp` for now (local path); switch to `uvx --from <your-package>` once published.
 
-**Obsidian:** the vault is just files. The agent uses the host's file tools (Read/Write/Glob) against `ADMINISTRATOR_VAULT` (absolute path, env var or `~/.administrator/config.json`). All writes go under one subfolder `Administrator/` so the plugin never touches the user's other notes. Attachment exports from Outlook (`outlook_save_mail_as`, `outlook_save_attachments`) land in `Administrator/Attachments/`, which is inside the user profile sandbox as long as the vault is.
+**Obsidian:** the vault is just files. The agent uses the host's file tools (Read/Write/Glob) against `SOMA_VAULT` (absolute path, env var or `~/.soma/config.json`). All writes go under one subfolder `Soma/` so the plugin never touches the user's other notes. Attachment exports from Outlook (`outlook_save_mail_as`, `outlook_save_attachments`) land in `Soma/Attachments/`, which is inside the user profile sandbox as long as the vault is.
 
 ## Vault layout & note schema
 
 ```
-<vault>/Administrator/
+<vault>/Soma/
   Daily/YYYY-MM-DD.md          # one per day: inbox summary, calendar, action items
   Emails/YYYY-MM-DD <slug>.md  # one per saved mail/thread
   People/<Display Name>.md     # auto-created stub the first time someone is saved; links back to emails
@@ -57,7 +57,7 @@ conversation_id: "<id>"            # email notes only
 from: alice@example.com            # SMTP — guaranteed by 0.4.0 sender_smtp
 received: 2026-08-22T09:14:00+02:00
 status: todo | waiting | done | fyi
-created_by: administrator/0.0.1
+created_by: soma/0.0.1
 ---
 ```
 
@@ -65,7 +65,7 @@ Rules: never overwrite a note that already has an `entry_id` match — append a 
 
 ## Skills
 
-### `administrator` (core — always loaded)
+### `soma` (core — always loaded)
 - Who it is: acts like an assistant; terse; confirms before anything leaves the machine.
 - Routing: "what's in my inbox / anything urgent" → inbox; "save/note this" → save; "what's today" → daily.
 - Vault conventions (above), slug rules, `entry_id` handling, when to append vs create.
@@ -96,14 +96,14 @@ Added to the server during the v0.0.1 build: `internet_message_id` on every mail
 ## Definition of done (v0.0.1)
 
 - [ ] `plugin.json` loads; `outlook_*` tools appear alongside the skills.
-- [ ] `/administrator:inbox` on a real inbox produces a correct daily note and no Outlook writes without a confirm.
-- [ ] `/administrator:save <search terms>` produces an email note + person stub with valid frontmatter and working wikilinks in Obsidian.
-- [ ] `/administrator:daily` runs end-to-end in < 60 s on a 100-mail inbox.
+- [ ] `/soma:inbox` on a real inbox produces a correct daily note and no Outlook writes without a confirm.
+- [ ] `/soma:save <search terms>` produces an email note + person stub with valid frontmatter and working wikilinks in Obsidian.
+- [ ] `/soma:daily` runs end-to-end in < 60 s on a 100-mail inbox.
 - [ ] Running a command twice is safe (appends, never duplicates notes).
-- [ ] README: install, `ADMINISTRATOR_VAULT`, sandbox note, classic-Outlook-only note.
+- [ ] README: install, `SOMA_VAULT`, sandbox note, classic-Outlook-only note.
 
 ## Open decisions (my defaults in bold)
 
-- Vault config: **env var `ADMINISTRATOR_VAULT`** vs config file.
+- Vault config: **env var `SOMA_VAULT`** vs config file.
 - Person note key: **display name** vs SMTP address (display is readable; SMTP is unique — store both in frontmatter).
 - Inbox window default: **since last daily note, else 24 h**.

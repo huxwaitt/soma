@@ -2,7 +2,7 @@
 
 Five labels. Every message gets exactly one. Read the signals top to bottom; the first label whose rules match wins, except that the tie-break order at the end overrides when two labels match equally well.
 
-You label only what reached you with `label: null` from `vault_inbox_prepare`. Everything a rule decided (newsletter headers, auto-replies, meeting responses, no-reply senders, people with `status: fyi`, and the user's own `Administrator/Rules.md`) is already labelled and is not yours to second-guess; if a rule is wrong, tell the user to edit `Rules.md`.
+You label only what reached you with `label: null` from `vault_inbox_prepare`. Everything a rule decided (newsletter headers, auto-replies, meeting responses, no-reply senders, people with `status: fyi`, and the user's own `Soma/Rules.md`) is already labelled and is not yours to second-guess; if a rule is wrong, tell the user to edit `Rules.md`.
 
 ## Where the five come from
 

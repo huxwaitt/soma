@@ -1,10 +1,10 @@
-# Worked examples — `/administrator:prep` and `/administrator:notes`
+# Worked examples — `/soma:prep` and `/soma:notes`
 
 Three runs on the same meeting, in order. Tool results are shortened to the keys the step uses; every value comes from a tool result or the user. User: Hux Waitt <hux@example.com>, vault name `Vault`.
 
 ## Example 1 — prep
 
-User: `/administrator:prep supplier sync` on 2026-08-25 08:40.
+User: `/soma:prep supplier sync` on 2026-08-25 08:40.
 
 1. `outlook_list_events(start="2026-08-25T00:00:00", end="2026-09-01T23:59:59", include_recurrences=true, fields=["entry_id","global_id","occurrence_key","subject","start","end","location","organizer","organizer_address","attendees","is_recurring","all_day"], response_format="json")` → one subject match:
 
@@ -22,19 +22,19 @@ User: `/administrator:prep supplier sync` on 2026-08-25 08:40.
 
    ```json
    {"existing_note": null, "existing_status": null,
-    "previous_occurrence": {"path": "Administrator/Meetings/2026-08-18 1300 Weekly supplier sync.md", "date": "2026-08-18",
+    "previous_occurrence": {"path": "Soma/Meetings/2026-08-18 1300 Weekly supplier sync.md", "date": "2026-08-18",
                             "open_actions": ["- [ ] Send revised forecast to Jane — owner: me", "- [ ] Confirm Leipzig delivery address — owner: Tom Lee"]},
-    "people": [{"email": "jane.doe@acme-parts.com", "name": "Jane Doe", "path": "Administrator/Wiki/People/Jane Doe.md", "last_contact": "2026-08-21T16:42:10+02:00", "company": "ACME Parts GmbH", "last_emails": ["- 2026-08-21 — [[Emails/2026-08-21 Q3 supplier contract – signature needed]] (todo)"]},
+    "people": [{"email": "jane.doe@acme-parts.com", "name": "Jane Doe", "path": "Soma/Wiki/People/Jane Doe.md", "last_contact": "2026-08-21T16:42:10+02:00", "company": "ACME Parts GmbH", "last_emails": ["- 2026-08-21 — [[Emails/2026-08-21 Q3 supplier contract – signature needed]] (todo)"]},
                {"email": "tom.lee@acme-parts.com", "name": "Tom Lee", "path": null, "last_contact": "", "company": "", "last_emails": []}],
-    "commitments": [{"page": "Administrator/Wiki/People/Jane Doe.md", "stem": "Wiki/People/Jane Doe", "type": "person", "title": "Jane Doe",
+    "commitments": [{"page": "Soma/Wiki/People/Jane Doe.md", "stem": "Wiki/People/Jane Doe", "type": "person", "title": "Jane Doe",
                      "owner_name": "Jane Doe", "id": "4m2t", "text": "Contract draft", "owner": "[[Wiki/People/Jane Doe]]", "due": "",
                      "since": "2026-08-21", "src": ["00000000AC…"], "record": "Emails/2026-08-21 Contract draft", "done": false}],
     "followups_open": ["2026-08-21 — Jane Doe: Contract draft"]}
    ```
 
 3. `outlook_find(people=["jane.doe@acme-parts.com", "tom.lee@acme-parts.com"], since="2026-07-26T00:00:00", limit=5)` → 3 items, best first, each with `entry_id, subject, from_address, received, score, snippet, folder`. No `get_conversation`.
-4. Tom has no note: `outlook_search_contacts(query="tom.lee@acme-parts.com", include_directory=true, limit=5)` → `company: "ACME Parts GmbH"` → `vault_write("person", {type: person, name: "Tom Lee", email: "tom.lee@acme-parts.com", org: "ACME Parts GmbH", last_contact: "", aliases: [], created_by: "administrator/0.4.1"}, "- 2026-08-25 — [[Meetings/2026-08-25 1300 Weekly supplier sync]]", mode="create")` — the server writes the `draft` wiki page `Wiki/People/Tom Lee.md` with that line under `## Records`. Jane's page exists and the meeting note is new → one `vault_write("person", <her frontmatter>, "- 2026-08-25 — [[Meetings/2026-08-25 1300 Weekly supplier sync]]", mode="append")`.
-5. `vault_write("meeting", frontmatter, body, mode="upsert")` → `{"path": "Administrator/Meetings/2026-08-25 1300 Weekly supplier sync.md", "action": "created"}`. Frontmatter:
+4. Tom has no note: `outlook_search_contacts(query="tom.lee@acme-parts.com", include_directory=true, limit=5)` → `company: "ACME Parts GmbH"` → `vault_write("person", {type: person, name: "Tom Lee", email: "tom.lee@acme-parts.com", org: "ACME Parts GmbH", last_contact: "", aliases: [], created_by: "soma/0.4.1"}, "- 2026-08-25 — [[Meetings/2026-08-25 1300 Weekly supplier sync]]", mode="create")` — the server writes the `draft` wiki page `Wiki/People/Tom Lee.md` with that line under `## Records`. Jane's page exists and the meeting note is new → one `vault_write("person", <her frontmatter>, "- 2026-08-25 — [[Meetings/2026-08-25 1300 Weekly supplier sync]]", mode="append")`.
+5. `vault_write("meeting", frontmatter, body, mode="upsert")` → `{"path": "Soma/Meetings/2026-08-25 1300 Weekly supplier sync.md", "action": "created"}`. Frontmatter:
 
    ```yaml
    type: meeting
@@ -56,7 +56,7 @@ User: `/administrator:prep supplier sync` on 2026-08-25 08:40.
      - "[[Wiki/People/Tom Lee]]"
    is_recurring: true
    status: upcoming
-   created_by: administrator/0.4.1
+   created_by: soma/0.4.1
    ```
 
    Body:
@@ -122,14 +122,14 @@ User: `/administrator:prep supplier sync` on 2026-08-25 08:40.
 Report:
 
 > Prep written: `Meetings/2026-08-25 1300 Weekly supplier sync.md` (previous: 2026-08-18, 2 items carried over, 3 threads, 1 open item with them). New person note `Wiki/People/Tom Lee.md`.
-> obsidian://open?vault=Vault&file=Administrator%2FMeetings%2F2026-08-25%201300%20Weekly%20supplier%20sync.md
+> obsidian://open?vault=Vault&file=Soma%2FMeetings%2F2026-08-25%201300%20Weekly%20supplier%20sync.md
 > Points: sign the contract or say what blocks it; answer Tom on the 8 Sep delivery; packaging spec; Leipzig address.
 
-Five tool calls. Run again: `vault_prep_context` answers `existing_note: "Administrator/Meetings/2026-08-25 1300 Weekly supplier sync.md"`, `outlook_find` returns the same three `entry_id`s (compare with the note read once with `vault_read`), `vault_write(..., mode="append")` adds `## Update 2026-08-25T…` with "Prep re-run via /administrator:prep." and "Nothing new since the last prep."; report "existing note found".
+Five tool calls. Run again: `vault_prep_context` answers `existing_note: "Soma/Meetings/2026-08-25 1300 Weekly supplier sync.md"`, `outlook_find` returns the same three `entry_id`s (compare with the note read once with `vault_read`), `vault_write(..., mode="append")` adds `## Update 2026-08-25T…` with "Prep re-run via /soma:prep." and "Nothing new since the last prep."; report "existing note found".
 
 ## Example 2 — notes (plain notes)
 
-User, 2026-08-25 14:18: `/administrator:notes supplier sync` followed by:
+User, 2026-08-25 14:18: `/soma:notes supplier sync` followed by:
 
 ```
 - contract: Jane ok with net 45, I'll sign tomorrow and send back
@@ -143,7 +143,7 @@ User, 2026-08-25 14:18: `/administrator:notes supplier sync` followed by:
 2. Pulled out: four action items (two owned by Tom Lee and Jane Doe → waiting), one closed item ("Tom confirmed Leipzig" matches the carried-over line; no open item exists for it, so no `done` op). `vault_write("meeting", <frontmatter as found, status: held>, body, mode="append")` → `{"action": "appended", "update_heading": "Update 2026-08-25T14:18:02+02:00", "frontmatter_changed": ["status"]}`, body:
 
    ```markdown
-   Notes added via /administrator:notes.
+   Notes added via /soma:notes.
 
    ### Notes
 
@@ -173,15 +173,15 @@ User, 2026-08-25 14:18: `/administrator:notes supplier sync` followed by:
 3. Two open items, sent with the wiki ingest of step 7 (the subject matched `Wiki/Topics/acme-supplier-contract`, so both sit on that page):
 
    ```
-   vault_wiki_write(record_path="Administrator/Meetings/2026-08-25 1300 Weekly supplier sync.md",
+   vault_wiki_write(record_path="Soma/Meetings/2026-08-25 1300 Weekly supplier sync.md",
        pages=[{"path": "Wiki/Topics/acme-supplier-contract", "ops": [
            {"op": "supersede", "id": "9x1a", "text": "Payment terms are net 45"},
            {"op": "open", "text": "Updated September delivery schedule", "owner": "[[Wiki/People/Tom Lee]]", "due": "2026-08-27"},
            {"op": "open", "text": "Packaging spec draft", "owner": "[[Wiki/People/Jane Doe]]"}]}],
-       created_by="administrator/0.4.1")
+       created_by="soma/0.4.1")
    ```
 
-   → both `open` ops applied with new ids; `src` and `since` came from the meeting record. `Administrator/Follow-ups.md` shows the two lines on its next write.
+   → both `open` ops applied with new ids; `src` and `since` came from the meeting record. `Soma/Follow-ups.md` shows the two lines on its next write.
 4. `last_contact`: Tom `""` and Jane `2026-08-21T…` are both earlier than `start` → one `vault_write("person", <frontmatter, last_contact: "2026-08-25T13:00:00+02:00">, "- 2026-08-25 — [[Meetings/2026-08-25 1300 Weekly supplier sync]] (held)", mode="append")` each.
 5. `outlook_voice_sample(address="jane.doe@acme-parts.com", n=10, max_chars=300)` once (greeting "Hi", sign-off "Thanks" + first name). Draft shown, then: "Save this as a draft email to Jane Doe, Tom Lee? (goes to Drafts, nothing is sent)"
 
@@ -215,7 +215,7 @@ User, 2026-08-25 14:18: `/administrator:notes supplier sync` followed by:
 Report:
 
 > Notes added to `Meetings/2026-08-25 1300 Weekly supplier sync.md` (status: held). 4 action items, 2 waiting on (Tom Lee, Jane Doe) → 2 open items on `Topics/acme-supplier-contract`; carried-over "Leipzig address" closed. `last_contact` updated on Jane Doe and Tom Lee. Minutes saved to Drafts — send it from Outlook when you are happy with it.
-> obsidian://open?vault=Vault&file=Administrator%2FMeetings%2F2026-08-25%201300%20Weekly%20supplier%20sync.md
+> obsidian://open?vault=Vault&file=Soma%2FMeetings%2F2026-08-25%201300%20Weekly%20supplier%20sync.md
 
 ## Example 3 — notes (transcript)
 
@@ -241,10 +241,10 @@ Priya
 ```
 
 1. Step 1 as in example 2. Nine turn lines and `END OF TRANSCRIPT` → transcript.
-2. Host Write tool: `C:\Users\<you>\Documents\Vault\Administrator\Attachments\2026-08-25 1300 Weekly supplier sync\transcript.md` with the paste exactly as above. Then `vault_save(kind="transcript", meeting_path="Administrator/Meetings/2026-08-25 1300 Weekly supplier sync.md", transcript_path="Administrator/Attachments/2026-08-25 1300 Weekly supplier sync/transcript.md")` →
+2. Host Write tool: `C:\Users\<you>\Documents\Vault\Soma\Attachments\2026-08-25 1300 Weekly supplier sync\transcript.md` with the paste exactly as above. Then `vault_save(kind="transcript", meeting_path="Soma/Meetings/2026-08-25 1300 Weekly supplier sync.md", transcript_path="Soma/Attachments/2026-08-25 1300 Weekly supplier sync/transcript.md")` →
 
    ```json
-   {"path": "Administrator/Meetings/2026-08-25 1300 Weekly supplier sync.md", "turns": 9,
+   {"path": "Soma/Meetings/2026-08-25 1300 Weekly supplier sync.md", "turns": 9,
     "speakers": ["Jane Doe", "Hux Waitt", "Tom Lee", "Priya"],
     "speaker_links": ["[[Wiki/People/Jane Doe]]", "Hux Waitt", "[[Wiki/People/Tom Lee]]", "Priya"],
     "lines": 9, "appended_lines": 17, "linked": false, "update_heading": "Update 2026-08-25T14:18:02+02:00"}

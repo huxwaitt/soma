@@ -1,4 +1,4 @@
-# Transcript reference — pasted transcripts in `/administrator:notes`
+# Transcript reference — pasted transcripts in `/soma:notes`
 
 Sometimes what the user pastes is not notes but a transcript: the speaker-by-speaker record from `references/copilot-transcript-prompt.md`, a Teams export, or the same shape typed by hand. This page holds only two things: how to tell, and what `vault_save(kind="transcript")` does with it. Everything else (finding the meeting, decisions, action items, waiting items, `status: held`, `last_contact`, the minutes email, the report) is "Half 2 — notes" in `SKILL.md`.
 
@@ -11,11 +11,11 @@ Treat the pasted text (or the file the user named) as a transcript when either h
 
 The user's own words win over the rule: "here is the transcript" means transcript even with four turns; "these are my notes" means notes even if every line starts with a name. Say which one you took in the report. Plain notes go through the normal steps and this page does not apply.
 
-The server uses the same two patterns (`_TURN_RE`, `_TURN_NUMBERED_RE` in `administrator_vault/workflows.py`); a line that matches neither is kept as a wrapped line of the turn above it and is not counted.
+The server uses the same two patterns (`_TURN_RE`, `_TURN_NUMBERED_RE` in `soma_vault/workflows.py`); a line that matches neither is kept as a wrapped line of the turn above it and is not counted.
 
 ## 2. What `vault_save(kind="transcript")` does
 
-Input: `meeting_path` (the meeting note, vault-relative) and `transcript_path` (a file under `Administrator/Attachments/`, written once by the host's Write tool with the text exactly as pasted or read — anything above the first turn line included). The server then:
+Input: `meeting_path` (the meeting note, vault-relative) and `transcript_path` (a file under `Soma/Attachments/`, written once by the host's Write tool with the text exactly as pasted or read — anything above the first turn line included). The server then:
 
 1. Drops a trailing `Speakers:` block (keeping the names), the Copilot scaffolding lines `PART x of N`, `continue`, `continue from the last turn you gave`, `END OF TRANSCRIPT`, and everything above the first turn line. Nothing inside a turn is changed, joined or split.
 2. Counts **turns** (lines matching a pattern) and **speakers** (distinct names, case-insensitive; the `Speakers:` block wins for spelling). No turn at all → a tool error, so the file stays and nothing is appended.
@@ -23,7 +23,7 @@ Input: `meeting_path` (the meeting note, vault-relative) and `transcript_path` (
 4. Appends to the meeting note, under its own `## Update <ISO>`:
 
    ```markdown
-   Transcript added via /administrator:notes.
+   Transcript added via /soma:notes.
 
    ### Transcript
 
@@ -34,11 +34,11 @@ Input: `meeting_path` (the meeting note, vault-relative) and `transcript_path` (
    > [13:03] Hux Waitt: …
    ```
 
-   Over 400 cleaned lines the callout is replaced by one line `Full text: [[Administrator/Attachments/<folder>/transcript|transcript.md]] (N turns, M speakers, L lines)`, and the file is the record.
+   Over 400 cleaned lines the callout is replaced by one line `Full text: [[Soma/Attachments/<folder>/transcript|transcript.md]] (N turns, M speakers, L lines)`, and the file is the record.
 
 Result: `{path, turns, speakers[], speaker_links[], lines, appended_lines, linked, update_heading}`. `linked: true` = file link instead of callout. The model never re-emits the transcript: decisions, action items and waiting items go into a second, separate `vault_write(..., mode="append")` (SKILL.md step 3), and the file under `Attachments/` is never edited afterwards.
 
-The file lives under `Administrator/`, so the "never write outside `<vault>/Administrator/`" rule holds; `vault_status.under_user_profile` does not matter for it (only Outlook exports are sandboxed). `<vault>` is `vault` from `vault_status`; one folder per meeting note, same name as the note minus `.md` — the same rule email exports use.
+The file lives under `Soma/`, so the "never write outside `<vault>/Soma/`" rule holds; `vault_status.under_user_profile` does not matter for it (only Outlook exports are sandboxed). `<vault>` is `vault` from `vault_status`; one folder per meeting note, same name as the note minus `.md` — the same rule email exports use.
 
 ## 3. Report lines
 

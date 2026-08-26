@@ -1,10 +1,10 @@
 # collect-information — worked examples
 
-Two runs of `/administrator:collect-information`, call by call. Tool results are cut to what the model reads. Times are local (UTC+02:00); the vault is `C:\Users\<you>\Documents\Vault` (`vault_name: Vault`); `outlook_whoami` gave `current_user: "Hux Waitt"`, `accounts[0].smtp_address: "hux@example.com"`, `local_time: "2026-08-25T17:40:12+02:00"`.
+Two runs of `/soma:collect-information`, call by call. Tool results are cut to what the model reads. Times are local (UTC+02:00); the vault is `C:\Users\<you>\Documents\Vault` (`vault_name: Vault`); `outlook_whoami` gave `current_user: "Hux Waitt"`, `accounts[0].smtp_address: "hux@example.com"`, `local_time: "2026-08-25T17:40:12+02:00"`.
 
 ## Example 1 — a full run on Tuesday evening
 
-User: `/administrator:collect-information`
+User: `/soma:collect-information`
 
 1. Stamps:
 
@@ -88,10 +88,10 @@ outlook_list_mails(folder="inbox", since="2026-08-21T18:10:00+02:00", limit=50, 
 
 ```
 vault_save(kind="email", mail=<get_mail JSON>, summary="Tom confirms the PO is raised once the signed v3 comes back and repeats the net-30 terms.",
-                 action_items=["Return signed v3 to Jane by 2026-08-29 — owner: me"], self_addresses=["hux@example.com"], created_by="administrator/0.4.1")
+                 action_items=["Return signed v3 to Jane by 2026-08-29 — owner: me"], self_addresses=["hux@example.com"], created_by="soma/0.4.1")
 ```
 
-   → `{"path": "Administrator/Emails/2026-08-22 Q3 supplier contract – signature needed.md", "action": "created", "status": "todo", "person_path": "Administrator/Wiki/People/Tom Lee.md", "person_action": "appended", "followup_added": false}`; the second → `Administrator/Emails/2026-08-25 Budget close date.md` (`created`, `fyi`). Fifteen mails seen and not saved; three named in the report (`Offsite venue options`, `Invoice 4471`, `Parking permit renewal`).
+   → `{"path": "Soma/Emails/2026-08-22 Q3 supplier contract – signature needed.md", "action": "created", "status": "todo", "person_path": "Soma/Wiki/People/Tom Lee.md", "person_action": "appended", "followup_added": false}`; the second → `Soma/Emails/2026-08-25 Budget close date.md` (`created`, `fyi`). Fifteen mails seen and not saved; three named in the report (`Offsite venue options`, `Invoice 4471`, `Parking permit renewal`).
 
 5. Notes and documents:
 
@@ -100,17 +100,17 @@ vault_collect(action="changed", since="2026-08-21T18:10:00+02:00")
 ```
 
 ```json
-{"count": 4, "total": 4, "capped": false, "folders": ["Administrator/Meetings", "Administrator/Emails", "Administrator/Daily", "Administrator/Weekly"], "skipped": [], "missing": [],
+{"count": 4, "total": 4, "capped": false, "folders": ["Soma/Meetings", "Soma/Emails", "Soma/Daily", "Soma/Weekly"], "skipped": [], "missing": [],
  "documents": [
   {"path": "C:/Users/<you>/Documents/Contracts/ACME-kickoff.pptx", "kind": "document", "modified": "2026-08-24T16:20:11+02:00", "size": 1841022, "format": "pptx"},
   {"path": "C:/Users/<you>/Documents/Contracts/Parking map.pdf", "kind": "document", "modified": "2026-08-25T08:02:40+02:00", "size": 240311, "format": "pdf"}],
  "documents_total": 2, "document_folders": ["C:/Users/<you>/Documents/Contracts"],
  "notes": [
-  {"path": "Administrator/Meetings/2026-08-22 1300 Weekly supplier sync.md", "type": "meeting", "modified": "2026-08-22T14:05:31+02:00", "ingested": false,
+  {"path": "Soma/Meetings/2026-08-22 1300 Weekly supplier sync.md", "type": "meeting", "modified": "2026-08-22T14:05:31+02:00", "ingested": false,
    "excerpt": "### Notes\n\n- Jane ok with net 45, I'll sign v3 this week\n- Tom to send the updated delivery schedule by Wed", "from_update": true, "truncated": false},
-  {"path": "Administrator/Daily/2026-08-24.md", "type": "daily", "modified": "2026-08-24T08:31:10+02:00", "ingested": false, "excerpt": "…", "from_update": false, "truncated": true},
-  {"path": "Administrator/Emails/2026-08-22 Q3 supplier contract – signature needed.md", "type": "email", "modified": "2026-08-25T17:41:02+02:00", "ingested": false, "excerpt": "…", "from_update": false, "truncated": false},
-  {"path": "Administrator/Emails/2026-08-25 Budget close date.md", "type": "email", "modified": "2026-08-25T17:41:09+02:00", "ingested": false, "excerpt": "…", "from_update": false, "truncated": false}]}
+  {"path": "Soma/Daily/2026-08-24.md", "type": "daily", "modified": "2026-08-24T08:31:10+02:00", "ingested": false, "excerpt": "…", "from_update": false, "truncated": true},
+  {"path": "Soma/Emails/2026-08-22 Q3 supplier contract – signature needed.md", "type": "email", "modified": "2026-08-25T17:41:02+02:00", "ingested": false, "excerpt": "…", "from_update": false, "truncated": false},
+  {"path": "Soma/Emails/2026-08-25 Budget close date.md", "type": "email", "modified": "2026-08-25T17:41:09+02:00", "ingested": false, "excerpt": "…", "from_update": false, "truncated": false}]}
 ```
 
    The meeting note is a record not yet ingested; the daily note is not a record and its excerpt states nothing the wiki lacks; the two emails were written in step 4.
@@ -118,30 +118,30 @@ vault_collect(action="changed", since="2026-08-21T18:10:00+02:00")
    The two files were listed, not opened. The gate runs on their names: `vault_wiki_search(query="ACME kickoff", pages=true, limit=3)` → `Topics/acme-supplier-contract` (score 0.71), so it is kept; `vault_wiki_search(query="Parking map", pages=true, limit=3)` → nothing and no candidate, so that file is left alone and named in the report. Reading is what saving does:
 
 ```
-vault_save(kind="document", path="C:/Users/<you>/Documents/Contracts/ACME-kickoff.pptx", summary="", action_items=[], created_by="administrator/0.4.1")
+vault_save(kind="document", path="C:/Users/<you>/Documents/Contracts/ACME-kickoff.pptx", summary="", action_items=[], created_by="soma/0.4.1")
 ```
 
 ```json
-{"path": "Administrator/Documents/2026-08-24 ACME-kickoff.md", "action": "created", "record_id": "3f9c1ad2b7e40518", "format": "pptx",
+{"path": "Soma/Documents/2026-08-24 ACME-kickoff.md", "action": "created", "record_id": "3f9c1ad2b7e40518", "format": "pptx",
  "parts": 18, "chars": 9140, "empty": false, "text_file": null,
  "sections": [{"locator": "s1", "heading": "ACME kickoff", "chars": 61}, {"locator": "s2", "heading": "Scope", "chars": 640}, {"locator": "s7", "heading": "Pricing", "chars": 980}],
  "from_email": "", "linked": false}
 ```
 
-   `vault_read("Administrator/Documents/2026-08-24 ACME-kickoff.md", section="s1")` → the title slide, which names the supplier contract and the September start: work content, so the record stays and is ingested with the others in step 7, its ops citing `src: "3f9c1ad2b7e40518#s7"` for what slide 7 says about pricing.
+   `vault_read("Soma/Documents/2026-08-24 ACME-kickoff.md", section="s1")` → the title slide, which names the supplier contract and the September start: work content, so the record stays and is ingested with the others in step 7, its ops citing `src: "3f9c1ad2b7e40518#s7"` for what slide 7 says about pricing.
 
 6. Records first. Two `vault_save(kind="chat")` calls for the two chats kept in step 3 (none for Priya's):
 
 ```
-vault_save(kind="chat", chat=<the "Q3 budget" entry>, messages=<its 3 messages>, self_names=["Hux Waitt"], created_by="administrator/0.4.1")
+vault_save(kind="chat", chat=<the "Q3 budget" entry>, messages=<its 3 messages>, self_names=["Hux Waitt"], created_by="soma/0.4.1")
 ```
 
 ```json
-[{"path": "Administrator/Teams/2026-08-24 Q3 budget.md", "action": "created", "date": "2026-08-24", "record_id": "19:a1b2c3@thread.v2|2026-08-24", "added": 2, "skipped_duplicates": 0, "messages": 2, "people": [{"name": "Jane Doe", "page": "Administrator/Wiki/People/Jane Doe.md"}], "unknown_people": []},
- {"path": "Administrator/Teams/2026-08-25 Q3 budget.md", "action": "created", "date": "2026-08-25", "record_id": "19:a1b2c3@thread.v2|2026-08-25", "added": 1, "skipped_duplicates": 0, "messages": 1, "people": [{"name": "Jane Doe", "page": "Administrator/Wiki/People/Jane Doe.md"}], "unknown_people": []}]
+[{"path": "Soma/Teams/2026-08-24 Q3 budget.md", "action": "created", "date": "2026-08-24", "record_id": "19:a1b2c3@thread.v2|2026-08-24", "added": 2, "skipped_duplicates": 0, "messages": 2, "people": [{"name": "Jane Doe", "page": "Soma/Wiki/People/Jane Doe.md"}], "unknown_people": []},
+ {"path": "Soma/Teams/2026-08-25 Q3 budget.md", "action": "created", "date": "2026-08-25", "record_id": "19:a1b2c3@thread.v2|2026-08-25", "added": 1, "skipped_duplicates": 0, "messages": 1, "people": [{"name": "Jane Doe", "page": "Soma/Wiki/People/Jane Doe.md"}], "unknown_people": []}]
 ```
 
-   The Tom Lee chat → one record `Administrator/Teams/2026-08-22 Tom Lee.md` (`created`, `people: [{"name": "Tom Lee", "page": "…/People/Tom Lee.md"}]`).
+   The Tom Lee chat → one record `Soma/Teams/2026-08-22 Tom Lee.md` (`created`, `people: [{"name": "Tom Lee", "page": "…/People/Tom Lee.md"}]`).
 
    Per record the `wiki` skill's steps. The two chat records reuse the match and the brief of step 3 (no second page match, no second search); `Topics/acme-supplier-contract`, read there for the Tom chat, serves the meeting note and Tom's mail too: fact `n30x` "Payment terms are net 30" (since 2026-08-12).
 
@@ -160,11 +160,11 @@ vault_save(kind="chat", chat=<the "Q3 budget" entry>, messages=<its 3 messages>,
 7. Ingest, oldest first — six calls, the first one:
 
 ```
-vault_wiki_write(record_path="Administrator/Emails/2026-08-22 Q3 supplier contract – signature needed.md", created_by="administrator/0.4.1", pages=[
-  {"path": "Administrator/Wiki/Topics/acme-supplier-contract.md", "ops": [
+vault_wiki_write(record_path="Soma/Emails/2026-08-22 Q3 supplier contract – signature needed.md", created_by="soma/0.4.1", pages=[
+  {"path": "Soma/Wiki/Topics/acme-supplier-contract.md", "ops": [
     {"op": "contest", "id": "n30x", "text": "Payment terms are net 45 (contract v3)"},
     {"op": "open", "text": "Sign and return contract v3", "owner": "me", "due": "2026-08-29"}]},
-  {"path": "Administrator/Wiki/People/Tom Lee.md", "ops": []}])
+  {"path": "Soma/Wiki/People/Tom Lee.md", "ops": []}])
 ```
 
    → `pages[0].applied: [{"op": "contest", "id": "n30x", "review": 1}, {"op": "open", "id": "b8k2", "owner": "me"}]`, `pages[1].record_added: true`. The chat records go in with no `src` on the ops (it defaults to the `record_id`); the Mon 24 chat carries the `supersede` on `7k2q` with `since: "2026-08-24"`, the Tue 25 chat the `add` of the close date, Jane's mail a `confirm` on it.
@@ -179,12 +179,12 @@ vault_collect(action="advance", source="notes", at="2026-08-25T17:41:15+02:00")
 
    each → `{"advanced": ["<source>"], "refused": []}`.
 
-9. Blocks. `outlook_list_events(start="2026-08-25T00:00:00", end="2026-08-25T23:59:59", include_recurrences=true, limit=50, fields=["subject","start","end","occurrence_key"], response_format="json")` → two of five events start with the prefixes: `[Focus] ACME supplier contract` 09:00–10:30 (`occurrence_key: "0400…|2026-08-25T09:00:00+02:00"`), `[Admin] Email and small tasks` 14:00–14:45. `vault_find("time-block", {"week": "2026-W35"}, fields=[])` → found; `vault_read("Administrator/Time-blocks/2026-W35.md")` shows no Held row for either key. Question (nothing else in that turn): "Today's blocks: 09:00–10:30 [Focus] ACME supplier contract, 14:00–14:45 [Admin] Email and small tasks — held, moved or skipped? (a word each, a note is welcome)". User: "held, skipped — the sync ran over".
+9. Blocks. `outlook_list_events(start="2026-08-25T00:00:00", end="2026-08-25T23:59:59", include_recurrences=true, limit=50, fields=["subject","start","end","occurrence_key"], response_format="json")` → two of five events start with the prefixes: `[Focus] ACME supplier contract` 09:00–10:30 (`occurrence_key: "0400…|2026-08-25T09:00:00+02:00"`), `[Admin] Email and small tasks` 14:00–14:45. `vault_find("time-block", {"week": "2026-W35"}, fields=[])` → found; `vault_read("Soma/Time-blocks/2026-W35.md")` shows no Held row for either key. Question (nothing else in that turn): "Today's blocks: 09:00–10:30 [Focus] ACME supplier contract, 14:00–14:45 [Admin] Email and small tasks — held, moved or skipped? (a word each, a note is welcome)". User: "held, skipped — the sync ran over".
 
 ```
-vault_row(action="append", path="Administrator/Time-blocks/2026-W35.md", section="Held", row=["Tue 25 Aug", "[Focus] ACME supplier contract 09:00–10:30", "held", ""],
+vault_row(action="append", path="Soma/Time-blocks/2026-W35.md", section="Held", row=["Tue 25 Aug", "[Focus] ACME supplier contract 09:00–10:30", "held", ""],
                  dedupe_key="0400…|2026-08-25T09:00:00+02:00", key_label="occurrence_key", header=["Day","Block","Result","Note"])
-vault_row(action="append", path="Administrator/Time-blocks/2026-W35.md", section="Held", row=["Tue 25 Aug", "[Admin] Email and small tasks 14:00–14:45", "skipped", "the sync ran over"],
+vault_row(action="append", path="Soma/Time-blocks/2026-W35.md", section="Held", row=["Tue 25 Aug", "[Admin] Email and small tasks 14:00–14:45", "skipped", "the sync ran over"],
                  dedupe_key="0400…|2026-08-25T14:00:00+02:00", key_label="occurrence_key", header=["Day","Block","Result","Note"])
 ```
 
@@ -192,15 +192,15 @@ vault_row(action="append", path="Administrator/Time-blocks/2026-W35.md", section
 
 10. Report:
 
-> Teams: 3 chats, 8 messages → 3 chat records created; 1 chat skipped: no work content — Priya Nair. Outlook: 27 mails seen, 9 bulk / 1 by your rules dropped, 2 saved (also worth saving: Offsite venue options, Invoice 4471, Parking permit renewal). Notes: 4 changed, 1 meeting note ingested. Documents: 2 files changed in Contracts, 1 read in (`ACME-kickoff.pptx`, 18 slides), 1 left — Parking map.pdf. Pages: Topics/q3-budget (deadline superseded, close date added, 1 open), Topics/acme-supplier-contract (1 contested, 2 open), People/Jane Doe, People/Tom Lee (records). Review: 1 open — `/administrator:wiki resolve review`. Blocks: 1 held, 1 skipped.
+> Teams: 3 chats, 8 messages → 3 chat records created; 1 chat skipped: no work content — Priya Nair. Outlook: 27 mails seen, 9 bulk / 1 by your rules dropped, 2 saved (also worth saving: Offsite venue options, Invoice 4471, Parking permit renewal). Notes: 4 changed, 1 meeting note ingested. Documents: 2 files changed in Contracts, 1 read in (`ACME-kickoff.pptx`, 18 slides), 1 left — Parking map.pdf. Pages: Topics/q3-budget (deadline superseded, close date added, 1 open), Topics/acme-supplier-contract (1 contested, 2 open), People/Jane Doe, People/Tom Lee (records). Review: 1 open — `/soma:wiki resolve review`. Blocks: 1 held, 1 skipped.
 > Last collected: Tue 25 Aug 17:41.
-> obsidian://open?vault=Vault&file=Administrator%2FWiki%2FTopics%2Fq3-budget.md
-> obsidian://open?vault=Vault&file=Administrator%2FWiki%2FTopics%2Facme-supplier-contract.md
+> obsidian://open?vault=Vault&file=Soma%2FWiki%2FTopics%2Fq3-budget.md
+> obsidian://open?vault=Vault&file=Soma%2FWiki%2FTopics%2Facme-supplier-contract.md
 > Tokens this turn: 21 480
 
 ## Example 2 — Teams not available, nothing to ask
 
-Same vault the next morning, `/administrator:collect-information today` on Wed 26 Aug 09:05 in a Claude Code session started from a laptop where the `teams` extra is not installed.
+Same vault the next morning, `/soma:collect-information today` on Wed 26 Aug 09:05 in a Claude Code session started from a laptop where the `teams` extra is not installed.
 
 1. `vault_collect(action="read")` → `ask: false` (every stamp 15.4 h old), `default_since: "2026-08-25T17:40:31+02:00"`. The argument `today` sets `since = "2026-08-26T00:00:00+02:00"` and no question is asked.
 2. The `teams_*` tools are there; `teams_status()` → `{"reader_installed": false, "cache_found": true, "hint": "install the `teams` extra: `uv sync --extra teams` in the checkout, then restart Claude Code"}`. One line in the report, the Teams stamp is left alone.
@@ -210,7 +210,7 @@ Same vault the next morning, `/administrator:collect-information today` on Wed 2
 6. Nothing to propose, so the proposal turn is skipped and the user is told so.
 7. No ingest.
 8. `vault_collect(action="advance", source="outlook", at="2026-08-26T09:05:20+02:00")` and the same for `notes`; `teams` is not advanced.
-9. `outlook_list_events(start="2026-08-26T00:00:00", end="2026-08-26T23:59:59", …)` → one `[Focus] Q3 budget` block at 09:00–10:30, still running now. `vault_read("Administrator/Time-blocks/2026-W35.md")` shows no Held row for it. Question: "Today's block: 09:00–10:30 [Focus] Q3 budget — held, moved or skipped?". User: "still on it, ask me later". No row is written.
+9. `outlook_list_events(start="2026-08-26T00:00:00", end="2026-08-26T23:59:59", …)` → one `[Focus] Q3 budget` block at 09:00–10:30, still running now. `vault_read("Soma/Time-blocks/2026-W35.md")` shows no Held row for it. Question: "Today's block: 09:00–10:30 [Focus] Q3 budget — held, moved or skipped?". User: "still on it, ask me later". No row is written.
 10. Report:
 
 > Teams: not read — install the `teams` extra: `uv sync --extra teams` in the checkout, then restart Claude Code. Outlook: 3 mails seen, 3 bulk / 0 by your rules dropped, none saved. Notes: nothing changed since midnight. Wiki: no changes proposed. Blocks: 1 unanswered.

@@ -2,16 +2,16 @@
 
 Two runs on Saturday 2026-08-22, user `hux@example.com`, vault `MyVault`. Every call in the order it happens; results shortened to what the next step needs.
 
-## Run 1 — `/administrator:inbox` at 08:31
+## Run 1 — `/soma:inbox` at 08:31
 
 1. `vault_status` → all flags true. `outlook_whoami(response_format="json")` → `utc_offset: "+02:00"`, `local_time: "2026-08-22T08:31:02+02:00"`.
-2. `vault_find("daily", limit=1, fields=["date", "inbox_checked"])` → `[{path: "Administrator/Daily/2026-08-21.md", frontmatter: {date: "2026-08-21", inbox_checked: "2026-08-21T18:02:00+02:00"}}]`. Say: "Checking mail since Fri 21 Aug 18:02."
+2. `vault_find("daily", limit=1, fields=["date", "inbox_checked"])` → `[{path: "Soma/Daily/2026-08-21.md", frontmatter: {date: "2026-08-21", inbox_checked: "2026-08-21T18:02:00+02:00"}}]`. Say: "Checking mail since Fri 21 Aug 18:02."
 3. `outlook_list_mails(folder="inbox", unread_only=true, since="2026-08-21T18:02:00+02:00", limit=100, fields=["entry_id","internet_message_id","from_address","from","subject","received","preview"], preview_chars=80, response_format="json")` at 08:31:10 → `count: 23`, `has_more: false`. Each item is about 60 tokens.
 4. `vault_inbox_prepare(items=<the 23 items>, date="2026-08-22")` →
 
    ```json
    {"to_label": [ ...15 items... ], "already_seen": ["00000000A0…"], "never_save": ["00000000A9…", "00000000B4…"],
-    "labelled_by_rule": 7, "cache": "Administrator/Attachments/_cache/inbox-2026-08-22.json"}
+    "labelled_by_rule": 7, "cache": "Soma/Attachments/_cache/inbox-2026-08-22.json"}
    ```
 
    One mail was already in Friday's note (listed again because it is still unread), two match a never-save rule, seven carry a label from a rule (`rule: "List-Unsubscribe header"`, `rule: "Rules.md: domain vendor.example → noise"`, `rule: "meeting response"`, …) and have no `preview`. Eight items have `label: null` and a 120-character `preview`.
@@ -36,7 +36,7 @@ Two runs on Saturday 2026-08-22, user `hux@example.com`, vault `MyVault`. Every 
 6. `vault_write_daily(date="2026-08-22", labels=<the list above>, since="2026-08-21T18:02:00+02:00", inbox_checked="2026-08-22T08:31:10+02:00", tokens_used=9800)` →
 
    ```json
-   {"path": "Administrator/Daily/2026-08-22.md", "action": "created", "rows_written": 15, "duplicates_skipped": 0,
+   {"path": "Soma/Daily/2026-08-22.md", "action": "created", "rows_written": 15, "duplicates_skipped": 0,
     "followups_added": 1, "calendar_rows": 0, "unlabelled": []}
    ```
 
@@ -48,7 +48,7 @@ Two runs on Saturday 2026-08-22, user `hux@example.com`, vault `MyVault`. Every 
    > 23 unread since Fri 18:02: 1 already in Friday's note, 2 never-save, 7 labelled by rules, 8 by me (1 opened). act 1, reply 2, waiting 1, fyi 6, noise 5.
    > To do: Sign the NDA by Friday (Jane Doe); Re: Q3 numbers (Tom Lee); Re: offsite dates (Bob Lee). Waiting: +1 open item (Acme Support, ticket 4411). Promised this week: 2.
    > Written: Daily/2026-08-22.md (created). This turn: 9.8k tokens.
-   > Open: obsidian://open?vault=MyVault&file=Administrator%2FDaily%2F2026-08-22.md
+   > Open: obsidian://open?vault=MyVault&file=Soma%2FDaily%2F2026-08-22.md
    >
    > 1. Mark 11 fyi/noise as read: Nightly build passed, Weekly status, August newsletter, … and 6 more. Go ahead?
 
@@ -58,7 +58,7 @@ Two runs on Saturday 2026-08-22, user `hux@example.com`, vault `MyVault`. Every 
 
 Calls: 9 (10 with the bulk action). Tokens in the turn: about 10k, of which the list is 1.5k, the prepare result 1k, the labels 0.3k, skill text the rest.
 
-## Run 2 — `/administrator:daily` at 15:40, same day
+## Run 2 — `/soma:daily` at 15:40, same day
 
 1. `vault_find("daily", limit=1, fields=["date","inbox_checked"])` → `inbox_checked: "2026-08-22T08:31:10+02:00"` (the only key the morning run changed).
 2. `outlook_list_mails(... since="2026-08-22T08:31:10+02:00" ...)` at 15:40:05 → 3 items.
@@ -68,7 +68,7 @@ Calls: 9 (10 with the bulk action). Tokens in the turn: about 10k, of which the 
 6. `vault_write_daily(date="2026-08-22", labels=<one entry>, events=<2 items>, since="2026-08-22T08:31:10+02:00", inbox_checked="2026-08-22T15:40:05+02:00", tokens_used=6100)` →
 
    ```json
-   {"path": "Administrator/Daily/2026-08-22.md", "action": "appended", "rows_written": 2, "duplicates_skipped": 0,
+   {"path": "Soma/Daily/2026-08-22.md", "action": "appended", "rows_written": 2, "duplicates_skipped": 0,
     "followups_added": 0, "calendar_rows": 2, "unlabelled": []}
    ```
 
@@ -78,9 +78,9 @@ Calls: 9 (10 with the bulk action). Tokens in the turn: about 10k, of which the 
 8. Report:
 
    > 3 new since 08:31: 1 never-save, 1 by rule, 1 by me. Carol Ng sent the contract draft → her open item is ticked.
-   > Today: 09:30 Stand-up (Teams), 13:00 Budget review with Jane (Room 4). Watch out: clash 13:00–14:00 with Dentist; no prep note for the budget review — run /administrator:prep?
+   > Today: 09:30 Stand-up (Teams), 13:00 Budget review with Jane (Room 4). Watch out: clash 13:00–14:00 with Dentist; no prep note for the budget review — run /soma:prep?
    > Written: Daily/2026-08-22.md (appended). This turn: 6.1k tokens.
-   > Open: obsidian://open?vault=MyVault&file=Administrator%2FDaily%2F2026-08-22.md
+   > Open: obsidian://open?vault=MyVault&file=Soma%2FDaily%2F2026-08-22.md
    >
    > 1. Mark 1 noise as read: Webinar invite. Go ahead?
 
@@ -92,4 +92,4 @@ Monday run: 14 `to_label` items with `label: null`, six of them from `alerts@mon
 
 > You labelled 6 mails from alerts@monitoring.example as fyi. Add the rule `alerts@monitoring.example → fyi` to Rules.md so they skip the model next time?
 
-User: "yes" → `vault_row(action="append", path="Administrator/Rules.md", section="Labels", row=["alerts@monitoring.example", "from", "fyi"])` → `appended: true`. Say: "Rule added; edit Administrator/Rules.md to change it." No `dedupe_key`, no other change to the file. "no" or silence → nothing is written and the proposal is not repeated this run.
+User: "yes" → `vault_row(action="append", path="Soma/Rules.md", section="Labels", row=["alerts@monitoring.example", "from", "fyi"])` → `appended: true`. Say: "Rule added; edit Soma/Rules.md to change it." No `dedupe_key`, no other change to the file. "no" or silence → nothing is written and the proposal is not repeated this run.

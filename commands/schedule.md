@@ -3,7 +3,7 @@ description: Find a free time with the named people and, after you say yes, send
 argument-hint: "<people> [duration] [window] [subject]"
 ---
 
-# /administrator:schedule
+# /soma:schedule
 
 Arguments: `people` (required), `duration` (optional; default from `Preferences.md`), `window` (optional; default the next five working days), `subject` (optional; in quotes). Also accepts a move request in plain words: "move my 2pm with Sam to Thursday".
 
@@ -11,9 +11,9 @@ Argument given: `$ARGUMENTS`
 
 ## Steps
 
-1. Load the `administrator` skill, then the `schedule` skill (and `skills/meetings/references/meeting-note.md` before writing a meeting note). Load the `outlook` skill if it is not already loaded. Load `skills/schedule/references/examples.md` only if a step is unclear.
-2. Once per session: `vault_status` (anything false → `vault_init(created_by="administrator/0.4.1")`; it creates `Preferences.md` with defaults, say so), `outlook_whoami(response_format="json")`, and `vault_read("Administrator/Preferences.md")`. Do not read the preferences again in this session unless the user says they changed them.
-3. If the request is a move ("move", "reschedule", "push … to"), go to step 10. Otherwise resolve names to SMTP addresses (`outlook_resolve_name`, then `outlook_search_contacts`, then ask), work out duration and window, and get candidates exactly as `/administrator:free` does (steps 3–8 of that command: one `outlook_find_meeting_times` call with `include_slots` left false, `outlook_get_free_busy` only when the user asks why someone is busy).
+1. Load the `soma` skill, then the `schedule` skill (and `skills/meetings/references/meeting-note.md` before writing a meeting note). Load the `outlook` skill if it is not already loaded. Load `skills/schedule/references/examples.md` only if a step is unclear.
+2. Once per session: `vault_status` (anything false → `vault_init(created_by="soma/0.4.1")`; it creates `Preferences.md` with defaults, say so), `outlook_whoami(response_format="json")`, and `vault_read("Soma/Preferences.md")`. Do not read the preferences again in this session unless the user says they changed them.
+3. If the request is a move ("move", "reschedule", "push … to"), go to step 10. Otherwise resolve names to SMTP addresses (`outlook_resolve_name`, then `outlook_search_contacts`, then ask), work out duration and window, and get candidates exactly as `/soma:free` does (steps 3–8 of that command: one `outlook_find_meeting_times` call with `include_slots` left false, `outlook_get_free_busy` only when the user asks why someone is busy).
 4. If anyone is `unknown` on every candidate (outside the organisation), say so and offer two paths: (a) book anyway and let them accept or decline, or (b) draft a "proposed times" email. Wait for the answer. For (b) go to step 9.
 5. Pick the slot: the number or time the user names; candidate 1 if they said "just book it". Otherwise ask "Which one?" and wait.
 6. Fill in subject (given, else "<topic> with <names>", else "<you> / <names>"), location (given, else `default_location`), attendees (the resolved addresses). Before asking, `outlook_list_events` for the chosen slot with `fields=["entry_id","subject","start","end","attendees"]`: if an event with the same subject and attendees already sits there, say so and stop.

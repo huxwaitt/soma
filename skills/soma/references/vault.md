@@ -1,14 +1,14 @@
 # Vault reference — note templates and rules
 
-Everything the plugin writes goes under `<vault>/Administrator/` where `<vault>` = `ADMINISTRATOR_VAULT`. Notes are plain markdown with YAML frontmatter and must render in vanilla Obsidian. This page is the schema: what each note looks like and what each key means. The `vault` MCP server (`administrator-vault`) enforces it; skills pass a frontmatter object and a markdown body to `vault_write` and never touch files themselves.
+Everything the plugin writes goes under `<vault>/Soma/` where `<vault>` = `SOMA_VAULT`. Notes are plain markdown with YAML frontmatter and must render in vanilla Obsidian. This page is the schema: what each note looks like and what each key means. The `vault` MCP server (`soma-vault`) enforces it; skills pass a frontmatter object and a markdown body to `vault_write` and never touch files themselves.
 
 Conventions the server applies:
 
 - Dates in frontmatter are ISO-8601 with the offset Outlook returned (`2026-08-22T09:14:00+02:00`). Never convert time zones.
-- Quoting is the server's job: `entry_id`, `internet_message_id`, `conversation_id`, `global_id`, `occurrence_key`, `subject`, `location`, `msg_file` are always quoted; plain SMTP addresses and `administrator/0.4.1` stay unquoted. Pass raw values.
+- Quoting is the server's job: `entry_id`, `internet_message_id`, `conversation_id`, `global_id`, `occurrence_key`, `subject`, `location`, `msg_file` are always quoted; plain SMTP addresses and `soma/0.4.1` stay unquoted. Pass raw values.
 - Lists are YAML block lists; pass arrays (`[]` when empty).
 - Wikilinks in frontmatter are quoted: `from_link: "[[Wiki/People/Jane Doe]]"`.
-- `created_by: administrator/0.4.1` on every note (pass it; the server fills in only `type`).
+- `created_by: soma/0.4.1` on every note (pass it; the server fills in only `type`).
 
 ## The record contract
 
@@ -21,13 +21,13 @@ A record is one thing that happened, written once and never edited: a saved emai
 | `chat` | `teams` | `<chat_id>\|<date>` | `chat_title` | `date` | none — a chat carries no address | none |
 | `document` | `file` | the first 16 hex of the file's sha256 | the file name | the file's date, or the mail's | none | `p<n>`, `s<n>`, `<sheet>` or `<sheet>!<cell>` |
 | `daily` | `outlook` | the date | the date | `date` | none | none |
-| `weekly` | `administrator` | the ISO week | the week | date of `start` | none | none |
+| `weekly` | `soma` | the ISO week | the week | date of `start` | none | none |
 
 The kind's own keys follow those, each listed in that kind's section below. Body order for email and document records: `# <title>`, the kind's header lines, `## Summary`, `## Action items` (`- none` when there are none), `## Content`, `## Files` (only when there is something to list), then the `## Update <ISO>` blocks later writes append; meeting, chat, daily and weekly records keep the sections their own templates below name, and only their frontmatter follows the shared contract. `## Content` holds the text; a record with more than one part splits it into `### <locator> — <heading>` sections (`### m1 — 2026-08-21 16:42 Jane Doe`, `### s4 — Pricing`, `### p12 — page 12`, `### Sheet1 — Sheet1`), and `vault_read(path, section="s4")` gives back one of them. A fact may then name the part it came from — `src: "<record_id>#<locator>"` — and the same record cited from three pages still counts as one source.
 
 ## Writing notes: the `vault_*` tools
 
-The rules on this page are enforced by the `vault` MCP server (`administrator-vault`); skills call its tools instead of writing files. Pass the frontmatter as an object and the body as markdown (no frontmatter fences); the server picks the filename, checks the required keys, quotes what must be quoted, and refuses a second note for an identity that exists.
+The rules on this page are enforced by the `vault` MCP server (`soma-vault`); skills call its tools instead of writing files. Pass the frontmatter as an object and the body as markdown (no frontmatter fences); the server picks the filename, checks the required keys, quotes what must be quoted, and refuses a second note for an identity that exists.
 
 | Need | Call |
 | --- | --- |
@@ -44,7 +44,7 @@ The rules on this page are enforced by the `vault` MCP server (`administrator-va
 | Read the months before the "last collected" stamps into the wiki, one window of days at a time | `vault_load_history(action="status" \| "plan" \| "next" \| "done", since, batch, payload, reset)` — see "Loading the past" below and `skills/load-history/SKILL.md` |
 | Plan the week's focus and admin blocks, write the plan note once the appointments exist, count where a week's hours went | `vault_time_block(action="plan" \| "write" \| "audit", week, events, today, blocks)`, `vault_priorities_write(action, lines)` (`candidates` for a suggestion, `write` only with lines the user confirmed) — see "Time-block note" and "Priorities.md" below and `skills/time-block/SKILL.md` |
 
-On `append` the server only changes `status`, `last_contact`, `inbox_checked`, `mails_seen` and adds new `aliases` (and `vault_wiki_write` replaces `wiki`); every other frontmatter key and all existing body text stay as they are. `append` still checks the required keys, so pass the frontmatter `vault_find` returned with just the intended key changed. Use `created_by: administrator/0.4.1` in every frontmatter you pass.
+On `append` the server only changes `status`, `last_contact`, `inbox_checked`, `mails_seen` and adds new `aliases` (and `vault_wiki_write` replaces `wiki`); every other frontmatter key and all existing body text stay as they are. `append` still checks the required keys, so pass the frontmatter `vault_find` returned with just the intended key changed. Use `created_by: soma/0.4.1` in every frontmatter you pass.
 
 `dedupe_key` for a daily calendar row and a Time-blocks `## Held` row is the `occurrence_key` with `key_label="occurrence_key"`; `Rules.md` lines take none. The server treats a row as a duplicate when the key value appears in any hidden comment anywhere in the file, whatever the label. (Open items are not rows: they carry their own `src` — an `internet_message_id`, an `entry_id`, `proposal:<address>` or `user` — and the same record twice on one page is refused as `duplicate`.)
 
@@ -52,13 +52,13 @@ A key or a cell may contain `|` (an `occurrence_key` always does); the server st
 
 ## Workflow helpers
 
-These tools do the moving, comparing and formatting so the model only decides. They take the JSON the outlook tools returned and write through the same code as `vault_write` / `vault_row` / `vault_wiki_write`, so every rule on this page still holds. Pass `created_by="administrator/0.4.1"` to the ones that write.
+These tools do the moving, comparing and formatting so the model only decides. They take the JSON the outlook tools returned and write through the same code as `vault_write` / `vault_row` / `vault_wiki_write`, so every rule on this page still holds. Pass `created_by="soma/0.4.1"` to the ones that write.
 
 - `vault_inbox_prepare(items, date)` — pass the `items[]` from `outlook_list_mails`. Back come only the mails not yet in any daily note of that ISO week and not matched by a never-save rule; each has `label` / `rule` filled when a rule decided. Read the `preview` only of the ones with `label: null`, then call `vault_write_daily(date, labels=[{entry_id, label, reason}], since, inbox_checked, events)` with your labels — items come from the cached list (`Attachments/_cache/inbox-<date>.json`), so do not pass them back. Pass `events` from `outlook_list_events` in `daily`; clashes and missing prep notes are worked out in code, `watch_out` is for anything else. A second run on the same day appends only new rows; `action: unchanged` means nothing was written. Items with no label from the model or a rule come back in `unlabelled` and are left out of the note.
 - `vault_save(kind="email", mail, summary, action_items, attachments_saved, msg_file, self_addresses, company)` — `mail` is the `outlook_get_mail(trim_quoted=true)` JSON. The note, the person page and (for `waiting`) one open item owned by the counterpart — the first recipient of the user's own mail, else the sender — are written in one call; `status` defaults to `todo` with action items, `fyi` without, `waiting` when the mail is from one of `self_addresses` and has action items.
 - `vault_prep_context(occurrence_key, global_id, attendees, subject)` replaces the `vault_find` / `vault_read` round trips of `prep` and `notes` and returns `wiki[]` (`path, type, title, status, lead, open[], facts[]`, at most 8 facts) for the attendees' pages and up to 3 topic pages matched on `subject` (taken from the existing note when empty); `vault_weekly_facts(week)` replaces those of `weekly`. Both are read-only.
 - `vault_save(kind="transcript", meeting_path, transcript_path)` — write the transcript under `Attachments/<meeting>/` with the host's Write tool once, then call this; never paste the text back through `vault_write`.
-- `Administrator/Rules.md` (`type: rules`, created by `vault_init`, never overwritten) holds the user's rules: `## Labels` table `| Match | Field | Label |`, `## Never save` table `| Match | Field |`, `## Fyi senders` list. `Field` is `from`, `domain`, `name` or `subject`; `Match` is a case-insensitive part of the value or a `*` / `?` pattern. Built-in rules (List-Unsubscribe, auto-replies, meeting responses, no-reply senders, people with `status: fyi`) run first. `vault_rules(action="get")` shows them; `vault_rules(action="match", items=<a mail listing>)` applies them and answers `results` per item plus `kept` (the mails left to read), `dropped: [{entry_id, why}]` for bulk mail and never-save rows, and `counts: {bulk, never_save, kept}` — `collect-information` and `load-history` call it before they read a preview. The plugin writes a line only through `vault_row(action="append", path="Administrator/Rules.md", section="Labels", row=[match, field, label])` after the user said yes to a proposal.
+- `Soma/Rules.md` (`type: rules`, created by `vault_init`, never overwritten) holds the user's rules: `## Labels` table `| Match | Field | Label |`, `## Never save` table `| Match | Field |`, `## Fyi senders` list. `Field` is `from`, `domain`, `name` or `subject`; `Match` is a case-insensitive part of the value or a `*` / `?` pattern. Built-in rules (List-Unsubscribe, auto-replies, meeting responses, no-reply senders, people with `status: fyi`) run first. `vault_rules(action="get")` shows them; `vault_rules(action="match", items=<a mail listing>)` applies them and answers `results` per item plus `kept` (the mails left to read), `dropped: [{entry_id, why}]` for bulk mail and never-save rows, and `counts: {bulk, never_save, kept}` — `collect-information` and `load-history` call it before they read a preview. The plugin writes a line only through `vault_row(action="append", path="Soma/Rules.md", section="Labels", row=[match, field, label])` after the user said yes to a proposal.
 - `fields=[...]` on `vault_find` returns only those frontmatter keys.
 
 ## Filenames
@@ -74,8 +74,8 @@ The server builds these; listed so you can predict the path and the `Attachments
 | Preferences | `Preferences.md` | Fixed. |
 | Priorities | `Priorities.md` | Fixed. |
 | Daily | `Daily/YYYY-MM-DD.md` | Local date of the run. |
-| Weekly | `Weekly/YYYY-Www.md` | ISO week (Monday–Sunday) of the review. Written by `/administrator:weekly`. |
-| Time-block | `Time-blocks/YYYY-Www.md` | ISO week of the plan. Written by `vault_time_block(action="write")` (`/administrator:time-block`); `## Held` rows added by `/administrator:collect-information`. |
+| Weekly | `Weekly/YYYY-Www.md` | ISO week (Monday–Sunday) of the review. Written by `/soma:weekly`. |
+| Time-block | `Time-blocks/YYYY-Www.md` | ISO week of the plan. Written by `vault_time_block(action="write")` (`/soma:time-block`); `## Held` rows added by `/soma:collect-information`. |
 | Person | `Wiki/People/<Display Name>.md` | Display name as Outlook gives it (`from` / `recipients[].name`), illegal characters replaced by `_`, trimmed. If no display name, the part of the SMTP address before `@`. |
 | Attachments | `Attachments/<YYYY-MM-DD slug>/<filename>` | One subfolder per email note, same name as the note minus `.md`. |
 | Follow-ups | `Follow-ups.md` | Fixed. |
@@ -108,7 +108,7 @@ people:
   - "[[Wiki/People/Jane Doe]]"
 wiki: []
 ingested: ""
-created_by: administrator/0.4.1
+created_by: soma/0.4.1
 entry_id: "<exact EntryID from outlook_get_mail>"
 internet_message_id: "<internet_message_id from outlook_get_mail, e.g. <abc123@mail.example.com>; empty string when Outlook has none>"
 conversation_id: "<conversation_id from outlook_get_mail>"
@@ -125,8 +125,8 @@ received: 2026-08-22T09:14:00+02:00
 status: todo
 has_attachments: true
 attachments:
-  - "[[Administrator/Attachments/2026-08-22 Budget Q3/Budget_Q3.xlsx|Budget_Q3.xlsx]]"
-msg_file: "[[Administrator/Attachments/2026-08-22 Budget Q3/Budget Q3.msg|Budget Q3.msg]]"
+  - "[[Soma/Attachments/2026-08-22 Budget Q3/Budget_Q3.xlsx|Budget_Q3.xlsx]]"
+msg_file: "[[Soma/Attachments/2026-08-22 Budget Q3/Budget Q3.msg|Budget Q3.msg]]"
 ---
 
 # <Subject as received, untouched>
@@ -154,8 +154,8 @@ oldest first, so a fact from the second mail cites `src: "<record_id>#m2"`.>
 
 ## Files
 
-- [[Administrator/Attachments/2026-08-22 Budget Q3/Budget Q3.msg|Budget Q3.msg]] (original message)
-- [[Administrator/Attachments/2026-08-22 Budget Q3/Budget_Q3.xlsx|Budget_Q3.xlsx]] (180 KB)
+- [[Soma/Attachments/2026-08-22 Budget Q3/Budget Q3.msg|Budget Q3.msg]] (original message)
+- [[Soma/Attachments/2026-08-22 Budget Q3/Budget_Q3.xlsx|Budget_Q3.xlsx]] (180 KB)
 - image001.png (4 KB, inline image, not exported)
 ```
 
@@ -182,7 +182,7 @@ since: 2026-08-21T18:02:00+02:00
 inbox_checked: 2026-08-22T08:31:10+02:00
 mails_seen: 23
 status: todo
-created_by: administrator/0.4.1
+created_by: soma/0.4.1
 ---
 
 # 2026-08-22
@@ -236,7 +236,7 @@ Rules:
 - Every row ends with `<!-- entry_id: … -->` inside the `Note` cell (hidden in Obsidian reading view). That is the dedupe key for a second run.
 - The `Note` column links to the email note only when one exists (match on `internet_message_id`, else `entry_id`). No link = not saved.
 - `## To do` holds `act` and `reply` items only. `## Waiting on` names the open item each `waiting` mail opened on the sender's page. `## Promised` is written on the first run of the day: the user's own open items due within seven days, `- <what> — due <date> — [[<page>]]`, or `- none`.
-- `## Calendar` and `## Watch out` are only written by `/administrator:daily` (from the `events` passed to `vault_write_daily`); `/administrator:inbox` leaves them out. Times from `outlook_list_events`, `HH:MM` local. All-day events show `all day` in both time columns. Calendar rows end with `<!-- occurrence_key: … -->` inside the last cell (written by `daily`, or by `schedule` through `vault_row`). `## Watch out` lists clashes (overlapping ranges) and meetings with no prep note (worked out in code; all-day events exempt), then any `watch_out` bullets the model passed. Offer `/administrator:prep` for those.
+- `## Calendar` and `## Watch out` are only written by `/soma:daily` (from the `events` passed to `vault_write_daily`); `/soma:inbox` leaves them out. Times from `outlook_list_events`, `HH:MM` local. All-day events show `all day` in both time columns. Calendar rows end with `<!-- occurrence_key: … -->` inside the last cell (written by `daily`, or by `schedule` through `vault_row`). `## Watch out` lists clashes (overlapping ranges) and meetings with no prep note (worked out in code; all-day events exempt), then any `watch_out` bullets the model passed. Offer `/soma:prep` for those.
 - Batch actions are offered in the chat, not written to the note. When the user says yes and the action runs, a one-line `vault_write(mode="append")` records it: `Done <ISO timestamp>: marked 2 as read`.
 - When the folder is not the inbox, the heading reads `## Inbox (Inbox/Invoices, since …)`.
 
@@ -246,7 +246,7 @@ People live in the wiki: `Wiki/People/<Display Name>.md`, `type: person`, follow
 
 - `vault_save`, `prep` and `schedule` create the page as `status: draft` with a one-line lead `<name> (<email>) — <org>.` and the record's `## Records` line; the ingest step of `save` / `notes` writes the real lead and the role facts through `vault_wiki_write`. `vault_write("person", frontmatter, body, mode)` is handled by the wiki: `create` writes that draft page, `append` merges `aliases`, moves `last_contact` forward and replaces `status` when given; in both modes the body's `- <date> — [[record]]` lines become `## Records` lines (a trailing `(held)` / `(done)` status is dropped) and any other body text is dropped. No `## Update` heading is ever added to a person page.
 - Everything under `## Notes` belongs to the user. A `Voice with this person:` block written by the user (or kept there by migration) is honoured by `draft`; the plugin never writes it. `draft` never creates a person page.
-- A vault from 0.1.0 keeps its notes in `Administrator/People/` until `/administrator:setup` runs `vault_wiki_keep(action="migrate")` (dry run first, then on a yes): the files move, old `People/…` links in every record become `[[Wiki/People/…]]`, and the old `## Emails` / `## Meetings` lines become `## Records`.
+- A vault from 0.1.0 keeps its notes in `Soma/People/` until `/soma:setup` runs `vault_wiki_keep(action="migrate")` (dry run first, then on a yes): the files move, old `People/…` links in every record become `[[Wiki/People/…]]`, and the old `## Emails` / `## Meetings` lines become `## Records`.
 
 ## The `wiki` key on records
 
@@ -254,35 +254,35 @@ People live in the wiki: `Wiki/People/<Display Name>.md`, `type: person`, follow
 
 ## Wiki
 
-`Administrator/Wiki/` is the one place the plugin keeps *current* facts instead of records: `Index.md`, `Log.md`, `Review.md` (all generated), `Wiki.md` (the contract), `Questions.md` (the user's own list of questions), and pages of six kinds: `People/`, `Orgs/`, `Decisions/` (one choice that was made and now stands, added to and never rewritten), `Topics/` (a subject with a timeline; with an owner and a due date it is a project and the index groups it under Projects), `Howto/` and `Me.md`. Pages are read and written only through `vault_wiki_search` (ranked facts for a question, `brief=true` for one stitched answer, `pages=true` for the pages that match), `vault_wiki_read`, `vault_wiki_write` (ops, with or without a record) and `vault_wiki_keep` (`log`, `review`, `lint`, `merge`, `migrate`) — never through `vault_write`, which refuses a `Wiki/` path. The page contract, the op list, refusal meanings, size caps, the index, log and review files, and the lint checklist are in `skills/wiki/references/wiki.md` (the same text the vault holds as `Wiki/Wiki.md`); the workflow is `skills/wiki/SKILL.md`. A page you edit in Obsidian is read back by the next wiki call that writes, and that answer carries `adopted: [{page, changes}]` — say so in one line. A read tool writes nothing: it answers `hand_edits: n`, how many pages differ from what the code last wrote.
+`Soma/Wiki/` is the one place the plugin keeps *current* facts instead of records: `Index.md`, `Log.md`, `Review.md` (all generated), `Wiki.md` (the contract), `Questions.md` (the user's own list of questions), and pages of six kinds: `People/`, `Orgs/`, `Decisions/` (one choice that was made and now stands, added to and never rewritten), `Topics/` (a subject with a timeline; with an owner and a due date it is a project and the index groups it under Projects), `Howto/` and `Me.md`. Pages are read and written only through `vault_wiki_search` (ranked facts for a question, `brief=true` for one stitched answer, `pages=true` for the pages that match), `vault_wiki_read`, `vault_wiki_write` (ops, with or without a record) and `vault_wiki_keep` (`log`, `review`, `lint`, `merge`, `migrate`) — never through `vault_write`, which refuses a `Wiki/` path. The page contract, the op list, refusal meanings, size caps, the index, log and review files, and the lint checklist are in `skills/wiki/references/wiki.md` (the same text the vault holds as `Wiki/Wiki.md`); the workflow is `skills/wiki/SKILL.md`. A page you edit in Obsidian is read back by the next wiki call that writes, and that answer carries `adopted: [{page, changes}]` — say so in one line. A read tool writes nothing: it answers `hand_edits: n`, how many pages differ from what the code last wrote.
 
 `Wiki/_cache/` holds what the tools remember between runs, never facts: `collect.json` (the "last collected" stamp per source), `history.json` (where the load-history pass got to), `lint-<date>.json` (the last lint report in full, items and all), `queries.log` (every question put to the wiki, which lint check 21 reads) and `tokens.json` — the last 20 runs per command of `vault_collect(action="tokens")`, each `{at, predicted_in, predicted_out, actual_in, actual_out}`. `action="read"` turns them into `tokens: {<command>: {runs, ratio_in, ratio_out}}`, the median actual over predicted, which `collect-information` and `load-history` multiply their estimate by once a command has three runs on file. Deleting anything in `_cache/` costs nothing but the memory.
 
 ### Loading the past
 
-`vault_load_history` reads the months *before* the `vault_collect` stamps into the same pages, one window of days at a time. `action="plan"` fixes the start date (90 days back by default), the batch size and, per source (`outlook_inbox`, `outlook_sent`, `teams`), the day the pass stops at — that source's stamp, else now; the stamps themselves are only read and are never moved. `action="next"` hands out `{batch_no, source, since, until, expected, skip_ids, list_with, reissued, auto, cap, cost}`, where `list_with` is the exact `outlook_list_mails` / `teams_list_chats` call and `skip_ids` the ids of that window already read; a window that was never reported comes again unchanged. `action="done"` takes `payload={saved: [{id, path, received}], skipped_ids, listed, reached, exhausted, pages, calls}`, records the ids, moves the place (to `until` when the window was exhausted, else to `reached`), fits the window to the batch size (1 to 30 days) and answers `{batch, saved, skipped, listed, place, window_days, source_done, all_done, totals, next_hint, auto, cap, cost, note}`. `auto` is "yes to all" (the payload sets it, and every answer carries it back), `cap` the tokens the whole pass may spend and `cost` `{in, out, total}` what it has spent, so a run that is not asking after every batch knows when to ask again. `action="status"` reports where it stands, including each source's `listed` against its `saved`. The whole state — the place per source, the ids seen, the totals and the window that is open — is one file, `Administrator/Wiki/_cache/history.json`, written after `plan` and after every `done`; delete it and the pass simply starts again. A second `plan` after a finished pass keeps the ids that pass read (`kept_ids` in the answer), so the days it covered come back as `skip_ids`; `reset=true` forgets them. The workflow is `skills/load-history/SKILL.md`.
+`vault_load_history` reads the months *before* the `vault_collect` stamps into the same pages, one window of days at a time. `action="plan"` fixes the start date (90 days back by default), the batch size and, per source (`outlook_inbox`, `outlook_sent`, `teams`), the day the pass stops at — that source's stamp, else now; the stamps themselves are only read and are never moved. `action="next"` hands out `{batch_no, source, since, until, expected, skip_ids, list_with, reissued, auto, cap, cost}`, where `list_with` is the exact `outlook_list_mails` / `teams_list_chats` call and `skip_ids` the ids of that window already read; a window that was never reported comes again unchanged. `action="done"` takes `payload={saved: [{id, path, received}], skipped_ids, listed, reached, exhausted, pages, calls}`, records the ids, moves the place (to `until` when the window was exhausted, else to `reached`), fits the window to the batch size (1 to 30 days) and answers `{batch, saved, skipped, listed, place, window_days, source_done, all_done, totals, next_hint, auto, cap, cost, note}`. `auto` is "yes to all" (the payload sets it, and every answer carries it back), `cap` the tokens the whole pass may spend and `cost` `{in, out, total}` what it has spent, so a run that is not asking after every batch knows when to ask again. `action="status"` reports where it stands, including each source's `listed` against its `saved`. The whole state — the place per source, the ids seen, the totals and the window that is open — is one file, `Soma/Wiki/_cache/history.json`, written after `plan` and after every `done`; delete it and the pass simply starts again. A second `plan` after a finished pass keeps the ids that pass read (`kept_ids` in the answer), so the days it covered come back as `skip_ids`; `reset=true` forgets them. The workflow is `skills/load-history/SKILL.md`.
 
 ### Questions.md — how well the wiki answers
 
-`Administrator/Wiki/Questions.md` (`type: wiki-questions`, created once by `vault_init` with an empty list and two examples above it, never overwritten) belongs to the user: one line per question the wiki should be able to answer, with the page that holds the answer — `- When are the Q3 numbers due? → [[Wiki/Topics/q3-budget]]`, optionally `f:<id>` after the link when one particular fact is the answer and nothing else will do. `→` and `->` both work, only lines under `## Questions` count, and anything else in the file is left alone. Every `/administrator:lint` run asks the wiki all of them and counts a question answered when its page (or the named fact) comes back in the first three hits; the score, the misses (with what came back instead) and the lines pointing at a page that does not exist yet come back in `checks["20"]`, and the score goes on the run's Log line (`questions 17/20`) so the trend is readable. The other side of it is `checks["21"]`: questions somebody actually asked the wiki that returned nothing at all, at least twice in the last 30 days, each written to Review as "no page answers … — create one?". The plugin only reads this file; the user writes it.
+`Soma/Wiki/Questions.md` (`type: wiki-questions`, created once by `vault_init` with an empty list and two examples above it, never overwritten) belongs to the user: one line per question the wiki should be able to answer, with the page that holds the answer — `- When are the Q3 numbers due? → [[Wiki/Topics/q3-budget]]`, optionally `f:<id>` after the link when one particular fact is the answer and nothing else will do. `→` and `->` both work, only lines under `## Questions` count, and anything else in the file is left alone. Every `/soma:lint` run asks the wiki all of them and counts a question answered when its page (or the named fact) comes back in the first three hits; the score, the misses (with what came back instead) and the lines pointing at a page that does not exist yet come back in `checks["20"]`, and the score goes on the run's Log line (`questions 17/20`) so the trend is readable. The other side of it is `checks["21"]`: questions somebody actually asked the wiki that returned nothing at all, at least twice in the last 30 days, each written to Review as "no page answers … — create one?". The plugin only reads this file; the user writes it.
 
 ## Meeting note
 
-One note per calendar event occurrence, written by the `meetings` skill (`/administrator:prep`, `/administrator:notes`) or by the `schedule` skill when it books a meeting — all three use the one template in `skills/meetings/references/meeting-note.md`. Identity = `occurrence_key`. Frontmatter: `type: meeting`, `source: outlook`, `entry_id` (optional), `global_id`, `occurrence_key`, `subject`, `start`, `end`, `location`, `organizer` (SMTP), `organizer_link`, `attendees` (SMTP list), `attendee_links`, `is_recurring`, `status: upcoming | held | cancelled`, `created_by`. Body sections in fixed order: `## Prep` (written by `prep`, or a one-line placeholder by `schedule` / `notes`), `## Notes`, `## Action items`, `## Waiting on`, `## Related emails`, `## Transcript` (only when a transcript was pasted), `## Minutes draft` (optional). Placeholders are never replaced; later prep runs, note drops, action items and the minutes draft live under `## Update` headings with `###` sub-headings. A moved meeting keeps its filename and frontmatter; the move is an `## Update` line. Template, Prep layout, and append rules: `skills/meetings/references/meeting-note.md`.
+One note per calendar event occurrence, written by the `meetings` skill (`/soma:prep`, `/soma:notes`) or by the `schedule` skill when it books a meeting — all three use the one template in `skills/meetings/references/meeting-note.md`. Identity = `occurrence_key`. Frontmatter: `type: meeting`, `source: outlook`, `entry_id` (optional), `global_id`, `occurrence_key`, `subject`, `start`, `end`, `location`, `organizer` (SMTP), `organizer_link`, `attendees` (SMTP list), `attendee_links`, `is_recurring`, `status: upcoming | held | cancelled`, `created_by`. Body sections in fixed order: `## Prep` (written by `prep`, or a one-line placeholder by `schedule` / `notes`), `## Notes`, `## Action items`, `## Waiting on`, `## Related emails`, `## Transcript` (only when a transcript was pasted), `## Minutes draft` (optional). Placeholders are never replaced; later prep runs, note drops, action items and the minutes draft live under `## Update` headings with `###` sub-headings. A moved meeting keeps its filename and frontmatter; the move is an `## Update` line. Template, Prep layout, and append rules: `skills/meetings/references/meeting-note.md`.
 
 ## Weekly note
 
-One note per ISO week, written by `/administrator:weekly` (`skills/review/SKILL.md`). Identity = `week`. Frontmatter:
+One note per ISO week, written by `/soma:weekly` (`skills/review/SKILL.md`). Identity = `week`. Frontmatter:
 
 ```markdown
 ---
 type: weekly
-source: administrator
+source: soma
 week: 2026-W34
 start: 2026-08-17
 end: 2026-08-23
 generated: 2026-08-22T10:20:00+02:00
-created_by: administrator/0.4.1
+created_by: soma/0.4.1
 ---
 ```
 
@@ -290,22 +290,22 @@ Required keys: `type`, the core keys of the record contract, `week`, `start`, `e
 
 ## Time-block note
 
-One note per ISO week under `Time-blocks/`, written only by `vault_time_block(action="write")` after `/administrator:time-block` created the appointments; the model never types one. Identity = `week`. `source: administrator`. The appointments themselves live in Outlook (subjects `[Focus] <priority>` and `[Admin] Email and small tasks`, `show_as: busy`, category `Administrator`, no attendees); the note keeps what was planned and, row by row, how it went.
+One note per ISO week under `Time-blocks/`, written only by `vault_time_block(action="write")` after `/soma:time-block` created the appointments; the model never types one. Identity = `week`. `source: soma`. The appointments themselves live in Outlook (subjects `[Focus] <priority>` and `[Admin] Email and small tasks`, `show_as: busy`, category `Soma`, no attendees); the note keeps what was planned and, row by row, how it went.
 
 ```markdown
 ---
 type: time-block
-source: administrator
+source: soma
 week: 2026-W35
 start: "2026-08-24"
 end: "2026-08-30"
 planned: 13
-created_by: administrator/0.4.1
+created_by: soma/0.4.1
 ---
 
 # Time blocks — 2026-W35
 
-Week of Mon 24 Aug to Sun 30 Aug. Planned by /administrator:time-block; the appointments live in Outlook, this note keeps the plan and how it went.
+Week of Mon 24 Aug to Sun 30 Aug. Planned by /soma:time-block; the appointments live in Outlook, this note keeps the plan and how it went.
 
 ## Plan
 
@@ -327,12 +327,12 @@ Rules:
 
 - Required keys: `type`, `source`, `week`, `start`, `end`, `planned`, `created_by`. `planned` counts every block row written so far (the server replaces it on a re-plan).
 - `## Plan` rows come from the plan blocks plus the `entry_id` / `occurrence_key` of the create results; the hidden key carries a ` # plan` suffix so that the `## Held` row of the same block, keyed by the bare `occurrence_key`, is not refused as a duplicate. A re-plan of the same week appends a `### Plan` table under `## Update <ISO>`; nothing above it changes and no row is ever removed — an unwanted appointment is deleted in Outlook by the user.
-- `## Held` rows are written only by `/administrator:collect-information` through `vault_row(action="append", path, section="Held", row=["<Tue 25 Aug>", "<subject HH:MM–HH:MM>", "<held | moved | skipped>", "<note>"], dedupe_key=<occurrence_key>, key_label="occurrence_key", header=["Day","Block","Result","Note"])`, one per answered block; `duplicate` means it was answered already. `vault_time_block(action="audit")` reads them: `skipped` moves the block's minutes to unplanned, `moved` keeps them, a block without a row is `unanswered`.
+- `## Held` rows are written only by `/soma:collect-information` through `vault_row(action="append", path, section="Held", row=["<Tue 25 Aug>", "<subject HH:MM–HH:MM>", "<held | moved | skipped>", "<note>"], dedupe_key=<occurrence_key>, key_label="occurrence_key", header=["Day","Block","Result","Note"])`, one per answered block; `duplicate` means it was answered already. `vault_time_block(action="audit")` reads them: `skipped` moves the block's minutes to unplanned, `moved` keeps them, a block without a row is `unanswered`.
 - `## Notes` belongs to the user.
 
 ## Chat note
 
-One record per Teams chat per day under `Teams/`, written only by `vault_save(kind="chat")` (`/administrator:collect-information`); the model never types one. Identity = `{chat_id, date}`, also held as `record_id: "<chat_id>|<date>"`, which is the `src` the wiki writes on facts that came from the chat. `source: teams`.
+One record per Teams chat per day under `Teams/`, written only by `vault_save(kind="chat")` (`/soma:collect-information`); the model never types one. Identity = `{chat_id, date}`, also held as `record_id: "<chat_id>|<date>"`, which is the `src` the wiki writes on facts that came from the chat. `source: teams`.
 
 ```markdown
 ---
@@ -344,7 +344,7 @@ date: "2026-08-24"
 people: []
 wiki: []
 ingested: ""
-created_by: administrator/0.4.1
+created_by: soma/0.4.1
 chat_id: "19:a1b2c3@thread.v2"
 chat_title: Q3 budget
 chat_type: group
@@ -378,7 +378,7 @@ Rules:
 
 ## Document note
 
-One record per file read into the vault, under `Documents/`, written only by `vault_save(kind="document", path=…)` — `/administrator:save <file path>`, the attachments of a saved mail, and the watched folders of `/administrator:collect-information`. Identity = `hash`, the first 16 hex of the file's sha256; `source: file`. Formats read: `.pdf` (through `pypdf`, which the server's `search` extra installs — without it the call is refused by name), `.docx`, `.pptx`, `.xlsx`, `.txt`, `.md`, `.csv`. Anything else is refused with the extension named. There is no OCR: a pdf with no text layer answers `empty: true` and the record says "No text could be read (scanned?)".
+One record per file read into the vault, under `Documents/`, written only by `vault_save(kind="document", path=…)` — `/soma:save <file path>`, the attachments of a saved mail, and the watched folders of `/soma:collect-information`. Identity = `hash`, the first 16 hex of the file's sha256; `source: file`. Formats read: `.pdf` (through `pypdf`, which the server's `search` extra installs — without it the call is refused by name), `.docx`, `.pptx`, `.xlsx`, `.txt`, `.md`, `.csv`. Anything else is refused with the extension named. There is no OCR: a pdf with no text layer answers `empty: true` and the record says "No text could be read (scanned?)".
 
 ```markdown
 ---
@@ -390,7 +390,7 @@ date: "2026-08-21"
 people: []
 wiki: []
 ingested: ""
-created_by: administrator/0.4.1
+created_by: soma/0.4.1
 path: "C:/Users/<you>/Downloads/Q3-supplier-contract-v3.pdf"
 hash: 76350e982c42c7c0
 format: pdf
@@ -449,7 +449,7 @@ source: wiki
 generated: true
 updated: 2026-08-25T09:12:04+02:00
 open: 3
-created_by: administrator/0.4.1
+created_by: soma/0.4.1
 ---
 
 # Follow-ups
@@ -475,19 +475,19 @@ Rules:
 - `Since` = the item's `since`, `Who` = its owner, `What` = its text cut to 80 characters, `Email` = the record it came from, `Last checked` = the day the file was written, followed by `<!-- o: <item id> @ <page stem> -->`.
 - `vault_row` **refuses** this file (`… is written from the wiki pages, so a row cannot be added here`). An item is opened, moved or ticked on its page: `{"op": "open", "text", "owner", "due", "since", "src"}`, `{"op": "reschedule", "id", "due"}`, `{"op": "done", "id"}` through `vault_wiki_write` (`skills/wiki/SKILL.md`). Ticking the box on the page in Obsidian does the same on the next wiki call.
 - Reading them back: `vault_wiki_search(query="", open_items=true, owner="me" | "others", due_before=<ISO date>, page=<one page>, include_done=false)` → `[{page, stem, type, title, owner_name, id, text, owner, due, since, src, record, done}]`, oldest first, at most 200. `inbox`, `save`, `daily`, `notes`, `schedule`, `collect-information` and `followups` open items; `inbox`, `notes` and `followups` tick them.
-- A `Follow-ups.md` from before 0.4.0 (rows kept by hand, no `generated: true`) is left exactly as it is until `vault_wiki_keep(action="migrate")` moves its rows onto the pages — `/administrator:setup` offers that with a dry run first.
+- A `Follow-ups.md` from before 0.4.0 (rows kept by hand, no `generated: true`) is left exactly as it is until `vault_wiki_keep(action="migrate")` moves its rows onto the pages — `/soma:setup` offers that with a dry run first.
 
 ## Preferences.md
 
-`<vault>/Administrator/Preferences.md` — one file, owned by the user, read by the `schedule` skill once per session (again only when the user says they changed it). Created by `vault_init` (`/administrator:setup` asks for work hours and peak hours; other commands use the defaults 09:00–17:00, buffer 15, `peak_hours: ["09:00-12:00"]`, `no_meeting_blocks: ["Fri 13:00-<work_end>"]`). `vault_init(overwrite=true)` is the only thing that ever rewrites it. Frontmatter keys: `type: preferences`, `source: administrator`, `work_start`, `work_end` (`"HH:MM"`, quoted), `timezone` (a note only), `buffer_minutes`, `no_meeting_blocks` (list of `"Fri 13:00-17:00"`), `max_meetings_per_day`, `default_duration`, `default_location`, `preferred_days` (list of `Mon`…`Sun`), the time-block keys `peak_hours`, `focus_block_minutes`, `focus_blocks_per_day`, `admin_blocks_per_day`, `admin_block_minutes`, `slack_share`, `collect_folders` (extra vault-relative folders `/administrator:collect-information` reads for changed notes; folders outside `Administrator/` are only ever read) and `document_folders` (folders whose pdf, docx, pptx, xlsx, txt, md and csv files that command offers to read in as document records; vault-relative, or a full path anywhere on the machine; read only), `created_by`. A missing or malformed key falls back to the default for that key (`skills/schedule/references/preferences.md`). The body may hold a `## Voice` section — optional, plain bullets, written by the user only, read by the `draft` skill and by nudges and minutes (`skills/draft/references/voice.md`).
+`<vault>/Soma/Preferences.md` — one file, owned by the user, read by the `schedule` skill once per session (again only when the user says they changed it). Created by `vault_init` (`/soma:setup` asks for work hours and peak hours; other commands use the defaults 09:00–17:00, buffer 15, `peak_hours: ["09:00-12:00"]`, `no_meeting_blocks: ["Fri 13:00-<work_end>"]`). `vault_init(overwrite=true)` is the only thing that ever rewrites it. Frontmatter keys: `type: preferences`, `source: soma`, `work_start`, `work_end` (`"HH:MM"`, quoted), `timezone` (a note only), `buffer_minutes`, `no_meeting_blocks` (list of `"Fri 13:00-17:00"`), `max_meetings_per_day`, `default_duration`, `default_location`, `preferred_days` (list of `Mon`…`Sun`), the time-block keys `peak_hours`, `focus_block_minutes`, `focus_blocks_per_day`, `admin_blocks_per_day`, `admin_block_minutes`, `slack_share`, `collect_folders` (extra vault-relative folders `/soma:collect-information` reads for changed notes; folders outside `Soma/` are only ever read) and `document_folders` (folders whose pdf, docx, pptx, xlsx, txt, md and csv files that command offers to read in as document records; vault-relative, or a full path anywhere on the machine; read only), `created_by`. A missing or malformed key falls back to the default for that key (`skills/schedule/references/preferences.md`). The body may hold a `## Voice` section — optional, plain bullets, written by the user only, read by the `draft` skill and by nudges and minutes (`skills/draft/references/voice.md`).
 
 ## Priorities.md
 
-`<vault>/Administrator/Priorities.md` — `type: priorities`, `source: administrator`, created by `vault_init` once (also with `overwrite=true`); owned by the user. Body: a short explanation and one `## Priorities` section with a numbered list, three to five lines, each a wiki topic link (`[[Wiki/Topics/acme-supplier-contract]]`) or plain words, ranked. `/administrator:time-block` reads the numbered lines through `vault_read` and gives rank 1 every other focus block; the placeholder line `vault_init` writes counts as empty. The plugin writes this file only with lines the user confirmed: `vault_priorities_write(action="candidates")` returns the material for a suggestion — `topics` (active wiki topics with `owner`, `due`, `open_items`, `verified`, `summary`, soonest due first), `followups` (the open items other people owe, oldest first), `weekly_open` (open act / reply rows of the latest weekly), `current` (the numbered lines now in the file) — and writes nothing; after the user's yes to "Use these as your priorities?", `vault_priorities_write(action="write", lines=[…], note=…, created_by="administrator/0.4.1")` replaces the numbered list (and the plugin's own `<!-- suggested by administrator, confirmed <date> -->` comment) under `## Priorities` and nothing else — frontmatter, the text above the heading and every other line stay byte for byte; the old lines come back as `previous`. The user edits the file in Obsidian any time.
+`<vault>/Soma/Priorities.md` — `type: priorities`, `source: soma`, created by `vault_init` once (also with `overwrite=true`); owned by the user. Body: a short explanation and one `## Priorities` section with a numbered list, three to five lines, each a wiki topic link (`[[Wiki/Topics/acme-supplier-contract]]`) or plain words, ranked. `/soma:time-block` reads the numbered lines through `vault_read` and gives rank 1 every other focus block; the placeholder line `vault_init` writes counts as empty. The plugin writes this file only with lines the user confirmed: `vault_priorities_write(action="candidates")` returns the material for a suggestion — `topics` (active wiki topics with `owner`, `due`, `open_items`, `verified`, `summary`, soonest due first), `followups` (the open items other people owe, oldest first), `weekly_open` (open act / reply rows of the latest weekly), `current` (the numbered lines now in the file) — and writes nothing; after the user's yes to "Use these as your priorities?", `vault_priorities_write(action="write", lines=[…], note=…, created_by="soma/0.4.1")` replaces the numbered list (and the plugin's own `<!-- suggested by soma, confirmed <date> -->` comment) under `## Priorities` and nothing else — frontmatter, the text above the heading and every other line stay byte for byte; the old lines come back as `previous`. The user edits the file in Obsidian any time.
 
 ## Rules.md
 
-`<vault>/Administrator/Rules.md` — `type: rules`, `source: administrator`, created by `vault_init`, never overwritten, edited by the user. Three sections: `## Labels` (`| Match | Field | Label |`), `## Never save` (`| Match | Field |`), `## Fyi senders` (a list of addresses). See "Workflow helpers" above for how `vault_rules` and `vault_inbox_prepare` apply it.
+`<vault>/Soma/Rules.md` — `type: rules`, `source: soma`, created by `vault_init`, never overwritten, edited by the user. Three sections: `## Labels` (`| Match | Field | Label |`), `## Never save` (`| Match | Field |`), `## Fyi senders` (a list of addresses). See "Workflow helpers" above for how `vault_rules` and `vault_inbox_prepare` apply it.
 
 ## Append on existing
 
@@ -495,13 +495,13 @@ A write for an identity that exists appends `## Update <ISO>` plus your body; no
 
 ## Worked example 1 — saving one email
 
-User: `/administrator:save budget q3 jane`
+User: `/soma:save budget q3 jane`
 
 1. `outlook_search_mails(query="budget q3 jane", limit=5, fields=["entry_id","from","subject","received","preview"], preview_chars=80, response_format="json")` → one hit, `entry_id` `00000000AA…`.
 2. `outlook_get_mail(entry_id="00000000AA…", trim_quoted=true, fields=["entry_id","internet_message_id","conversation_id","subject","from","from_address","to","cc","recipients","received","attachments","body_trimmed","body_truncated"], response_format="json")` → `subject: "Re: Budget Q3"`, `from: "Jane Doe"`, `from_address: "jane.doe@example.com"`, `internet_message_id: "<7f3a9c@example.com>"`, `conversation_id: "CAE…"`, `received: "2026-08-22T09:14:00+02:00"`, `recipients: [{name:"Hux Waitt", address:"me@example.com", type:"to"}]`, one attachment `Budget_Q3.xlsx`, `body_trimmed` without the quoted earlier mail.
 3. `vault_find("email", {"internet_message_id": "<7f3a9c@example.com>", "entry_id": "00000000AA…"}, fields=["status","msg_file","attachments"])` → `found: false`; `vault_find("person", {"email": "jane.doe@example.com"}, fields=["name"])` → `found: false`.
-4. Ask: "Export the original .msg and Budget_Q3.xlsx to Administrator/Attachments/2026-08-22 Budget Q3/?" Only on yes: `outlook_save_mail_as` and `outlook_save_attachments`.
-5. `vault_save(kind="email", mail=<the get_mail JSON>, summary="Jane asks for the final Q3 numbers by Friday so she can close the forecast.", action_items=["Send Q3 numbers to Jane by 2026-08-29 — owner: me"], attachments_saved=[…], msg_file=…, self_addresses=["me@example.com"], created_by="administrator/0.4.1")` → `{"path": "Administrator/Emails/2026-08-22 Budget Q3.md", "action": "created", "status": "todo", "person_path": "Administrator/Wiki/People/Jane Doe.md", "person_action": "created", "followup_added": false}`. The note and person note it wrote look like this (the model never types them):
+4. Ask: "Export the original .msg and Budget_Q3.xlsx to Soma/Attachments/2026-08-22 Budget Q3/?" Only on yes: `outlook_save_mail_as` and `outlook_save_attachments`.
+5. `vault_save(kind="email", mail=<the get_mail JSON>, summary="Jane asks for the final Q3 numbers by Friday so she can close the forecast.", action_items=["Send Q3 numbers to Jane by 2026-08-29 — owner: me"], attachments_saved=[…], msg_file=…, self_addresses=["me@example.com"], created_by="soma/0.4.1")` → `{"path": "Soma/Emails/2026-08-22 Budget Q3.md", "action": "created", "status": "todo", "person_path": "Soma/Wiki/People/Jane Doe.md", "person_action": "created", "followup_added": false}`. The note and person note it wrote look like this (the model never types them):
 
 ```yaml
 type: email
@@ -519,7 +519,7 @@ cc: []
 received: 2026-08-22T09:14:00+02:00
 status: todo
 has_attachments: true
-created_by: administrator/0.4.1
+created_by: soma/0.4.1
 ```
 
 ```markdown
